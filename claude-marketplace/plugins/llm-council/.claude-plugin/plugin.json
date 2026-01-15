@@ -1,0 +1,7 @@
+{
+  "name": "llm-council",
+  "description": "Multi-model council for questions, debates, decisions, and brainstorming with peer review",
+  "author": {
+    "name": "twilc"
+  }
+}

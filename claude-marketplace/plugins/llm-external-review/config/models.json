@@ -1,0 +1,37 @@
+{
+  "models": [
+    {
+      "name": "codex",
+      "provider": "openai",
+      "model": "gpt-4",
+      "endpoint": "https://api.openai.com/v1/chat/completions",
+      "api_key_env": "OPENAI_API_KEY",
+      "enabled": true,
+      "description": "OpenAI GPT-4 for code review"
+    },
+    {
+      "name": "gemini",
+      "provider": "google",
+      "model": "gemini-pro",
+      "endpoint": "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent",
+      "api_key_env": "GOOGLE_API_KEY",
+      "enabled": false,
+      "description": "Google Gemini Pro"
+    },
+    {
+      "name": "claude",
+      "provider": "anthropic",
+      "model": "claude-3-opus",
+      "endpoint": "https://api.anthropic.com/v1/messages",
+      "api_key_env": "ANTHROPIC_API_KEY",
+      "enabled": false,
+      "description": "Anthropic Claude for comparison"
+    }
+  ],
+  "default": "codex",
+  "settings": {
+    "max_tokens": 4096,
+    "temperature": 0.3,
+    "timeout_seconds": 60
+  }
+}

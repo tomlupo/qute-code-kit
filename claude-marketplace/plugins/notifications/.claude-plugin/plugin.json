@@ -1,0 +1,7 @@
+{
+  "name": "notifications",
+  "description": "Push notifications via ntfy.sh for Claude events",
+  "author": {
+    "name": "twilc"
+  }
+}

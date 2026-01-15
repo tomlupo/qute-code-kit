@@ -1,0 +1,7 @@
+{
+  "name": "llm-external-review",
+  "description": "Invoke external LLM models (Codex, Gemini) for code review, architecture review, and brainstorming",
+  "author": {
+    "name": "twilc"
+  }
+}

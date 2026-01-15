@@ -1,0 +1,71 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "qute-marketplace",
+  "description": "Personal Claude Code plugin marketplace",
+  "owner": {
+    "name": "twilc",
+    "email": "twilc@users.noreply.github.com"
+  },
+  "plugins": [
+    {
+      "name": "forced-eval",
+      "description": "Force explicit evaluation of Skills, MCP Tools, and Agents before implementation (84% activation rate)",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/forced-eval",
+      "category": "utility"
+    },
+    {
+      "name": "llm-council",
+      "description": "Multi-model council for questions, debates, decisions, and brainstorming with peer review",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/llm-council",
+      "category": "utility"
+    },
+    {
+      "name": "llm-external-review",
+      "description": "Invoke external LLM models (Codex, Gemini) for code review, architecture review, and brainstorming",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/llm-external-review",
+      "category": "utility"
+    },
+    {
+      "name": "notifications",
+      "description": "Push notifications via ntfy.sh for Claude events",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/notifications",
+      "category": "utility"
+    },
+    {
+      "name": "research-workflow",
+      "description": "Research workflow for ML/data science: hypotheses, experiments, findings, paper reading",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/research-workflow",
+      "category": "utility"
+    },
+    {
+      "name": "workflow-manager",
+      "description": "Session, task, and context management for Claude Code with auto-handoff to prevent context degradation",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/workflow-plugin",
+      "category": "utility"
+    }
+  ]
+}

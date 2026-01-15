@@ -1,0 +1,16 @@
+{
+  "name": "llm-council",
+  "version": "1.0.0",
+  "description": "Multi-model council for questions, debates, decisions, and brainstorming with peer review",
+  "author": "twilc",
+  "commands": [
+    "commands/ask.md",
+    "commands/debate.md",
+    "commands/decide.md",
+    "commands/brainstorm.md"
+  ],
+  "skills": [
+    "skills/llm-council"
+  ],
+  "hooks": "hooks/hooks.json"
+}

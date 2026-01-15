@@ -1,0 +1,7 @@
+{
+  "name": "forced-eval",
+  "description": "Force explicit evaluation of Skills, MCP Tools, and Agents before implementation (84% activation rate)",
+  "author": {
+    "name": "twilc"
+  }
+}
