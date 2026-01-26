@@ -52,16 +52,16 @@ Edit `config/models.json` to enable/disable specific models:
 ### 3. Use Commands
 
 ```bash
-# Ask a question
+### Ask a question
 /council:ask "What's the best way to handle authentication in a REST API?"
 
-# Run a debate
+### Run a debate
 /council:debate "Microservices vs Monolith"
 
-# Get decision support
+### Get decision support
 /council:decide "Which database?" --options "PostgreSQL,MongoDB,SQLite"
 
-# Brainstorm ideas
+### Brainstorm ideas
 /council:brainstorm "Features for a CLI tool"
 ```
 

@@ -1,0 +1,7 @@
+{
+  "name": "workflow-manager",
+  "description": "Session, task, and context management for Claude Code with auto-handoff to prevent context degradation",
+  "author": {
+    "name": "twilc"
+  }
+}

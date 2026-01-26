@@ -36,16 +36,16 @@ Push notifications via [ntfy.sh](https://ntfy.sh/) for Claude events.
 ## Quick Start
 
 ```bash
-# Send a notification
+### Send a notification
 /notify:send "Deployment complete!" --priority high
 
-# View config
+### View config
 /notify:config
 
-# Change topic
+### Change topic
 /notify:config --set topic=my-custom-topic
 
-# Test setup
+### Test setup
 /notify:test
 ```
 

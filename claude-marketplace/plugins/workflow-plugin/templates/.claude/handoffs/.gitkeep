@@ -1,0 +1,3 @@
+# Auto-handoff directory
+# Handoffs are created by pre_compact.py hook before context clears
+# Loaded automatically by session_start.py on resume

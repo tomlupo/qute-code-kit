@@ -1,8 +1,10 @@
 # Qute Marketplace
 
+## Overview
+
 A personal Claude Code plugin marketplace. Register once, add plugins easily.
 
-## Quick Start
+## Installation
 
 ### Install the Marketplace
 
@@ -10,13 +12,13 @@ A personal Claude Code plugin marketplace. Register once, add plugins easily.
 claude plugin install ~/projects/qute-ai-tools/claude-marketplace
 ```
 
-### Or Install from GitHub
+### Install from GitHub
 
 ```bash
 claude plugin install github:twilc/claude-marketplace
 ```
 
-## How It Works
+## Quick Start
 
 ```
 ┌─────────────────────────────────────────────────────────┐

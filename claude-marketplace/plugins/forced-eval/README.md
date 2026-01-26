@@ -33,10 +33,10 @@ Already included when you install the claude-marketplace plugin.
 ### Standalone
 
 ```bash
-# Copy hook to your project
+### Copy hook to your project
 cp scripts/forced_eval.sh ~/.claude/hooks/
 
-# Register in ~/.claude/settings.json
+### Register in ~/.claude/settings.json
 {
   "hooks": {
     "UserPromptSubmit": [

@@ -24,23 +24,23 @@ A comprehensive research workflow plugin for ML/data science projects.
 ## Quick Start
 
 ```bash
-# Initialize research structure
+### Initialize research structure
 /research:start model-optimization
 
-# Document a hypothesis
+### Document a hypothesis
 /research:hypothesis "Dropout of 0.3 will reduce overfitting by 15%"
 
-# Log experiments
+### Log experiments
 /research:experiment dropout-baseline
 /research:experiment dropout-0.3
 
-# Document findings
+### Document findings
 /research:finding "Dropout 0.3 reduces overfitting by 18%" --confidence high
 
-# Read relevant papers
+### Read relevant papers
 /research:paper https://arxiv.org/abs/1234.5678
 
-# View research index
+### View research index
 /research:index
 ```
 

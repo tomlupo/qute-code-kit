@@ -1,0 +1,19 @@
+{
+  "name": "workflow-manager",
+  "version": "1.0.0",
+  "description": "Session, task, and context management for Claude Code with auto-handoff to prevent context degradation",
+  "author": "twilc",
+  "commands": [
+    "commands/init.md",
+    "commands/session.md",
+    "commands/session-finish.md",
+    "commands/session-update.md",
+    "commands/sessions.md"
+  ],
+  "skills": [
+    "skills/workflow-management",
+    "skills/context-management",
+    "skills/worktrees"
+  ],
+  "hooks": "hooks/hooks.json"
+}
