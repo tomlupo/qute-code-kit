@@ -135,3 +135,6 @@ htmlcov/
 .coverage.*
 coverage.xml
 *.cover
+
+# External repos
+repos/
