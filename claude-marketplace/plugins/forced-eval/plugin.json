@@ -1,9 +1,0 @@
-{
-  "name": "forced-eval",
-  "version": "1.0.0",
-  "description": "Force explicit evaluation of Skills, MCP Tools, and Agents before implementation (84% activation rate)",
-  "author": "twilc",
-  "commands": [],
-  "skills": [],
-  "hooks": "hooks/hooks.json"
-}
