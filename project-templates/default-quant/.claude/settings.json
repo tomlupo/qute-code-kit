@@ -1,0 +1,78 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(.claude/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Edit(app/**)",
+      "Write(app/**)",
+      "Edit(notebooks/**)",
+      "Write(notebooks/**)",
+      "Edit(scripts/**)",
+      "Write(scripts/**)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(models/**)",
+      "Write(models/**)",
+      "Edit(data/processed/**)",
+      "Write(data/processed/**)",
+      "Read(docs/**)",
+      "Edit(docs/**)",
+      "Write(docs/**)",
+      "Read(data/raw/**)",
+      "Read(data/sample/**)",
+      "Edit(reports/**)",
+      "Write(reports/**)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/session_start.py"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/skill-forced-eval-hook.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/mcp-agent-eval-hook.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/session_remind.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/post-commit-changelog-hook.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/track_changes.py"
+          }
+        ]
+      }
+    ]
+  }
+}

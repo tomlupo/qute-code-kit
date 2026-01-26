@@ -1,0 +1,36 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--access-token",
+        "sbp_ddfb9b4eaf62828dde14028eeda22897257aa487"
+      ],
+      "disabledTools": [
+        "list_organizations",
+        "get_organization",
+        "create_project",
+        "pause_project",
+        "restore_project",
+        "get_cost",
+        "confirm_cost",
+        "create_branch",
+        "list_branches",
+        "delete_branch",
+        "merge_branch",
+        "reset_branch",
+        "rebase_branch",
+        "list_edge_functions",
+        "get_edge_function",
+        "deploy_edge_function",
+        "get_logs",
+        "get_advisors"
+      ]
+    }
+  }
+}
+

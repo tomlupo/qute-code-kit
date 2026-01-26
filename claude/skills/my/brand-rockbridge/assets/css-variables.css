@@ -1,0 +1,422 @@
+/**
+ * Rockbridge TFI Brand - CSS Custom Properties
+ * Import this file or copy these variables into your project
+ */
+
+:root {
+  /* ========================================
+     PRIMARY COLORS
+     ======================================== */
+  --color-primary: #00A19A;
+  --color-primary-dark: #008A84;
+  --color-primary-light: #33B5AF;
+  --color-primary-hover: #008A84;
+
+  /* RGB values for alpha compositing */
+  --color-primary-rgb: 0, 161, 154;
+
+  /* ========================================
+     SECONDARY / DARK COLORS
+     ======================================== */
+  --color-dark: #1D3D36;
+  --color-dark-light: #2A5249;
+  --color-dark-hover: #2A5249;
+  --color-navy: #1A2B3C;
+
+  /* RGB values for alpha compositing */
+  --color-dark-rgb: 29, 61, 54;
+
+  /* ========================================
+     ACCENT / GOLD COLORS
+     ======================================== */
+  --color-gold: #C9A45C;
+  --color-gold-light: #D4B978;
+  --color-gold-soft: #F5EDD8;
+  --color-gold-hover: #D4B978;
+
+  /* RGB values for alpha compositing */
+  --color-gold-rgb: 201, 164, 92;
+
+  /* ========================================
+     BACKGROUND COLORS
+     ======================================== */
+  --color-background: #FFFFFF;
+  --color-background-alt: #F5F7F6;
+  --color-surface: #EEF2F0;
+  --color-surface-dark: #1D3D36;
+
+  /* ========================================
+     TEXT COLORS
+     ======================================== */
+  --color-text: #1A1A1A;
+  --color-text-muted: #6B7280;
+  --color-text-on-primary: #FFFFFF;
+  --color-text-on-dark: #FFFFFF;
+  --color-text-teal: #00A19A;
+
+  /* ========================================
+     BORDER COLORS
+     ======================================== */
+  --color-border: #E5E7EB;
+  --color-border-strong: #00A19A;
+  --color-border-dark: #2A5249;
+
+  /* ========================================
+     SEMANTIC COLORS
+     ======================================== */
+  --color-error: #DC2626;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-info: #00A19A;
+
+  /* ========================================
+     CHART COLORS
+     ======================================== */
+  --color-chart-primary: #00A19A;
+  --color-chart-secondary: #1D3D36;
+  --color-chart-accent: #C9A45C;
+  --color-chart-positive: #16A34A;
+  --color-chart-negative: #DC2626;
+
+  /* ========================================
+     TYPOGRAPHY
+     ======================================== */
+  --font-family-base: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-family-heading: 'Roboto', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-family-pdf: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Font Sizes */
+  --font-size-h1: 2.5rem;    /* 40px */
+  --font-size-h2: 2rem;      /* 32px */
+  --font-size-h3: 1.5rem;    /* 24px */
+  --font-size-h4: 1.25rem;   /* 20px */
+  --font-size-h5: 1.125rem;  /* 18px */
+  --font-size-body: 1rem;    /* 16px */
+  --font-size-small: 0.875rem; /* 14px */
+  --font-size-xs: 0.75rem;   /* 12px */
+  --font-size-xxs: 0.625rem; /* 10px */
+
+  /* Line Heights */
+  --line-height-tight: 1.1;
+  --line-height-snug: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.7;
+
+  /* ========================================
+     SPACING
+     ======================================== */
+  --space-none: 0;
+  --space-xs: 0.25rem;   /* 4px */
+  --space-sm: 0.5rem;    /* 8px */
+  --space-md: 1rem;      /* 16px */
+  --space-lg: 1.5rem;    /* 24px */
+  --space-xl: 2rem;      /* 32px */
+  --space-xxl: 3rem;     /* 48px */
+  --space-section: 5rem; /* 80px */
+
+  /* Content Width */
+  --content-max-width: 1200px;
+
+  /* ========================================
+     BORDER RADIUS
+     ======================================== */
+  --radius-none: 0;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* ========================================
+     SHADOWS
+     ======================================== */
+  --shadow-sm: 0 1px 2px rgba(29, 61, 54, 0.08);
+  --shadow-md: 0 4px 12px rgba(29, 61, 54, 0.12);
+  --shadow-lg: 0 10px 30px rgba(29, 61, 54, 0.16);
+
+  /* ========================================
+     TRANSITIONS
+     ======================================== */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+}
+
+/* ============================================
+   COMPONENT STYLES
+   ============================================ */
+
+/* Primary Button */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-body);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
+}
+
+/* Secondary Button */
+.btn-secondary {
+  background-color: var(--color-dark);
+  color: var(--color-text-on-dark);
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-body);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-secondary:hover {
+  background-color: var(--color-dark-hover);
+}
+
+/* Outline Button */
+.btn-outline {
+  background-color: transparent;
+  color: var(--color-primary);
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-body);
+  border: 2px solid var(--color-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-outline:hover {
+  background-color: rgba(var(--color-primary-rgb), 0.08);
+}
+
+/* Gold Button */
+.btn-gold {
+  background-color: var(--color-gold);
+  color: var(--color-text);
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-body);
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-gold:hover {
+  background-color: var(--color-gold-hover);
+}
+
+/* Card */
+.card {
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-surface {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+
+/* Dark Section */
+.section-dark {
+  background-color: var(--color-dark);
+  color: var(--color-text-on-dark);
+  padding: var(--space-xl);
+}
+
+.section-dark a,
+.section-dark .text-accent {
+  color: var(--color-primary-light);
+}
+
+/* Input */
+.input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-small);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(var(--color-primary-rgb), 0.2);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Chip/Tag */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.75rem;
+  background-color: rgba(var(--color-primary-rgb), 0.1);
+  color: var(--color-primary);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.chip-gold {
+  background-color: var(--color-gold-soft);
+  color: var(--color-gold);
+}
+
+/* Link */
+.link {
+  color: var(--color-primary);
+  text-decoration: none;
+  text-underline-offset: 2px;
+  transition: color var(--transition-fast);
+}
+
+.link:hover {
+  color: var(--color-primary-dark);
+  text-decoration: underline;
+}
+
+/* Risk Indicator */
+.risk-indicator {
+  display: flex;
+  gap: 2px;
+}
+
+.risk-box {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-small);
+  background-color: var(--color-background);
+}
+
+.risk-box.active {
+  background-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+  border-color: var(--color-primary);
+}
+
+/* Data Table */
+.table-rockbridge {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+}
+
+.table-rockbridge thead {
+  background-color: var(--color-dark);
+  color: var(--color-text-on-dark);
+}
+
+.table-rockbridge th,
+.table-rockbridge td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border: 1px solid var(--color-border);
+}
+
+.table-rockbridge tbody tr:nth-child(even) {
+  background-color: var(--color-background-alt);
+}
+
+.table-rockbridge tbody tr:nth-child(odd) {
+  background-color: var(--color-background);
+}
+
+/* Typography */
+.text-h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text);
+}
+
+.text-h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.text-h3 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.text-h4 {
+  font-size: var(--font-size-h4);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.text-body {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-normal);
+  color: var(--color-text);
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}
+
+.text-primary {
+  color: var(--color-primary);
+}
+
+.text-gold {
+  color: var(--color-gold);
+}
+
+/* Positive/Negative Values */
+.text-positive {
+  color: var(--color-success);
+}
+
+.text-negative {
+  color: var(--color-error);
+}
+
+/* Header/Footer Styles */
+.header-rockbridge {
+  background-color: var(--color-dark);
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-text-on-dark);
+}
+
+.footer-rockbridge {
+  background-color: var(--color-primary);
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-text-on-primary);
+}

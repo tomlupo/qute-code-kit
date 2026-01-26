@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "mcp-obsidian": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "mcp-obsidian",
+        "--config",
+        "{\"vaultPath\":\"C:\\\\Users\\\\twilc\\\\Obsidian\\\\knowledge\"}"
+      ]
+    }
+  }
+}
+

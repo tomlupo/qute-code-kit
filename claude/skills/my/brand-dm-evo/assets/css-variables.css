@@ -1,0 +1,272 @@
+/**
+ * Evo Dom Maklerski Brand - CSS Custom Properties
+ * Import this file or copy these variables into your project
+ */
+
+:root {
+  /* ========================================
+     PRIMARY COLORS
+     ======================================== */
+  --color-primary: #0C2340;
+  --color-primary-dark: #02091A;
+  --color-primary-light: #1F3A5F;
+  --color-primary-hover: #10294F;
+
+  /* RGB values for alpha compositing */
+  --color-primary-rgb: 12, 35, 64;
+
+  /* ========================================
+     ACCENT COLORS
+     ======================================== */
+  --color-accent: #2563EB;
+  --color-accent-soft: #DBEAFE;
+  --color-accent-hover: #1D4ED8;
+
+  /* RGB values for alpha compositing */
+  --color-accent-rgb: 37, 99, 235;
+
+  /* ========================================
+     BACKGROUND COLORS
+     ======================================== */
+  --color-background: #FFFFFF;
+  --color-background-alt: #F9FAFB;
+  --color-surface: #F1F5F9;
+
+  /* ========================================
+     TEXT COLORS
+     ======================================== */
+  --color-text: #0F172A;
+  --color-text-muted: #6B7280;
+  --color-text-on-primary: #FFFFFF;
+  --color-text-on-accent: #FFFFFF;
+
+  /* ========================================
+     BORDER COLORS
+     ======================================== */
+  --color-border: #E5E7EB;
+  --color-border-strong: #CBD5F5;
+
+  /* ========================================
+     SEMANTIC COLORS
+     ======================================== */
+  --color-error: #DC2626;
+  --color-success: #16A34A;
+  --color-warning: #D97706;
+  --color-info: #0284C7;
+
+  /* ========================================
+     TYPOGRAPHY
+     ======================================== */
+  --font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-family-heading: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
+  /* Font Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Font Sizes */
+  --font-size-h1: 2.5rem;    /* 40px */
+  --font-size-h2: 2rem;      /* 32px */
+  --font-size-h3: 1.5rem;    /* 24px */
+  --font-size-h4: 1.25rem;   /* 20px */
+  --font-size-body: 1rem;    /* 16px */
+  --font-size-small: 0.875rem; /* 14px */
+  --font-size-xs: 0.75rem;   /* 12px */
+
+  /* Line Heights */
+  --line-height-tight: 1.1;
+  --line-height-snug: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.7;
+
+  /* ========================================
+     SPACING
+     ======================================== */
+  --space-none: 0;
+  --space-xs: 0.25rem;   /* 4px */
+  --space-sm: 0.5rem;    /* 8px */
+  --space-md: 1rem;      /* 16px */
+  --space-lg: 1.5rem;    /* 24px */
+  --space-xl: 2rem;      /* 32px */
+  --space-xxl: 3rem;     /* 48px */
+  --space-section: 5rem; /* 80px */
+
+  /* Content Width */
+  --content-max-width: 1200px;
+
+  /* ========================================
+     BORDER RADIUS
+     ======================================== */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* ========================================
+     SHADOWS
+     ======================================== */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.10);
+  --shadow-lg: 0 10px 30px rgba(15, 23, 42, 0.15);
+
+  /* ========================================
+     TRANSITIONS
+     ======================================== */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+}
+
+/* ============================================
+   COMPONENT STYLES
+   ============================================ */
+
+/* Primary Button */
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--color-text-on-primary);
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.9375rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-hover);
+}
+
+/* Accent Button */
+.btn-accent {
+  background-color: var(--color-accent);
+  color: var(--color-text-on-accent);
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.9375rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-accent:hover {
+  background-color: var(--color-accent-hover);
+}
+
+/* Outline Button */
+.btn-outline {
+  background-color: transparent;
+  color: var(--color-primary);
+  padding: 0.625rem 1.25rem;
+  border-radius: var(--radius-pill);
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.9375rem;
+  border: 1px solid var(--color-primary);
+  cursor: pointer;
+  transition: background-color var(--transition-normal);
+}
+
+.btn-outline:hover {
+  background-color: rgba(var(--color-primary-rgb), 0.05);
+}
+
+/* Card */
+.card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Input */
+.input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-small);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.4);
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Chip/Tag */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.625rem;
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Link */
+.link {
+  color: var(--color-accent);
+  text-decoration: none;
+  text-underline-offset: 2px;
+  transition: color var(--transition-fast);
+}
+
+.link:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
+/* Typography */
+.text-h1 {
+  font-size: var(--font-size-h1);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text);
+}
+
+.text-h2 {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  color: var(--color-text);
+}
+
+.text-h3 {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.text-h4 {
+  font-size: var(--font-size-h4);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-snug);
+  color: var(--color-text);
+}
+
+.text-body {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-regular);
+  line-height: var(--line-height-normal);
+  color: var(--color-text);
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}

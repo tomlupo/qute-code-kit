@@ -1,0 +1,13 @@
+# The Robot-Mode Maker
+
+**Source:** @doodlestein (Jeffrey Emanuel) - "My Favorite Prompts" series (January 16, 2026)
+
+**Purpose:** For creating agent-optimized CLI interfaces.
+
+## Prompt
+
+```
+Next, I want you to create a "robot mode" for coding agents that want to interact with this so they don't need to use the UI but can instead access all the same functionality via a cli in the console that is hyper-optimized and ergonomic for agents, while also being ultra-intuitive for coding agents like yourself; the agent users should get back as output either json or markdown-- whatever fits best in the context and is most token-efficient and intuitive for you.
+
+Basically, the agent users should get all the same information as a human would get from manipulating and visually observing the UI, but in a more usable, helpful, intuitive, and accessible form for agents. Make the tooling here that YOU would want if YOU were using it (because you WILL be!), that maximizes agent ergonomics and agent intuition. Be sure to give the command a quick-start mode (when no arguments are supplied) that explains the most critical functionality in the most intuitive, token-dense way possible. Use ultrathink.
+```
