@@ -47,6 +47,9 @@ Options:
   --init                 Create standard project directories
   --no-pyproject         Skip pyproject.toml
   --no-root-files        Skip CLAUDE.md, AGENTS.md
+  --agents               Also create .agents canonical folder layout
+  --distribute <clients> Symlink .agents to other AI clients (comma-separated)
+                         Clients: claude,gemini,codex,cursor,opencode,factory,ampcode
 
 Examples:
   setup-project.sh ~/projects/new-fund --bundle quant --init
@@ -55,6 +58,9 @@ Examples:
   setup-project.sh ~/projects/app --add @skills/visualization
   setup-project.sh ~/projects/app --bundle quant --diff
   setup-project.sh ~/projects/app --update
+
+  # Multi-client: create .agents and distribute to Gemini + Cursor
+  setup-project.sh ~/projects/app --bundle minimal --agents --distribute gemini,cursor
 EOF
     exit 0
 }
@@ -506,6 +512,220 @@ init_dirs() {
     fi
 }
 
+# ---- Multi-client distribution (dotagents-inspired) -------------------------
+
+# Supported clients and their project-level root directories
+declare -A CLIENT_PROJECT_ROOTS=(
+    [claude]=".claude"
+    [gemini]=".gemini"
+    [codex]=".codex"
+    [cursor]=".cursor"
+    [opencode]=".opencode"
+    [factory]=".factory"
+    [ampcode]=".ampcode"
+)
+
+# Which features each client supports
+declare -A CLIENT_FEATURES=(
+    [claude]="commands hooks skills prompt"
+    [gemini]="commands skills prompt"
+    [codex]="commands skills prompt"
+    [cursor]="commands skills prompt"
+    [opencode]="commands skills prompt"
+    [factory]="commands hooks prompt"
+    [ampcode]="commands skills prompt"
+)
+
+# Client-specific prompt file names
+declare -A CLIENT_PROMPT_FILES=(
+    [claude]="CLAUDE.md"
+    [gemini]="GEMINI.md"
+    [codex]="AGENTS.md"
+    [cursor]="AGENTS.md"
+    [opencode]="AGENTS.md"
+    [factory]="AGENTS.md"
+    [ampcode]="AGENTS.md"
+)
+
+# Create .agents canonical folder from the installed .claude layout
+create_agents_layout() {
+    local target_dir="$1"
+    local dry_run="$2"
+
+    local agents_dir="$target_dir/.agents"
+    local claude_dir="$target_dir/.claude"
+
+    if [ "$dry_run" = "1" ]; then
+        header "Agents Layout (dry run)"
+        echo -e "  ${GREEN}CREATE${NC} .agents/"
+        echo -e "  ${GREEN}CREATE${NC} .agents/AGENTS.md"
+        for sub in commands hooks skills; do
+            if [ -d "$claude_dir/$sub" ]; then
+                echo -e "  ${GREEN}LINK${NC}   .agents/$sub/ -> .claude/$sub/"
+            fi
+        done
+        return
+    fi
+
+    mkdir -p "$agents_dir"
+
+    # Copy AGENTS.md into .agents if it exists at project root
+    if [ -f "$target_dir/AGENTS.md" ]; then
+        cp "$target_dir/AGENTS.md" "$agents_dir/AGENTS.md"
+        info "Copied AGENTS.md to .agents/"
+    elif [ -f "$target_dir/CLAUDE.md" ]; then
+        cp "$target_dir/CLAUDE.md" "$agents_dir/AGENTS.md"
+        info "Created .agents/AGENTS.md from CLAUDE.md"
+    fi
+
+    # If CLAUDE.md exists separately, put it in .agents too
+    if [ -f "$target_dir/CLAUDE.md" ]; then
+        cp "$target_dir/CLAUDE.md" "$agents_dir/CLAUDE.md"
+    fi
+
+    # Symlink shared directories from .claude into .agents
+    for sub in commands hooks skills; do
+        if [ -d "$claude_dir/$sub" ] && [ ! -e "$agents_dir/$sub" ]; then
+            ln -sf "$(realpath "$claude_dir/$sub")" "$agents_dir/$sub"
+            info "Linked .agents/$sub/ -> .claude/$sub/"
+        fi
+    done
+
+    info "Created .agents canonical layout"
+}
+
+# Distribute .agents to other AI clients via symlinks
+distribute_to_clients() {
+    local target_dir="$1"
+    local clients="$2"
+    local dry_run="$3"
+    local force="$4"
+
+    local agents_dir="$target_dir/.agents"
+
+    if [ ! -d "$agents_dir" ]; then
+        error ".agents directory not found. Run with --agents first."
+        return 1
+    fi
+
+    header "Distributing to clients: $clients"
+
+    for client in ${clients//,/ }; do
+        # Validate client
+        if [ -z "${CLIENT_PROJECT_ROOTS[$client]+x}" ]; then
+            warn "Unknown client: $client (skipping)"
+            continue
+        fi
+
+        local client_root="$target_dir/${CLIENT_PROJECT_ROOTS[$client]}"
+        local features="${CLIENT_FEATURES[$client]}"
+        local prompt_file="${CLIENT_PROMPT_FILES[$client]}"
+
+        echo -e "\n  ${BOLD}$client${NC} ($client_root)"
+
+        if [ "$dry_run" = "1" ]; then
+            echo -e "    ${GREEN}CREATE${NC} ${CLIENT_PROJECT_ROOTS[$client]}/"
+
+            # Prompt file
+            if [[ "$features" == *"prompt"* ]]; then
+                local source_prompt=""
+                if [ -f "$agents_dir/$prompt_file" ]; then
+                    source_prompt="$prompt_file"
+                elif [ -f "$agents_dir/AGENTS.md" ]; then
+                    source_prompt="AGENTS.md"
+                fi
+                if [ -n "$source_prompt" ]; then
+                    echo -e "    ${GREEN}LINK${NC}   $prompt_file -> .agents/$source_prompt"
+                fi
+            fi
+
+            # Directories
+            for dir_type in commands hooks skills; do
+                if [[ "$features" == *"$dir_type"* ]] && [ -d "$agents_dir/$dir_type" ]; then
+                    echo -e "    ${GREEN}LINK${NC}   $dir_type/ -> .agents/$dir_type/"
+                fi
+            done
+            continue
+        fi
+
+        # Create client root
+        mkdir -p "$client_root"
+
+        # Link prompt file
+        if [[ "$features" == *"prompt"* ]]; then
+            local source_prompt=""
+            if [ -f "$agents_dir/$prompt_file" ]; then
+                source_prompt="$agents_dir/$prompt_file"
+            elif [ -f "$agents_dir/AGENTS.md" ]; then
+                source_prompt="$agents_dir/AGENTS.md"
+            fi
+
+            if [ -n "$source_prompt" ]; then
+                local target_prompt="$client_root/$prompt_file"
+                if [ -e "$target_prompt" ] && [ "$force" != "1" ]; then
+                    warn "    $prompt_file exists (use --update to override)"
+                elif [ -L "$target_prompt" ]; then
+                    # Already a symlink — check if it points correctly
+                    local current
+                    current="$(readlink -f "$target_prompt" 2>/dev/null || echo "")"
+                    local expected
+                    expected="$(readlink -f "$source_prompt" 2>/dev/null || echo "")"
+                    if [ "$current" = "$expected" ]; then
+                        echo -e "    ${DIM:-}skip  $prompt_file (already linked)${NC}"
+                    else
+                        rm -f "$target_prompt"
+                        ln -sf "$source_prompt" "$target_prompt"
+                        info "    Linked: $prompt_file"
+                    fi
+                else
+                    if [ -e "$target_prompt" ] && [ "$force" = "1" ]; then
+                        rm -f "$target_prompt"
+                    fi
+                    ln -sf "$source_prompt" "$target_prompt"
+                    info "    Linked: $prompt_file"
+                fi
+            fi
+        fi
+
+        # Link directories
+        for dir_type in commands hooks skills; do
+            if [[ "$features" != *"$dir_type"* ]]; then
+                continue
+            fi
+
+            local source_dir="$agents_dir/$dir_type"
+            local target_link="$client_root/$dir_type"
+
+            if [ ! -d "$source_dir" ] && [ ! -L "$source_dir" ]; then
+                continue
+            fi
+
+            if [ -e "$target_link" ] && [ ! -L "$target_link" ] && [ "$force" != "1" ]; then
+                warn "    $dir_type/ exists and is not a symlink (use --update to override)"
+                continue
+            fi
+
+            if [ -L "$target_link" ]; then
+                local current
+                current="$(readlink -f "$target_link" 2>/dev/null || echo "")"
+                local expected
+                expected="$(readlink -f "$source_dir" 2>/dev/null || echo "")"
+                if [ "$current" = "$expected" ]; then
+                    echo -e "    ${DIM:-}skip  $dir_type/ (already linked)${NC}"
+                    continue
+                fi
+            fi
+
+            if [ -e "$target_link" ] || [ -L "$target_link" ]; then
+                rm -rf "$target_link"
+            fi
+
+            ln -sf "$(realpath "$source_dir")" "$target_link"
+            info "    Linked: $dir_type/"
+        done
+    done
+}
+
 # ---- Main -------------------------------------------------------------------
 
 main() {
@@ -518,6 +738,8 @@ main() {
     local do_init=0
     local no_pyproject=0
     local no_root_files=0
+    local create_agents=0
+    local distribute_clients=""
 
     # Parse arguments
     while [ $# -gt 0 ]; do
@@ -533,6 +755,8 @@ main() {
             --init)       do_init=1; shift ;;
             --no-pyproject)   no_pyproject=1; shift ;;
             --no-root-files)  no_root_files=1; shift ;;
+            --agents)         create_agents=1; shift ;;
+            --distribute)     distribute_clients="$2"; shift 2 ;;
             -*)           fatal "Unknown option: $1" ;;
             *)
                 if [ -z "$target" ]; then
@@ -694,6 +918,20 @@ main() {
         echo "  Installed: ${#installed[@]} components"
         [ "$failed" -gt 0 ] && echo -e "  ${YELLOW}Failed: $failed${NC}"
         echo "  Manifest: $target/.claude/.toolkit-manifest.json"
+    fi
+
+    # Create .agents canonical layout (dotagents-inspired)
+    if [ "$create_agents" = "1" ]; then
+        create_agents_layout "$target" "$dry_run"
+    fi
+
+    # Distribute .agents to other AI clients
+    if [ -n "$distribute_clients" ]; then
+        if [ "$create_agents" != "1" ] && [ ! -d "$target/.agents" ]; then
+            warn "No .agents directory found. Adding --agents flag automatically."
+            create_agents_layout "$target" "$dry_run"
+        fi
+        distribute_to_clients "$target" "$distribute_clients" "$dry_run" "$force"
     fi
 }
 

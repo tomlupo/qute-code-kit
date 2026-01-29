@@ -77,6 +77,57 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | `research-tools` | openalex, perplexity-search, literature-review, citations |
 | `data-processing` | polars, dask, vaex |
 
+### Multi-Client Distribution
+
+Distribute your AI tool configuration across multiple clients using a canonical
+`.agents` folder. Inspired by [dotagents](https://github.com/iannuttall/dotagents).
+
+```bash
+# Setup a project and create .agents canonical layout
+./setup-project.sh ~/projects/app --bundle minimal --agents
+
+# Also distribute to Gemini and Cursor
+./setup-project.sh ~/projects/app --bundle minimal --agents --distribute gemini,cursor
+
+# Preview multi-client distribution
+./setup-project.sh ~/projects/app --bundle minimal --agents --distribute gemini,cursor --diff
+```
+
+**Standalone multi-client manager** (`manage-clients.sh`):
+
+```bash
+# Check symlink status across all AI clients
+./manage-clients.sh status
+
+# Initialize .agents from existing Claude config
+./manage-clients.sh init --from claude
+
+# Apply symlinks to specific clients
+./manage-clients.sh apply --clients claude,gemini,cursor
+
+# Project-level setup
+./manage-clients.sh init --scope project --project ~/myapp
+./manage-clients.sh apply --scope project --project ~/myapp
+
+# Undo last change (restores from backup)
+./manage-clients.sh undo
+
+# See supported clients and features
+./manage-clients.sh list-clients
+```
+
+**Supported clients:** Claude, Gemini, Codex, Cursor, OpenCode, Factory, Ampcode
+
+| Client | Commands | Hooks | Skills | Prompt File |
+|--------|----------|-------|--------|-------------|
+| Claude | Y | Y | Y | CLAUDE.md / AGENTS.md |
+| Gemini | Y | | Y | GEMINI.md / AGENTS.md |
+| Codex | Y | | Y | AGENTS.md |
+| Cursor | Y | | Y | AGENTS.md |
+| OpenCode | Y | | Y | AGENTS.md |
+| Factory | Y | Y | | AGENTS.md |
+| Ampcode | Y | | Y | AGENTS.md |
+
 ### Other Tools
 
 #### Ralph
@@ -103,6 +154,7 @@ claude plugin install github:twilc/claude-marketplace
 ```
 qute-code-kit/
 ├── setup-project.sh           # Project setup script
+├── manage-clients.sh          # Multi-client AI tool manager (dotagents-inspired)
 ├── setup-project.bat          # Windows wrapper (WSL)
 ├── CLAUDE.md                  # Repo-wide Claude guidance
 ├── claude/                    # ALL Claude source components
@@ -113,7 +165,7 @@ qute-code-kit/
 │   ├── hooks/                 #   Reusable hooks
 │   ├── bundles/               #   Bundle manifests
 │   ├── rules/                 #   Rule templates (code-quality, general, python, work-org)
-│   └── root-files/            #   CLAUDE.md, AGENTS.md templates
+│   └── root-files/            #   CLAUDE.md, AGENTS.md, client-mappings.md
 ├── templates/                 # Non-Claude project scaffolding
 │   ├── pyproject/             #   python-uv, quant-uv, webdev-uv
 │   └── .gitignore.claude
@@ -127,4 +179,23 @@ qute-code-kit/
 ├── repos/                     # Subprojects (Ralph, SkillForge)
 ├── resources/                 # External links and experiments
 └── prompts/                   # Prompt references
+```
+
+## .agents Canonical Layout
+
+When using `--agents` or `manage-clients.sh`, projects get a `.agents` folder:
+
+```
+project/
+├── .agents/                   # Canonical source of truth (all AI tools)
+│   ├── AGENTS.md              # Universal prompt (fallback)
+│   ├── CLAUDE.md              # Claude-specific override
+│   ├── commands/ -> .claude/commands/
+│   ├── skills/ -> .claude/skills/
+│   ├── hooks/ -> .claude/hooks/
+│   └── backup/                # Timestamped backups
+├── .claude/                   # Claude Code config (primary)
+├── .gemini/ -> .agents/       # Gemini (symlinked)
+├── .cursor/ -> .agents/       # Cursor (symlinked)
+└── ...                        # Other clients
 ```
