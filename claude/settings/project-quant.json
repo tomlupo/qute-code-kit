@@ -1,0 +1,43 @@
+{
+  "_template": "Quant / Data Science / ML project",
+  "_usage": "Copy to <project>/.claude/settings.json and adjust permissions paths",
+
+  "permissions": {
+    "allow": [
+      "Read(.claude/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Edit(app/**)",
+      "Write(app/**)",
+      "Edit(notebooks/**)",
+      "Write(notebooks/**)",
+      "Edit(scripts/**)",
+      "Write(scripts/**)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(models/**)",
+      "Write(models/**)",
+      "Edit(data/processed/**)",
+      "Write(data/processed/**)",
+      "Read(docs/**)",
+      "Edit(docs/**)",
+      "Write(docs/**)",
+      "Read(data/raw/**)",
+      "Read(data/sample/**)",
+      "Edit(reports/**)",
+      "Write(reports/**)",
+      "Edit(config/**)",
+      "Write(config/**)"
+    ]
+  },
+
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": true,
+    "forced-eval@qute-marketplace": true,
+    "compound-engineering@every-marketplace": true,
+    "feature-dev@claude-plugins-official": true,
+    "llm-council@qute-marketplace": true,
+    "llm-external-review@qute-marketplace": true,
+    "datasets-guide@qute-marketplace": true
+  }
+}
