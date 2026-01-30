@@ -1,17 +1,17 @@
 ---
 name: readme
-description: When the user wants to create or update a README.md file for a project. Also use when the user says "write readme," "create readme," "document this project," "project documentation," or asks for help with README.md. This skill creates absurdly thorough documentation covering local setup, architecture, and deployment.
+description: When the user wants to create or update a README.md file for a project. Also use when the user says "write readme," "create readme," "document this project," "project documentation," or asks for help with README.md. This skill creates absurdly thorough documentation for Python quantitative development and research projects, covering local setup, architecture, data pipelines, and reproducibility.
 ---
 
-# README Generator
+# README Generator — Python Quantitative Development & Research
 
-You are an expert technical writer creating comprehensive project documentation. Your goal is to write a README.md that is absurdly thorough—the kind of documentation you wish every project had.
+You are an expert technical writer creating comprehensive project documentation for Python quantitative development and research projects. Your goal is to write a README.md that is absurdly thorough—the kind of documentation you wish every quant project had.
 
 ## The Three Purposes of a README
 
-1. **Local Development** - Help any developer get the app running locally in minutes
-2. **Understanding the System** - Explain in great detail how the app works
-3. **Production Deployment** - Cover everything needed to deploy and maintain in production
+1. **Local Development & Reproducibility** - Help any developer or researcher get the project running locally and reproduce results
+2. **Understanding the System** - Explain in great detail how the project works: data pipelines, models, strategies, and research workflows
+3. **Production & Operations** - Cover everything needed to deploy, schedule, and maintain in production
 
 ---
 
@@ -23,60 +23,71 @@ Before writing a single line of documentation, thoroughly explore the codebase. 
 
 **Project Structure**
 - Read the root directory structure
-- Identify the framework/language (Gemfile for Rails, package.json, go.mod, requirements.txt, etc.)
-- Find the main entry point(s)
-- Map out the directory organization
+- Identify the project type: research project, trading system, data pipeline, library/package, or hybrid
+- Find the main entry point(s) — scripts, CLI tools, notebooks, or orchestration files
+- Map out the directory organization (src/, notebooks/, data/, strategies/, models/, etc.)
 
 **Configuration Files**
-- .env.example, .env.sample, or documented environment variables
-- Rails config files (config/database.yml, config/application.rb, config/environments/)
-- Credentials setup (config/credentials.yml.enc, config/master.key)
-- Docker files (Dockerfile, docker-compose.yml)
-- CI/CD configs (.github/workflows/, .gitlab-ci.yml, etc.)
-- Deployment configs (config/deploy.yml for Kamal, fly.toml, render.yaml, Procfile, etc.)
+- `pyproject.toml`, `setup.py`, `setup.cfg` — packaging and metadata
+- `requirements.txt`, `requirements-dev.txt`, `Pipfile`, `poetry.lock`, `uv.lock` — dependencies
+- `conda.yml` or `environment.yml` — Conda environments
+- `.env.example`, `.env.sample` — environment variables (API keys, database URIs, broker credentials)
+- `config/`, `settings.py`, `conf.py`, YAML/TOML config files — application configuration
+- `Dockerfile`, `docker-compose.yml` — containerization
+- `.github/workflows/`, `.gitlab-ci.yml` — CI/CD
+- `Makefile`, `justfile`, `taskfile.yml` — task runners
+- `pre-commit-config.yaml` — code quality hooks
 
-**Database**
-- db/schema.rb or db/structure.sql
-- Migrations in db/migrate/
-- Seeds in db/seeds.rb
-- Database type from config/database.yml
+**Data Layer**
+- Data directories (`data/raw/`, `data/processed/`, `data/external/`)
+- Database schemas, migration files (Alembic, etc.)
+- Data catalogs or registries
+- Data download/ingestion scripts
+- Storage formats used (Parquet, HDF5, Arrow, CSV, Feather, SQLite, PostgreSQL, TimescaleDB)
+- Data vendor integrations (Bloomberg, Refinitiv, Polygon, Alpaca, IEX, FRED, Quandl/Nasdaq Data Link)
+
+**Quantitative Components**
+- Strategy files (backtesting logic, signal generation, portfolio construction)
+- Model definitions (statistical, ML, or deep learning models)
+- Feature engineering pipelines
+- Risk management modules
+- Execution/order management logic
+- Research notebooks with analysis
 
 **Key Dependencies**
-- Gemfile and Gemfile.lock for Ruby gems
-- package.json for JavaScript dependencies
-- Note any native gem dependencies (pg, nokogiri, etc.)
+- Core scientific stack (numpy, pandas, scipy, scikit-learn)
+- Quant-specific libraries (zipline, backtrader, vectorbt, bt, qstrader, pyfolio, empyrical, alphalens)
+- Data libraries (yfinance, pandas-datareader, arctic, QuantLib, ta-lib)
+- ML/DL frameworks (pytorch, tensorflow, xgboost, lightgbm, statsmodels)
+- Visualization (matplotlib, plotly, seaborn, bokeh)
+- Execution/broker APIs (ccxt, ib_insync, alpaca-trade-api)
+- Workflow orchestration (prefect, dagster, airflow, luigi)
+- Note any system-level dependencies (TA-Lib C library, HDF5, etc.)
 
 **Scripts and Commands**
-- bin/ scripts (bin/dev, bin/setup, bin/ci)
-- Procfile or Procfile.dev
-- Rake tasks (lib/tasks/)
+- `scripts/` directory for data ingestion, model training, backtesting
+- CLI entry points (click, typer, argparse)
+- Makefile or justfile targets
+- Jupyter notebooks in `notebooks/`
+- Scheduled jobs (cron, systemd timers, Prefect/Dagster schedules)
 
-### Step 2: Identify Deployment Target
+### Step 2: Identify Project Type
 
-Look for these files to determine deployment platform and tailor instructions:
+Determine the primary project type to tailor documentation:
 
-- `Dockerfile` / `docker-compose.yml` → Docker-based deployment
-- `vercel.json` / `.vercel/` → Vercel
-- `netlify.toml` → Netlify
-- `fly.toml` → Fly.io
-- `railway.json` / `railway.toml` → Railway
-- `render.yaml` → Render
-- `app.yaml` → Google App Engine
-- `Procfile` → Heroku or Heroku-like platforms
-- `.ebextensions/` → AWS Elastic Beanstalk
-- `serverless.yml` → Serverless Framework
-- `terraform/` / `*.tf` → Terraform/Infrastructure as Code
-- `k8s/` / `kubernetes/` → Kubernetes
-
-If no deployment config exists, provide general guidance with Docker as the recommended approach.
+- **Research Project** — Emphasis on reproducibility, notebooks, experiment tracking
+- **Trading System** — Emphasis on data feeds, strategy execution, risk management, deployment
+- **Data Pipeline** — Emphasis on ingestion, transformation, storage, scheduling
+- **Quant Library/Package** — Emphasis on API docs, installation, usage examples
+- **Hybrid** — Combination of the above; document each aspect
 
 ### Step 3: Ask Only If Critical
 
 Only ask the user questions if you cannot determine:
 
 - What the project does (if not obvious from code)
-- Specific deployment credentials or URLs needed
-- Business context that affects documentation
+- Specific credentials, API keys, or broker configurations needed
+- Business or research context that affects documentation
 
 Otherwise, proceed with exploration and writing.
 
@@ -91,13 +102,13 @@ Write the README with these sections in order:
 ```markdown
 # Project Name
 
-Brief description of what the project does and who it's for. 2-3 sentences max.
+Brief description of what the project does, what markets/instruments it covers, and its purpose. 2-3 sentences max.
 
 ## Key Features
 
-- Feature 1
-- Feature 2
-- Feature 3
+- Feature 1 (e.g., Multi-factor alpha model for US equities)
+- Feature 2 (e.g., Real-time data pipeline with 1-minute resolution)
+- Feature 3 (e.g., Backtesting engine with transaction cost modeling)
 ```
 
 ### 2. Tech Stack
@@ -107,14 +118,15 @@ List all major technologies:
 ```markdown
 ## Tech Stack
 
-- **Language**: Ruby 3.3+
-- **Framework**: Rails 7.2+
-- **Frontend**: Inertia.js with React
-- **Database**: PostgreSQL 16
-- **Background Jobs**: Solid Queue
-- **Caching**: Solid Cache
-- **Styling**: Tailwind CSS
-- **Deployment**: [Detected platform]
+- **Language**: Python 3.11+
+- **Data Processing**: pandas, numpy, polars
+- **Modeling**: scikit-learn, statsmodels, PyTorch
+- **Backtesting**: vectorbt / custom engine
+- **Data Storage**: Parquet files, PostgreSQL + TimescaleDB
+- **Data Sources**: Polygon.io, FRED, Yahoo Finance
+- **Orchestration**: Prefect
+- **Visualization**: matplotlib, plotly
+- **Package Management**: uv / poetry / conda
 ```
 
 ### 3. Prerequisites
@@ -124,10 +136,11 @@ What must be installed before starting:
 ```markdown
 ## Prerequisites
 
-- Node.js 20 or higher
-- PostgreSQL 15 or higher (or Docker)
-- pnpm (recommended) or npm
-- A Google Cloud project for OAuth (optional for development)
+- Python 3.11 or higher
+- uv (recommended) or pip/conda
+- PostgreSQL 15+ (if using database storage)
+- TA-Lib C library (if using technical indicators)
+- API keys for data providers (see Environment Variables)
 ```
 
 ### 4. Getting Started
@@ -144,18 +157,60 @@ git clone https://github.com/user/repo.git
 cd repo
 ```
 
-### 2. Install Ruby Dependencies
+### 2. Create a Virtual Environment
 
-Ensure you have Ruby 3.3+ installed (via rbenv, asdf, or mise):
+Using uv (recommended):
 
 ```bash
-bundle install
+uv venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
 ```
 
-### 3. Install JavaScript Dependencies
+Using conda:
 
 ```bash
-yarn install
+conda env create -f environment.yml
+conda activate project-name
+```
+
+Using venv + pip:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 3. Install Dependencies
+
+```bash
+# Production dependencies
+uv pip install -r requirements.txt
+
+# Development dependencies (includes testing, linting, notebooks)
+uv pip install -r requirements-dev.txt
+
+# Or if using pyproject.toml
+uv pip install -e ".[dev]"
+```
+
+#### System Dependencies
+
+Some packages require system-level libraries:
+
+```bash
+# TA-Lib (macOS)
+brew install ta-lib
+
+# TA-Lib (Ubuntu/Debian)
+sudo apt-get install -y build-essential wget
+wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib/
+./configure --prefix=/usr && make && sudo make install
+
+# HDF5 (Ubuntu/Debian)
+sudo apt-get install libhdf5-dev
 ```
 
 ### 4. Environment Setup
@@ -170,52 +225,39 @@ Configure the following variables:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://localhost/myapp_development` |
-| `REDIS_URL` | Redis connection (if used) | `redis://localhost:6379/0` |
-| `SECRET_KEY_BASE` | Rails secret key | `bin/rails secret` |
-| `RAILS_MASTER_KEY` | For credentials encryption | Check `config/master.key` |
+| `DATABASE_URL` | PostgreSQL connection string | `postgresql://localhost/quant_db` |
+| `POLYGON_API_KEY` | Polygon.io API key | `pk_...` |
+| `ALPACA_API_KEY` | Alpaca broker API key | `AK...` |
+| `ALPACA_SECRET_KEY` | Alpaca broker secret key | `...` |
+| `DATA_DIR` | Path to data directory | `./data` |
 
-### 5. Database Setup
+### 5. Data Setup
 
-Start PostgreSQL (if using Docker):
-
-```bash
-docker run --name postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
-```
-
-Create and set up the database:
+Download or ingest required datasets:
 
 ```bash
-bin/rails db:setup
+# Download historical price data
+python scripts/download_prices.py --start 2010-01-01 --end 2024-01-01
+
+# Build feature store
+python scripts/build_features.py
+
+# Or using Make
+make data
 ```
 
-This runs `db:create`, `db:schema:load`, and `db:seed`.
-
-For existing databases, run migrations:
+### 6. Verify Installation
 
 ```bash
-bin/rails db:migrate
+# Run the test suite
+pytest
+
+# Run a sample backtest
+python -m src.backtest --strategy momentum --start 2020-01-01 --end 2023-12-31
+
+# Launch Jupyter for exploration
+jupyter lab
 ```
-
-### 6. Start Development Server
-
-Using Foreman/Overmind (recommended, runs Rails + Vite):
-
-```bash
-bin/dev
-```
-
-Or manually:
-
-```bash
-# Terminal 1: Rails server
-bin/rails server
-
-# Terminal 2: Vite dev server (for Inertia/React)
-bin/vite dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
 ````
 
 Include every step. Assume the reader is setting up on a fresh machine.
@@ -230,99 +272,124 @@ This is where you go absurdly deep:
 ### Directory Structure
 
 ```
-├── app/
-│   ├── controllers/          # Rails controllers
-│   │   ├── concerns/         # Shared controller modules
-│   │   └── api/              # API-specific controllers
-│   ├── models/               # ActiveRecord models
-│   │   └── concerns/         # Shared model modules
-│   ├── jobs/                 # Background jobs (Solid Queue)
-│   ├── mailers/              # Email templates
-│   ├── views/                # Rails views (minimal with Inertia)
-│   └── frontend/             # Inertia.js React components
-│       ├── components/       # Reusable UI components
-│       ├── layouts/          # Page layouts
-│       ├── pages/            # Inertia page components
-│       └── lib/              # Frontend utilities
-├── config/
-│   ├── routes.rb             # Route definitions
-│   ├── database.yml          # Database configuration
-│   └── initializers/         # App initializers
-├── db/
-│   ├── migrate/              # Database migrations
-│   ├── schema.rb             # Current schema
-│   └── seeds.rb              # Seed data
-├── lib/
-│   └── tasks/                # Custom Rake tasks
-└── public/                   # Static assets
+├── src/                          # Main source code
+│   ├── __init__.py
+│   ├── data/                     # Data ingestion and processing
+│   │   ├── loaders.py            # Data source connectors
+│   │   ├── transforms.py         # Feature engineering
+│   │   ├── universe.py           # Instrument universe definitions
+│   │   └── storage.py            # Data persistence layer
+│   ├── models/                   # Quantitative models
+│   │   ├── alpha.py              # Alpha/signal models
+│   │   ├── risk.py               # Risk models (factor, covariance)
+│   │   └── ml/                   # Machine learning models
+│   ├── strategies/               # Trading strategies
+│   │   ├── base.py               # Base strategy class
+│   │   ├── momentum.py           # Momentum strategy
+│   │   └── mean_reversion.py     # Mean reversion strategy
+│   ├── portfolio/                # Portfolio construction
+│   │   ├── optimizer.py          # Portfolio optimization
+│   │   ├── constraints.py        # Position/risk constraints
+│   │   └── rebalance.py          # Rebalancing logic
+│   ├── execution/                # Order execution
+│   │   ├── broker.py             # Broker interface
+│   │   └── slippage.py           # Transaction cost models
+│   ├── backtest/                 # Backtesting engine
+│   │   ├── engine.py             # Core backtest loop
+│   │   ├── metrics.py            # Performance metrics
+│   │   └── report.py             # Report generation
+│   └── utils/                    # Shared utilities
+│       ├── config.py             # Configuration loader
+│       ├── logging.py            # Logging setup
+│       └── dates.py              # Date/calendar utilities
+├── notebooks/                    # Research notebooks
+│   ├── 01_data_exploration.ipynb
+│   ├── 02_feature_analysis.ipynb
+│   ├── 03_model_development.ipynb
+│   └── 04_backtest_results.ipynb
+├── data/                         # Data directory (gitignored)
+│   ├── raw/                      # Raw data from sources
+│   ├── processed/                # Cleaned and transformed data
+│   ├── features/                 # Feature store
+│   └── results/                  # Backtest results and reports
+├── configs/                      # Configuration files
+│   ├── base.yaml                 # Base config
+│   ├── strategies/               # Strategy-specific configs
+│   └── environments/             # Environment-specific configs
+├── scripts/                      # Utility scripts
+│   ├── download_prices.py        # Data download
+│   ├── build_features.py         # Feature pipeline
+│   ├── run_backtest.py           # Backtest runner
+│   └── deploy_strategy.py        # Production deployment
+├── tests/                        # Test suite
+│   ├── unit/
+│   ├── integration/
+│   └── conftest.py
+├── pyproject.toml                # Project config and dependencies
+├── Makefile                      # Common commands
+└── README.md
 ```
-
-### Request Lifecycle
-
-1. Request hits Rails router (`config/routes.rb`)
-2. Middleware stack processes request (authentication, sessions, etc.)
-3. Controller action executes
-4. Models interact with PostgreSQL via ActiveRecord
-5. Inertia renders React component with props
-6. Response sent to browser
 
 ### Data Flow
 
 ```
-User Action → React Component → Inertia Visit → Rails Controller → ActiveRecord → PostgreSQL
-                                                                                      ↓
-              React Props ← Inertia Response ←
+Data Sources (APIs, Databases, Files)
+         │
+         ▼
+   Data Ingestion (src/data/loaders.py)
+         │
+         ▼
+  Raw Data Storage (data/raw/ — Parquet/HDF5)
+         │
+         ▼
+  Feature Engineering (src/data/transforms.py)
+         │
+         ▼
+  Feature Store (data/features/ — Parquet)
+         │
+         ▼
+  Signal Generation (src/models/alpha.py)
+         │
+         ▼
+  Portfolio Construction (src/portfolio/optimizer.py)
+         │
+         ▼
+  Execution (src/execution/broker.py) ──or──▶ Backtesting (src/backtest/engine.py)
+         │                                              │
+         ▼                                              ▼
+  Live Orders                                   Performance Report
 ```
 
 ### Key Components
 
-**Authentication**
-- Devise/Rodauth for user authentication
-- Session-based auth with encrypted cookies
-- `authenticate_user!` before_action for protected routes
+**Data Layer (`src/data/`)**
+- Connectors for market data APIs (Polygon, Yahoo Finance, FRED)
+- Universe management — which instruments are tradable
+- Feature engineering pipeline with caching
+- Parquet-based storage for efficient columnar access
 
-**Inertia.js Integration (`app/frontend/`)**
-- React components receive props from Rails controllers
-- `inertia_render` in controllers passes data to frontend
-- Shared data via `inertia_share` for layout props
+**Models (`src/models/`)**
+- Alpha models that generate trading signals
+- Risk models for covariance estimation and factor exposure
+- ML models with train/validate/test split handling
+- Model serialization and versioning
 
-**Background Jobs (`app/jobs/`)**
-- Solid Queue for job processing
-- Jobs stored in PostgreSQL (no Redis required)
-- Dashboard at `/jobs` for monitoring
+**Strategies (`src/strategies/`)**
+- Strategy base class with common interface
+- Signal combination and weighting
+- Position sizing rules
+- Entry/exit logic
 
-**Database (`app/models/`)**
-- ActiveRecord models with associations
-- Query objects for complex queries
-- Concerns for shared model behavior
+**Portfolio Construction (`src/portfolio/`)**
+- Mean-variance and risk-parity optimization
+- Constraint handling (sector, position, turnover limits)
+- Rebalancing schedule and threshold triggers
 
-### Database Schema
-
-```
-users
-├── id (bigint, PK)
-├── email (string, unique, not null)
-├── encrypted_password (string)
-├── name (string)
-├── created_at (datetime)
-└── updated_at (datetime)
-
-posts
-├── id (bigint, PK)
-├── title (string, not null)
-├── content (text)
-├── published (boolean, default: false)
-├── user_id (bigint, FK → users)
-├── created_at (datetime)
-└── updated_at (datetime)
-
-solid_queue_jobs (background jobs)
-├── id (bigint, PK)
-├── queue_name (string)
-├── class_name (string)
-├── arguments (json)
-├── scheduled_at (datetime)
-└── ...
+**Backtesting (`src/backtest/`)**
+- Event-driven or vectorized backtest engine
+- Transaction cost modeling (spread, commission, slippage, market impact)
+- Performance metrics (Sharpe, Sortino, max drawdown, Calmar, etc.)
+- Report generation with visualizations
 ```
 ````
 
@@ -337,88 +404,55 @@ Complete reference for all env vars:
 
 | Variable | Description | How to Get |
 |----------|-------------|------------|
-| `DATABASE_URL` | PostgreSQL connection string | Your database provider |
-| `SECRET_KEY_BASE` | Rails secret for sessions/cookies | Run `bin/rails secret` |
-| `RAILS_MASTER_KEY` | Decrypts credentials file | Check `config/master.key` (not in git) |
+| `DATABASE_URL` | Database connection string | Your database provider |
+| `DATA_DIR` | Root path for data storage | Local path or mount point |
+
+### Data Provider Keys
+
+| Variable | Description | How to Get |
+|----------|-------------|------------|
+| `POLYGON_API_KEY` | Polygon.io market data | [polygon.io](https://polygon.io) |
+| `FRED_API_KEY` | Federal Reserve economic data | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) |
+| `QUANDL_API_KEY` | Nasdaq Data Link | [data.nasdaq.com](https://data.nasdaq.com) |
+| `ALPHA_VANTAGE_KEY` | Alpha Vantage market data | [alphavantage.co](https://www.alphavantage.co) |
+
+### Broker Keys (Production Only)
+
+| Variable | Description | How to Get |
+|----------|-------------|------------|
+| `ALPACA_API_KEY` | Alpaca trading API key | [alpaca.markets](https://alpaca.markets) |
+| `ALPACA_SECRET_KEY` | Alpaca trading secret | Alpaca dashboard |
+| `IB_HOST` | Interactive Brokers gateway host | TWS/Gateway setup |
+| `IB_PORT` | Interactive Brokers gateway port | Default: `4001` (live), `4002` (paper) |
 
 ### Optional
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `REDIS_URL` | Redis connection string (for caching/ActionCable) | - |
-| `RAILS_LOG_LEVEL` | Logging verbosity | `debug` (dev), `info` (prod) |
-| `RAILS_MAX_THREADS` | Puma thread count | `5` |
-| `WEB_CONCURRENCY` | Puma worker count | `2` |
-| `SMTP_ADDRESS` | Mail server hostname | - |
-| `SMTP_PORT` | Mail server port | `587` |
-
-### Rails Credentials
-
-Sensitive values should be stored in Rails encrypted credentials:
-
-```bash
-# Edit credentials (opens in $EDITOR)
-bin/rails credentials:edit
-
-# Or for environment-specific credentials
-RAILS_ENV=production bin/rails credentials:edit
-```
-
-Credentials file structure:
-
-```yaml
-secret_key_base: xxx
-
-stripe:
-  public_key: pk_xxx
-  secret_key: sk_xxx
-
-google:
-  client_id: xxx
-  client_secret: xxx
-```
-
-Access in code: `Rails.application.credentials.stripe[:secret_key]`
-
-### Environment-Specific
-
-**Development**
-
-```
-DATABASE_URL=postgresql://localhost/myapp_development
-REDIS_URL=redis://localhost:6379/0
-```
-
-**Production**
-
-```
-DATABASE_URL=<production-connection-string>
-RAILS_ENV=production
-RAILS_SERVE_STATIC_FILES=true
-```
+| `LOG_LEVEL` | Logging verbosity | `INFO` |
+| `CACHE_DIR` | Cache directory | `.cache/` |
+| `N_JOBS` | Parallel workers for computation | `-1` (all cores) |
+| `BACKTEST_START` | Default backtest start date | `2010-01-01` |
+| `BACKTEST_END` | Default backtest end date | Today |
 ````
 
-### 7. Available Scripts
+### 7. Available Commands
 
 ```markdown
-## Available Scripts
+## Available Commands
 
 | Command | Description |
 |---------|-------------|
-| `bin/dev` | Start development server (Rails + Vite via Foreman) |
-| `bin/rails server` | Start Rails server only |
-| `bin/vite dev` | Start Vite dev server only |
-| `bin/rails console` | Open Rails console (IRB with app loaded) |
-| `bin/rails db:migrate` | Run pending database migrations |
-| `bin/rails db:rollback` | Rollback last migration |
-| `bin/rails db:seed` | Run database seeds |
-| `bin/rails db:reset` | Drop, create, migrate, and seed database |
-| `bin/rails routes` | List all routes |
-| `bin/rails test` | Run test suite (Minitest) |
-| `bundle exec rspec` | Run test suite (RSpec, if used) |
-| `bin/rails assets:precompile` | Compile assets for production |
-| `bin/rubocop` | Run Ruby linter |
-| `yarn lint` | Run JavaScript/TypeScript linter |
+| `make install` | Install all dependencies |
+| `make data` | Download and process all datasets |
+| `make features` | Build feature store from raw data |
+| `make backtest` | Run default backtest suite |
+| `make test` | Run full test suite with pytest |
+| `make lint` | Run ruff linter and formatter |
+| `make typecheck` | Run mypy type checking |
+| `make notebook` | Launch Jupyter Lab |
+| `make clean` | Remove generated files and caches |
+| `make report` | Generate performance report from latest backtest |
 ```
 
 ### 8. Testing
@@ -429,230 +463,283 @@ RAILS_SERVE_STATIC_FILES=true
 ### Running Tests
 
 ```bash
-# Run all tests (Minitest)
-bin/rails test
+# Run all tests
+pytest
 
-# Run all tests (RSpec, if used)
-bundle exec rspec
+# Run with coverage
+pytest --cov=src --cov-report=html
 
-# Run specific test file
-bin/rails test test/models/user_test.rb
-bundle exec rspec spec/models/user_spec.rb
+# Run specific test module
+pytest tests/unit/test_alpha.py
 
 # Run tests matching a pattern
-bin/rails test -n /creates_user/
-bundle exec rspec -e "creates user"
+pytest -k "test_momentum"
 
-# Run system tests (browser tests)
-bin/rails test:system
+# Run only fast unit tests (skip integration)
+pytest -m "not integration"
 
-# Run with coverage (SimpleCov)
-COVERAGE=true bin/rails test
+# Run with verbose output
+pytest -v
 ```
 
 ### Test Structure
 
 ```
-test/                         # Minitest structure
-├── controllers/              # Controller tests
-├── models/                   # Model unit tests
-├── integration/              # Integration tests
-├── system/                   # System/browser tests
-├── fixtures/                 # Test data
-└── test_helper.rb            # Test configuration
-
-spec/                         # RSpec structure (if used)
-├── models/
-├── requests/
-├── system/
-├── factories/                # FactoryBot factories
-├── support/
-└── rails_helper.rb
+tests/
+├── unit/                         # Fast, isolated unit tests
+│   ├── test_alpha.py             # Alpha model tests
+│   ├── test_risk.py              # Risk model tests
+│   ├── test_optimizer.py         # Portfolio optimizer tests
+│   ├── test_transforms.py        # Feature engineering tests
+│   └── test_metrics.py           # Performance metric tests
+├── integration/                  # Tests requiring data/external deps
+│   ├── test_data_loaders.py      # Data source integration tests
+│   ├── test_backtest.py          # End-to-end backtest tests
+│   └── test_execution.py         # Broker integration tests
+├── fixtures/                     # Test data fixtures
+│   ├── sample_prices.parquet
+│   └── sample_features.parquet
+└── conftest.py                   # Shared fixtures and configuration
 ```
 
 ### Writing Tests
 
-**Minitest example:**
+```python
+import pytest
+import pandas as pd
+import numpy as np
+from src.models.alpha import MomentumAlpha
+from src.backtest.metrics import sharpe_ratio, max_drawdown
 
-```ruby
-require "test_helper"
 
-class UserTest < ActiveSupport::TestCase
-  test "creates user with valid attributes" do
-    user = User.new(email: "test@example.com", name: "Test User")
-    assert user.valid?
-  end
+class TestMomentumAlpha:
+    @pytest.fixture
+    def sample_prices(self):
+        dates = pd.bdate_range("2020-01-01", periods=252)
+        return pd.DataFrame(
+            {"AAPL": np.random.lognormal(0.0005, 0.02, 252).cumprod() * 100},
+            index=dates,
+        )
 
-  test "requires email" do
-    user = User.new(name: "Test User")
-    assert_not user.valid?
-    assert_includes user.errors[:email], "can't be blank"
-  end
-end
+    def test_signal_output_shape(self, sample_prices):
+        model = MomentumAlpha(lookback=20)
+        signals = model.generate(sample_prices)
+        assert signals.shape == sample_prices.shape
+
+    def test_signal_bounded(self, sample_prices):
+        model = MomentumAlpha(lookback=20)
+        signals = model.generate(sample_prices)
+        assert signals.min().min() >= -1.0
+        assert signals.max().max() <= 1.0
+
+
+class TestMetrics:
+    def test_sharpe_ratio(self):
+        returns = pd.Series(np.random.normal(0.001, 0.01, 252))
+        sr = sharpe_ratio(returns)
+        assert isinstance(sr, float)
+        assert not np.isnan(sr)
+
+    def test_max_drawdown(self):
+        returns = pd.Series([-0.01, -0.02, 0.03, -0.05, 0.01])
+        mdd = max_drawdown(returns)
+        assert mdd <= 0  # Drawdown is negative
 ```
 
-**RSpec example:**
+### Data Fixtures
 
-```ruby
-require "rails_helper"
+For tests requiring market data, use fixtures in `tests/fixtures/` rather than live API calls:
 
-RSpec.describe User, type: :model do
-  describe "validations" do
-    it "is valid with valid attributes" do
-      user = build(:user)
-      expect(user).to be_valid
-    end
-
-    it "requires an email" do
-      user = build(:user, email: nil)
-      expect(user).not_to be_valid
-      expect(user.errors[:email]).to include("can't be blank")
-    end
-  end
-end
-```
-
-### Frontend Testing
-
-For Inertia/React components:
-
-```bash
-yarn test
-```
-
-```typescript
-import { render, screen } from '@testing-library/react'
-import { Dashboard } from './Dashboard'
-
-describe('Dashboard', () => {
-  it('renders user name', () => {
-    render(<Dashboard user={{ name: 'Josh' }} />)
-    expect(screen.getByText('Josh')).toBeInTheDocument()
-  })
-})
+```python
+@pytest.fixture
+def price_data():
+    return pd.read_parquet("tests/fixtures/sample_prices.parquet")
 ```
 ````
 
-### 9. Deployment
+### 9. Research Workflow
 
-Tailor this to detected platform (look for Dockerfile, fly.toml, render.yaml, kamal/, etc.):
+````markdown
+## Research Workflow
+
+### Notebooks
+
+Research notebooks live in `notebooks/` and follow a numbered naming convention:
+
+```
+notebooks/
+├── 01_data_exploration.ipynb      # Initial data analysis
+├── 02_feature_analysis.ipynb      # Feature importance and selection
+├── 03_model_development.ipynb     # Model training and evaluation
+├── 04_backtest_results.ipynb      # Strategy backtest analysis
+└── scratch/                       # Experimental notebooks (gitignored)
+```
+
+Launch Jupyter:
+
+```bash
+jupyter lab
+# or
+make notebook
+```
+
+### Experiment Tracking
+
+Track experiments systematically:
+
+```python
+# Using MLflow (if configured)
+import mlflow
+
+with mlflow.start_run(run_name="momentum_v2"):
+    mlflow.log_params({"lookback": 20, "universe": "SP500"})
+    results = run_backtest(strategy)
+    mlflow.log_metrics({
+        "sharpe": results.sharpe_ratio,
+        "max_drawdown": results.max_drawdown,
+        "annual_return": results.annual_return,
+    })
+```
+
+### Reproducibility
+
+- Pin all dependency versions in `requirements.txt` or `pyproject.toml`
+- Set random seeds for any stochastic processes
+- Use config files for strategy parameters (not hardcoded values)
+- Store data snapshots with timestamps for exact reproduction
+- Document the data vintage (date of download) for any point-in-time data
+````
+
+### 10. Deployment & Scheduling
 
 ````markdown
 ## Deployment
 
-### Kamal (Recommended for Rails)
-
-If using Kamal for deployment:
-
-```bash
-# Setup Kamal (first time)
-kamal setup
-
-# Deploy
-kamal deploy
-
-# Rollback to previous version
-kamal rollback
-
-# View logs
-kamal app logs
-
-# Run console on production
-kamal app exec --interactive 'bin/rails console'
-```
-
-Configuration lives in `config/deploy.yml`.
-
 ### Docker
-
-Build and run:
 
 ```bash
 # Build image
-docker build -t myapp .
+docker build -t quant-project .
+
+# Run backtest
+docker run -v $(pwd)/data:/app/data quant-project python scripts/run_backtest.py
 
 # Run with environment variables
-docker run -p 3000:3000 \
-  -e DATABASE_URL=postgresql://... \
-  -e SECRET_KEY_BASE=... \
-  -e RAILS_ENV=production \
-  myapp
+docker run --env-file .env quant-project python scripts/run_strategy.py
 ```
 
-### Heroku
+### Scheduled Jobs
+
+For recurring data pipelines or strategy execution:
 
 ```bash
-# Create app
-heroku create myapp
+# Using cron (simple)
+# Run data download daily at 6 PM ET
+0 18 * * 1-5 cd /path/to/project && .venv/bin/python scripts/download_prices.py
 
-# Add PostgreSQL
-heroku addons:create heroku-postgresql:mini
-
-# Set environment variables
-heroku config:set SECRET_KEY_BASE=$(bin/rails secret)
-heroku config:set RAILS_MASTER_KEY=$(cat config/master.key)
-
-# Deploy
-git push heroku main
-
-# Run migrations
-heroku run bin/rails db:migrate
+# Run strategy at market open
+30 9 * * 1-5 cd /path/to/project && .venv/bin/python scripts/run_strategy.py
 ```
 
-### Fly.io
+Using Prefect/Dagster for more complex orchestration:
 
-```bash
-# Launch (first time)
-fly launch
+```python
+from prefect import flow, task
+from prefect.schedules import CronSchedule
 
-# Deploy
-fly deploy
+@task
+def download_data():
+    ...
 
-# Run migrations
-fly ssh console -C "bin/rails db:migrate"
+@task
+def generate_signals(data):
+    ...
 
-# Open console
-fly ssh console -C "bin/rails console"
+@task
+def execute_trades(signals):
+    ...
+
+@flow(schedule=CronSchedule(cron="30 9 * * 1-5", timezone="America/New_York"))
+def daily_strategy():
+    data = download_data()
+    signals = generate_signals(data)
+    execute_trades(signals)
 ```
 
-### Render
+### Production Checklist
 
-If `render.yaml` exists, connect your repo to Render and it will auto-deploy.
-
-Manual setup:
-
-1. Create new Web Service
-2. Connect GitHub repository
-3. Set build command: `bundle install && bin/rails assets:precompile`
-4. Set start command: `bin/rails server`
-5. Add environment variables in dashboard
-
-### Manual/VPS Deployment
-
-```bash
-# On the server:
-
-# Pull latest code
-git pull origin main
-
-# Install dependencies
-bundle install --deployment
-
-# Compile assets
-RAILS_ENV=production bin/rails assets:precompile
-
-# Run migrations
-RAILS_ENV=production bin/rails db:migrate
-
-# Restart application server (e.g., Puma via systemd)
-sudo systemctl restart myapp
-```
+- [ ] All API keys in environment variables (never in code)
+- [ ] Error alerting configured (email, Slack, PagerDuty)
+- [ ] Logging to persistent storage
+- [ ] Database backups scheduled
+- [ ] Position and risk limits enforced in code
+- [ ] Paper trading validated before live deployment
+- [ ] Kill switch / emergency shutdown procedure documented
 ````
 
-### 10. Troubleshooting
+### 11. Troubleshooting
 
 ````markdown
 ## Troubleshooting
+
+### TA-Lib Installation Fails
+
+**Error:** `talib/_ta_lib.c: No such file or directory`
+
+**Solution:**
+
+Install the C library first:
+
+```bash
+# macOS
+brew install ta-lib
+
+# Ubuntu/Debian
+wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib/
+./configure --prefix=/usr && make && sudo make install
+
+# Then reinstall the Python wrapper
+pip install ta-lib
+```
+
+### Import Errors After Install
+
+**Error:** `ModuleNotFoundError: No module named 'src'`
+
+**Solution:**
+
+Install the project in editable mode:
+
+```bash
+pip install -e .
+```
+
+### Memory Issues with Large Datasets
+
+**Error:** `MemoryError` or process killed
+
+**Solution:**
+
+1. Use chunked reading:
+
+```python
+chunks = pd.read_parquet("large_file.parquet", columns=["close", "volume"])
+```
+
+2. Use Polars for larger-than-memory processing:
+
+```python
+import polars as pl
+df = pl.scan_parquet("large_file.parquet").filter(pl.col("date") > "2020-01-01").collect()
+```
+
+3. Reduce data types:
+
+```python
+df["price"] = df["price"].astype("float32")
+df["volume"] = df["volume"].astype("int32")
+```
 
 ### Database Connection Issues
 
@@ -660,108 +747,74 @@ sudo systemctl restart myapp
 
 **Solution:**
 
-1. Verify PostgreSQL is running: `pg_isready` or `docker ps`
+1. Verify PostgreSQL is running: `pg_isready`
 2. Check `DATABASE_URL` format: `postgresql://USER:PASSWORD@HOST:PORT/DATABASE`
-3. Ensure database exists: `bin/rails db:create`
+3. Ensure database exists: `createdb quant_db`
 
-### Pending Migrations
+### Stale Data Cache
 
-**Error:** `Migrations are pending`
+**Error:** Unexpected results that don't match live data
 
 **Solution:**
 
 ```bash
-bin/rails db:migrate
+# Clear data caches
+make clean
+# or
+rm -rf .cache/ data/processed/*
+
+# Re-download and rebuild
+make data
+make features
 ```
 
-### Asset Compilation Issues
+### NumPy/SciPy Build Issues
 
-**Error:** `The asset "application.css" is not present in the asset pipeline`
+**Error:** `numpy.distutils` or LAPACK/BLAS errors
 
 **Solution:**
 
 ```bash
-# Clear and recompile assets
-bin/rails assets:clobber
-bin/rails assets:precompile
-```
-
-### Bundle Install Failures
-
-**Error:** Native extension build failures
-
-**Solution:**
-
-1. Ensure system dependencies are installed:
-
-```bash
-# macOS
-brew install postgresql libpq
+# macOS — install Accelerate framework support
+pip install --no-cache-dir numpy scipy
 
 # Ubuntu
-sudo apt-get install libpq-dev
+sudo apt-get install libopenblas-dev liblapack-dev gfortran
+pip install --no-cache-dir numpy scipy
 ```
 
-2. Try again: `bundle install`
+### Jupyter Kernel Not Found
 
-### Credentials Issues
-
-**Error:** `ActiveSupport::MessageEncryptor::InvalidMessage`
-
-**Solution:**
-
-The master key doesn't match the credentials file. Either:
-
-1. Get the correct `config/master.key` from another team member
-2. Or regenerate credentials: `rm config/credentials.yml.enc && bin/rails credentials:edit`
-
-### Vite/Inertia Issues
-
-**Error:** `Vite Ruby - Build failed`
+**Error:** Kernel not showing in Jupyter
 
 **Solution:**
 
 ```bash
-# Clear Vite cache
-rm -rf node_modules/.vite
-
-# Reinstall JS dependencies
-rm -rf node_modules && yarn install
-```
-
-### Solid Queue Issues
-
-**Error:** Jobs not processing
-
-**Solution:**
-
-Ensure the queue worker is running:
-
-```bash
-bin/jobs
-# or
-bin/rails solid_queue:start
+# Register the virtual environment as a Jupyter kernel
+python -m ipykernel install --user --name=project-name --display-name="Project Name"
 ```
 ````
 
-### 11. Contributing (Optional)
+### 12. Contributing (Optional)
 
 Include if open source or team project.
 
-### 12. License (Optional)
+### 13. License (Optional)
 
 ---
 
 ## Writing Principles
 
-1. **Be Absurdly Thorough** - When in doubt, include it. More detail is always better.
-2. **Use Code Blocks Liberally** - Every command should be copy-pasteable.
-3. **Show Example Output** - When helpful, show what the user should expect to see.
-4. **Explain the Why** - Don't just say "run this command," explain what it does.
-5. **Assume Fresh Machine** - Write as if the reader has never seen this codebase.
-6. **Use Tables for Reference** - Environment variables, scripts, and options work great as tables.
-7. **Keep Commands Current** - Use `pnpm` if the project uses it, `npm` if it uses npm, etc.
-8. **Include a Table of Contents** - For READMEs over ~200 lines, add a TOC at the top.
+1. **Be Absurdly Thorough** — When in doubt, include it. More detail is always better.
+2. **Use Code Blocks Liberally** — Every command should be copy-pasteable.
+3. **Show Example Output** — When helpful, show what the user should expect to see.
+4. **Explain the Why** — Don't just say "run this command," explain what it does.
+5. **Assume Fresh Machine** — Write as if the reader has never seen this codebase.
+6. **Use Tables for Reference** — Environment variables, commands, and options work great as tables.
+7. **Keep Commands Current** — Use `uv` if the project uses it, `pip` if it uses pip, `conda` if it uses conda, etc.
+8. **Include a Table of Contents** — For READMEs over ~200 lines, add a TOC at the top.
+9. **Emphasize Reproducibility** — Pin versions, document data sources, note random seeds.
+10. **Respect Data Sensitivity** — Never include real API keys, portfolio data, or proprietary strategy details in documentation.
 
 ---
 
@@ -770,7 +823,7 @@ Include if open source or team project.
 Generate a complete README.md file with:
 
 - Proper markdown formatting
-- Code blocks with language hints (```bash, ```typescript, etc.)
+- Code blocks with language hints (```bash, ```python, etc.)
 - Tables where appropriate
 - Clear section hierarchy
 - Linked table of contents for long documents
