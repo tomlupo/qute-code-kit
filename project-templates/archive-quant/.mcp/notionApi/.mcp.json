@@ -9,7 +9,7 @@
         "@notionhq/notion-mcp-server"
       ],
       "env": {
-        "OPENAPI_MCP_HEADERS": "{\"Authorization\": \"Bearer ntn_Z35763610981rHcMlkAQKyCp1YHYLGwSAs0to9q4Zqfd26\", \"Notion-Version\": \"2022-06-28\"}"
+        "OPENAPI_MCP_HEADERS": "{\"Authorization\": \"Bearer ${NOTION_API_TOKEN}\", \"Notion-Version\": \"2022-06-28\"}"
       }
     }
   }

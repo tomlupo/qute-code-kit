@@ -1,0 +1,6 @@
+# ML Core skill sub-bundle
+external:scientific/scikit-learn
+external:scientific/shap
+external:scientific/pytorch-lightning
+external:scientific/aeon
+external:scientific/exploratory-data-analysis

@@ -1,0 +1,55 @@
+uid,isin,name,instrument_type,country,exchange,ticker_bloomberg,ticker_yahoo,ticker_stooq,ticker_fred,sector,currency,mapping_source,last_updated
+isin_PLCCC0000016,PLCCC0000016,CCC,equity,PL,WSE,,CCC.WA,ccc,,,PLN,yahoo_api,2026-01-09
+isin_PLBSK0000017,PLBSK0000017,ING Bank Slaski,equity,PL,WSE,,ING.WA,ing,,,PLN,yahoo_api,2026-01-09
+isin_LU2910446546,LU2910446546,Zabka,equity,LU,WSE,,ZAB.WA,,,,,yahoo_api,2026-01-09
+isin_PLBNFTS00018,PLBNFTS00018,Benefit Systems,equity,PL,WSE,,BFT.WA,bft,,,PLN,yahoo_api,2026-01-09
+isin_PLBIG0000016,PLBIG0000016,Bank Millennium,equity,PL,WSE,,MIL.WA,mil,,,PLN,yahoo_api,2026-01-09
+isin_PLXTRDM00011,PLXTRDM00011,XTB,equity,PL,WSE,,XTB.WA,xtb,,,PLN,yahoo_api,2026-01-09
+isin_PLSOFTB00016,PLSOFTB00016,Asseco Poland,equity,PL,WSE,,ACP.WA,acp,,,PLN,yahoo_api,2026-01-09
+isin_PLINTCS00010,PLINTCS00010,Inter Cars,equity,PL,WSE,,CAR.WA,car,,,PLN,yahoo_api,2026-01-09
+isin_PLTAURN00011,PLTAURN00011,Tauron,equity,PL,WSE,,TPE.WA,tpe,,,PLN,yahoo_api,2026-01-09
+isin_PLENEA000013,PLENEA000013,Enea,equity,PL,WSE,,ENA.WA,ena,,,PLN,yahoo_api,2026-01-09
+isin_PLBH00000012,PLBH00000012,Budimex,equity,PL,WSE,,BHW.WA,bhw,,,PLN,yahoo_api,2026-01-09
+isin_PLLCCRP00017,PLLCCRP00017,Develia,equity,PL,WSE,,DVL.WA,dvl,,,PLN,yahoo_api,2026-01-09
+isin_PLBGZ0000010,PLBGZ0000010,BNP Paribas Bank Polska,equity,PL,WSE,,BNP.WA,bnp,,,PLN,yahoo_api,2026-01-09
+isin_PLDMDVL00012,PLDMDVL00012,Dom Development,equity,PL,WSE,,DOM.WA,dom,,,PLN,yahoo_api,2026-01-09
+isin_PLATPRT00018,PLATPRT00018,Autopartner,equity,PL,WSE,,APR.WA,apr,,,PLN,yahoo_api,2026-01-09
+isin_PLWRTPL00027,PLWRTPL00027,Wirtualna Polska,equity,PL,WSE,,WPL.WA,wpl,,,PLN,yahoo_api,2026-01-09
+isin_PLTRFRM00018,PLTRFRM00018,Neuca,equity,PL,WSE,,NEU.WA,neu,,,PLN,yahoo_api,2026-01-09
+isin_ES0105375002,ES0105375002,AmRest,equity,ES,WSE,,EAT.WA,eat,,,PLN,yahoo_api,2026-01-09
+isin_PLGRPRC00015,PLGRPRC00015,Grupa Pracuj,equity,PL,WSE,,GPP.WA,gpp,,,PLN,yahoo_api,2026-01-09
+isin_PLRNBWT00031,PLRNBWT00031,Rainbow Tours,equity,PL,WSE,,RBW.WA,rbw,,,PLN,yahoo_api,2026-01-09
+isin_PLAB00000019,PLAB00000019,AB,equity,PL,WSE,,ABE.WA,abe,,,PLN,yahoo_api,2026-01-09
+isin_PLGPW0000017,PLGPW0000017,GPW,equity,PL,WSE,,GPW.WA,gpw,,,PLN,yahoo_api,2026-01-09
+isin_PLMOBRK00013,PLMOBRK00013,Mo-Bruk,equity,PL,WSE,,MBR.WA,mbr,,,PLN,yahoo_api,2026-01-09
+isin_PLZATRM00012,PLZATRM00012,Grupa Azoty,equity,PL,WSE,,ATT.WA,att,,,PLN,yahoo_api,2026-01-09
+isin_PLR220000018,PLR220000018,Cyfrowy Polsat,equity,PL,WSE,,CBF.WA,cbf,,,PLN,yahoo_api,2026-01-09
+isin_PLLVTSF00010,PLLVTSF00010,Text (LiveChat),equity,PL,WSE,,TXT.WA,txt,,,PLN,yahoo_api,2026-01-09
+isin_PLVOXEL00014,PLVOXEL00014,Voxel,equity,PL,WSE,,VOX.WA,vox,,,PLN,yahoo_api,2026-01-09
+isin_PLMRBUD00015,PLMRBUD00015,Mirbud,equity,PL,WSE,,MRB.WA,mrb,,,PLN,yahoo_api,2026-01-09
+isin_PLSLVCR00029,PLSLVCR00029,Silvair,equity,PL,WSE,,SLV.WA,slv,,,PLN,yahoo_api,2026-01-09
+isin_PLSNKTK00019,PLSNKTK00019,Synektik,equity,PL,WSE,,SNT.WA,snt,,,PLN,yahoo_api,2026-01-09
+isin_PLSELVT00013,PLSELVT00013,Selvita,equity,PL,WSE,,RVU.WA,rvu,,,PLN,yahoo_api,2026-01-09
+isin_PLCLNPH00015,PLCLNPH00015,Celon Pharma,equity,PL,WSE,,CLN.WA,cln,,,PLN,yahoo_api,2026-01-09
+isin_CY1000031710,CY1000031710,Assy,equity,CY,WSE,,ASB.WA,asb,,,PLN,yahoo_api,2026-01-09
+isin_PL11BTS00015,PL11BTS00015,11 bit studios,equity,PL,WSE,,11B.WA,11b,,,PLN,yahoo_api,2026-01-09
+isin_PLFAMUR00012,PLFAMUR00012,Famur,equity,PL,WSE,,GEA.WA,gea,,,PLN,yahoo_api,2026-01-09
+isin_PLEURCH00011,PLEURCH00011,Eurocash,equity,PL,WSE,,EUR.WA,eur,,,PLN,yahoo_api,2026-01-09
+isin_US44853H1086,US44853H1086,Huuuge,equity,US,WSE,,HUG.WA,hug,,,PLN,yahoo_api,2026-01-09
+isin_PLARTPR00012,PLARTPR00012,Arctic Paper,equity,PL,WSE,,ATC.WA,atc,,,PLN,yahoo_api,2026-01-09
+isin_PLTSQGM00016,PLTSQGM00016,Ten Square Games,equity,PL,WSE,,TEN.WA,ten,,,PLN,yahoo_api,2026-01-09
+isin_PLLWBGD00016,PLLWBGD00016,LW Bogdanka,equity,PL,WSE,,LWB.WA,lwb,,,PLN,yahoo_api,2026-01-09
+isin_PLCFRPT00013,PLCFRPT00013,Comp,equity,PL,WSE,,CPS.WA,cps,,,PLN,yahoo_api,2026-01-09
+isin_PLJSW0000015,PLJSW0000015,JSW,equity,PL,WSE,,JSW.WA,jsw,,,PLN,yahoo_api,2026-01-09
+isin_PLPLSEP00013,PLPLSEP00013,Polenergia,equity,PL,WSE,,PEP.WA,pep,,,PLN,yahoo_api,2026-01-09
+isin_PLNEWAG00012,PLNEWAG00012,Newag,equity,PL,WSE,,NWG.WA,nwg,,,PLN,yahoo_api,2026-01-09
+isin_PLVRCM000016,PLVRCM000016,Vercom,equity,PL,WSE,,VRC.WA,vrc,,,PLN,yahoo_api,2026-01-09
+isin_PLLUBAW00013,PLLUBAW00013,Lubawa,equity,PL,WSE,,LBW.WA,lbw,,,PLN,yahoo_api,2026-01-09
+isin_PLASSEE00014,PLASSEE00014,Asseco SEE,equity,PL,WSE,,ASE.WA,ase,,,PLN,yahoo_api,2026-01-09
+isin_PLDGNST00012,PLDGNST00012,Diagnostyka,equity,PL,WSE,,DIA.WA,dia,,,PLN,yahoo_api,2026-01-09
+idx_WIG20,,WIG20 Index,index,PL,WSE,,^WIG20,wig20,,,,manual,2026-01-09
+idx_MWIG40,,mWIG40 Index,index,PL,WSE,MWIG40 Index,^MWIG40,mwig40,,,,manual,2026-01-09
+idx_SWIG80,,sWIG80 Index,index,PL,WSE,,^SWIG80,swig80,,,,manual,2026-01-09
+fx_USDPLN,,USD/PLN,currency,,,,,usdpln,,,,manual,2026-01-09
+fx_EURPLN,,EUR/PLN,currency,,,,,eurpln,,,,manual,2026-01-09
+isin_US0378331005,US0378331005,Apple Inc,equity,US,NASDAQ,,AAPL,,,Technology,USD,manual,2026-01-09

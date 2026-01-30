@@ -77,6 +77,99 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | `research-tools` | openalex, perplexity-search, literature-review, citations |
 | `data-processing` | polars, dask, vaex |
 
+### Plugins
+
+| Plugin | Marketplace | global | quant | webdev |
+|--------|-------------|:-:|:-:|:-:|
+| context7 | claude-plugins-official | x | | |
+| github | claude-plugins-official | x | | |
+| commit-commands | claude-plugins-official | x | | |
+| hookify | claude-plugins-official | x | | |
+| code-simplifier | claude-plugins-official | x | | |
+| pyright-lsp | claude-plugins-official | | x | |
+| feature-dev | claude-plugins-official | | x | x |
+| frontend-design | claude-plugins-official | | | x |
+| agent-sdk-dev | claude-plugins-official | | | x |
+| plugin-dev | claude-plugins-official | | | x |
+| forced-eval | qute-marketplace | | x | x |
+| llm-council | qute-marketplace | | x | |
+| llm-external-review | qute-marketplace | | x | |
+| datasets-guide | qute-marketplace | | x | |
+| notifications | qute-marketplace | x | | |
+| context-management | qute-marketplace | x | | |
+| documentation-guide | qute-marketplace | x | | |
+| compound-engineering | every-marketplace | | x | x |
+| document-skills | anthropic-agent-skills | x | | |
+| example-skills | anthropic-agent-skills | x | | |
+
+### MCP Servers
+
+| Server | Package | Bundle | Auth Required |
+|--------|---------|--------|:---:|
+| fetch | @anthropic/mcp-fetch | minimal | |
+| sequential-thinking | @anthropic/mcp-sequential-thinking | minimal | |
+| memory | @anthropic/mcp-memory | minimal | |
+| firecrawl | firecrawl-mcp | quant | FIRECRAWL_API_KEY |
+| postgres | @anthropic/mcp-postgres | quant | POSTGRES_CONNECTION_STRING |
+| brave-search | @anthropic/mcp-brave-search | global | BRAVE_API_KEY |
+| vercel | mcp.vercel.com (HTTP) | webdev | |
+| chrome-devtools | [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) | webdev | |
+| playwright | @anthropic/mcp-playwright | webdev | |
+| docker | @anthropic/mcp-docker | webdev | |
+| figma | @anthropic/mcp-figma | webdev | FIGMA_ACCESS_TOKEN |
+
+### Skills
+
+| Skill | Bundles | Notes |
+|-------|---------|-------|
+| generating-commit-messages | minimal, quant, webdev | Mandatory for commits |
+| worktrees | minimal, quant, webdev | Git worktree management |
+| context-management | quant, webdev | Token budget management |
+| paper-reading | quant | Research paper analysis |
+| sql-patterns | quant | SQL query patterns |
+| market-data-fetcher | quant | Multi-source market data |
+| qrd | quant | Quant R&D specs |
+| pdf-skill | webdev | PDF extraction |
+| garmin-skill | -- | Standalone (not in any bundle) |
+| brand-dm-evo | -- | Project-specific |
+| brand-rockbridge | -- | Project-specific |
+| analizy-pl-data | -- | Polish fund data from analizy.pl |
+
+#### External Skills
+
+| Skill | Sub-bundle | Bundles |
+|-------|------------|---------|
+| scikit-learn | @skills/ml-core | quant |
+| shap | @skills/ml-core | quant |
+| pytorch-lightning | @skills/ml-core | quant |
+| aeon | @skills/ml-core | quant |
+| exploratory-data-analysis | @skills/ml-core | quant |
+| statsmodels | @skills/statistics | quant |
+| pymc | @skills/statistics | quant |
+| scikit-survival | @skills/statistics | quant |
+| statistical-analysis | @skills/statistics | quant |
+| matplotlib | @skills/visualization | -- |
+| seaborn | @skills/visualization | -- |
+| plotly | @skills/visualization | -- |
+| networkx | @skills/visualization | -- |
+| scientific-visualization | @skills/visualization | -- |
+| umap-learn | @skills/visualization | -- |
+| openalex-database | @skills/research-tools | -- |
+| perplexity-search | @skills/research-tools | -- |
+| literature-review | @skills/research-tools | -- |
+| citation-management | @skills/research-tools | -- |
+| polars | @skills/data-processing | -- |
+| dask | @skills/data-processing | -- |
+| vaex | @skills/data-processing | -- |
+| transformers | -- | -- |
+| torch_geometric | -- | -- |
+| sympy | -- | -- |
+| simpy | -- | -- |
+| pymoo | -- | -- |
+| context7 | -- | -- |
+| dignified-python-313 | -- | -- |
+| nano-banana-pro | -- | -- |
+
 ### Other Tools
 
 #### Ralph
@@ -111,6 +204,7 @@ qute-code-kit/
 │   ├── commands/              #   Slash commands
 │   ├── settings/              #   Settings profiles
 │   ├── hooks/                 #   Reusable hooks
+│   ├── mcp/                   #   MCP server configs
 │   ├── bundles/               #   Bundle manifests
 │   ├── rules/                 #   Rule templates (code-quality, general, python, work-org)
 │   └── root-files/            #   CLAUDE.md, AGENTS.md templates

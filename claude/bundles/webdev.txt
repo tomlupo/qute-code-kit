@@ -1,0 +1,28 @@
+# Web Development / Frontend bundle
+@minimal
+
+# Settings
+settings/project-webdev.json
+
+# pyproject
+pyproject/webdev-uv.toml
+
+# Skills
+my:context-management
+my:pdf-skill
+
+# Commands
+commands/gist-report.md
+commands/gist-transcript.md
+
+# Agents
+external:frontend-designer.md
+external:code-refactorer.md
+external:prd-writer.md
+
+# MCP Servers
+mcp:vercel
+mcp:chrome-devtools
+mcp:playwright
+mcp:docker
+mcp:figma

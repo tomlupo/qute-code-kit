@@ -1,3 +1,145 @@
 # qute-code-kit
 
-Repository for AI tools and utilities. See README.md for project structure.
+Reusable Claude Code components, bundled and deployed via `setup-project.sh`. See `README.md` for full inventory and quick-start.
+
+## Architecture
+
+```
+claude/              Source components (rules, skills, agents, commands, hooks, MCP configs, settings)
+claude/bundles/      Bundle manifests — text files listing which components belong together
+templates/           Non-Claude scaffolding (pyproject templates, .gitignore)
+setup-project.sh     Engine — resolves bundles, copies/links components to a target project
+project-templates/   Generated reference outputs (minimal/, quant/, webdev/)
+```
+
+The workflow: **source components** are authored in `claude/`, grouped by **bundles**, and deployed to target projects by `setup-project.sh`. The `project-templates/` directory contains regenerated example outputs for each bundle.
+
+## Component types
+
+| Prefix | Source path | Target path |
+|--------|-------------|-------------|
+| `rules/name.md` | `claude/rules/` | `.claude/rules/` |
+| `root/CLAUDE.md` | `claude/root-files/` | project root |
+| `root/AGENTS.md` | `claude/root-files/` | project root |
+| `settings/name.json` | `claude/settings/` | `.claude/settings.json` |
+| `pyproject/name.toml` | `templates/pyproject/` | `pyproject.toml` |
+| `commands/name.md` | `claude/commands/` | `.claude/commands/` |
+| `hooks/name.py` | `claude/hooks/` | `.claude/hooks/` |
+| `my:name` | `claude/skills/my/` or `claude/agents/my/` | `.claude/skills/` or `.claude/agents/` |
+| `external:name` | `claude/skills/external/` or `claude/agents/external/` | `.claude/skills/` or `.claude/agents/` |
+| `external:scientific/name` | `claude/skills/external/scientific-skills/` | `.claude/skills/` |
+| `mcp:name` | `claude/mcp/name.json` | `.mcp/name/.mcp.json` |
+| `@bundle` | `claude/bundles/bundle.txt` | (expands to listed components) |
+| `@skills/name` | `claude/bundles/skills/name.txt` | (expands to listed components) |
+
+## Adding a new component
+
+### Skill
+
+1. Create `claude/skills/my/skill-name/` with a `SKILL.md` file inside
+2. Add `my:skill-name` to the appropriate bundle `.txt` file(s) in `claude/bundles/`
+3. Add a row to the Skills table in `README.md`
+4. Regenerate affected templates (see below)
+
+### Agent
+
+1. Create `claude/agents/my/agent-name.md` (single file) or `claude/agents/my/agent-name/` (directory with `AGENT.md`)
+2. Add `my:agent-name` or `my:agent-name.md` to bundle file(s)
+3. Update `README.md`
+4. Regenerate templates
+
+### MCP server
+
+1. Create `claude/mcp/servername.json` — use `${ENV_VAR}` for secrets, never hardcode keys
+2. Add `mcp:servername` to bundle file(s)
+3. Add a row to the MCP Servers table in `README.md`
+4. Regenerate templates — `setup-project.sh` auto-populates `.env.example` with required env vars
+
+### Hook
+
+1. Create `claude/hooks/hook-name.py`
+2. Add `hooks/hook-name.py` to bundle file(s)
+3. Regenerate templates
+
+### Command
+
+1. Create `claude/commands/command-name.md`
+2. Add `commands/command-name.md` to bundle file(s)
+3. Regenerate templates
+
+### Rule
+
+1. Create `claude/rules/rule-name.md`
+2. Add `rules/rule-name.md` to bundle file(s)
+3. Regenerate templates
+
+## Bundles
+
+Bundle files live in `claude/bundles/`. Format: one component ref per line, `#` for comments, `@name` to inherit another bundle.
+
+```
+# Example bundle
+@minimal                    # inherit all minimal components
+settings/project-quant.json
+my:paper-reading
+@skills/ml-core             # include a skill sub-bundle
+mcp:firecrawl
+```
+
+### Creating a new bundle
+
+1. Create `claude/bundles/newbundle.txt`
+2. List component refs (one per line); use `@minimal` to inherit the base
+3. Add skill sub-bundles with `@skills/name` if needed
+4. Add a row to the Bundles table in `README.md`
+5. Optionally generate a template: `./setup-project.sh project-templates/newbundle --bundle newbundle`
+
+### Skill sub-bundles
+
+Group related external skills in `claude/bundles/skills/name.txt`. Reference them from bundles as `@skills/name` or add them individually via `--add @skills/name`.
+
+## Refreshing templates
+
+After any component or bundle change, regenerate the affected templates:
+
+```bash
+./setup-project.sh project-templates/minimal --bundle minimal --update
+./setup-project.sh project-templates/quant --bundle quant --update
+./setup-project.sh project-templates/webdev --bundle webdev --update
+```
+
+## Auditing an existing project
+
+Preview what would change without modifying anything:
+
+```bash
+./setup-project.sh ~/projects/existing-project --bundle quant --diff
+```
+
+Check what was previously installed:
+
+```bash
+cat ~/projects/existing-project/.claude/.toolkit-manifest.json
+```
+
+Bring a project up to date with the latest kit:
+
+```bash
+./setup-project.sh ~/projects/existing-project --bundle quant --update
+```
+
+Add individual components to an existing project:
+
+```bash
+./setup-project.sh ~/projects/existing-project --add my:paper-reading
+./setup-project.sh ~/projects/existing-project --add @skills/visualization
+```
+
+## Conventions
+
+- No hardcoded secrets — use `${ENV_VAR}` placeholders in MCP configs
+- No personal paths in committed files
+- MCP configs use cross-platform `npx` (not `cmd /c`)
+- Skills are directories containing `SKILL.md`; agents can be single `.md` files or directories with `AGENT.md`
+- Keep `README.md` tables in sync with bundle contents
+- Always regenerate templates after component or bundle changes

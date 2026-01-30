@@ -1,0 +1,37 @@
+# Quant / Data Science / ML bundle
+@minimal
+
+# Settings
+settings/project-quant.json
+
+# pyproject
+pyproject/quant-uv.toml
+
+# Rules
+rules/python-rules.md
+
+# Skills
+my:context-management
+my:paper-reading
+my:sql-patterns
+my:market-data-fetcher
+my:qrd
+
+# Skill sub-bundles
+@skills/ml-core
+@skills/statistics
+
+# Commands
+commands/gist-report.md
+commands/gist-transcript.md
+
+# Agents
+my:mlflow-analyzer.md
+my:research-paper-analyst
+
+# Hooks
+hooks/post-commit-changelog-hook.py
+
+# MCP Servers
+mcp:firecrawl
+mcp:postgres

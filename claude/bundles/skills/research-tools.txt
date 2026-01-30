@@ -1,0 +1,5 @@
+# Research tools skill sub-bundle
+external:scientific/openalex-database
+external:scientific/perplexity-search
+external:scientific/literature-review
+external:scientific/citation-management

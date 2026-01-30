@@ -1,0 +1,18 @@
+{
+  "source": "/home/twilc/projects/qute-code-kit",
+  "bundle": "minimal",
+  "installed": "2026-01-30T10:45:52Z",
+  "mode": "copy",
+  "components": [
+    {"type": "rule", "name": "code-quality.md", "src": "rules/code-quality.md"},
+    {"type": "rule", "name": "general-rules.md", "src": "rules/general-rules.md"},
+    {"type": "rule", "name": "work-organization.md", "src": "rules/work-organization.md"},
+    {"type": "root", "name": "CLAUDE.md", "src": "root/CLAUDE.md"},
+    {"type": "root", "name": "AGENTS.md", "src": "root/AGENTS.md"},
+    {"type": "skill", "name": "generating-commit-messages", "src": "my:generating-commit-messages"},
+    {"type": "skill", "name": "worktrees", "src": "my:worktrees"},
+    {"type": "mcp", "name": "fetch", "src": "mcp:fetch"},
+    {"type": "mcp", "name": "sequential-thinking", "src": "mcp:sequential-thinking"},
+    {"type": "mcp", "name": "memory", "src": "mcp:memory"}
+  ]
+}

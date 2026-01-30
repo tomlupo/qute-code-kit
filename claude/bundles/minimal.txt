@@ -1,0 +1,20 @@
+# Minimal bundle — rules + root files + essential skills
+# Base for all other bundles
+
+# Rules (from project-templates/quant/)
+rules/code-quality.md
+rules/general-rules.md
+rules/work-organization.md
+
+# Root files
+root/CLAUDE.md
+root/AGENTS.md
+
+# Skills
+my:generating-commit-messages
+my:worktrees
+
+# MCP Servers
+mcp:fetch
+mcp:sequential-thinking
+mcp:memory

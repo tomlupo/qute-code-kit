@@ -37,7 +37,7 @@ Arguments:
 
 Options:
   --bundle <name>        Apply bundle (minimal, quant, webdev)
-  --add <component>      Add single component (e.g., my:ai-review, commands/gist-report.md)
+  --add <component>      Add single component (e.g., my:ai-review, mcp:playwright)
   --add @<sub-bundle>    Add skill sub-bundle (e.g., @skills/visualization)
   --link                 Symlink instead of copy
   --diff                 Dry run — show what would be installed
@@ -52,6 +52,7 @@ Examples:
   setup-project.sh ~/projects/new-fund --bundle quant --init
   setup-project.sh ~/projects/existing-app --bundle webdev
   setup-project.sh ~/projects/app --add my:ai-review
+  setup-project.sh ~/projects/app --add mcp:playwright
   setup-project.sh ~/projects/app --add @skills/visualization
   setup-project.sh ~/projects/app --bundle quant --diff
   setup-project.sh ~/projects/app --update
@@ -118,6 +119,12 @@ resolve_source() {
                 src="$CLAUDE_DIR/agents/external/$name"
             fi
             ;;
+        mcp:*)
+            local name="${ref#mcp:}"
+            if [ -f "$CLAUDE_DIR/mcp/$name.json" ]; then
+                src="$CLAUDE_DIR/mcp/$name.json"
+            fi
+            ;;
     esac
 
     echo "$src"
@@ -180,6 +187,10 @@ resolve_target() {
                 echo "$target_dir/.claude/agents/$name"
             fi
             ;;
+        mcp:*)
+            local name="${ref#mcp:}"
+            echo "$target_dir/.mcp/$name/.mcp.json"
+            ;;
         *)
             echo ""
             ;;
@@ -207,6 +218,7 @@ detect_type() {
                 echo "unknown"
             fi
             ;;
+        mcp:*) echo "mcp" ;;
         *) echo "unknown" ;;
     esac
 }
@@ -351,6 +363,7 @@ write_manifest() {
             pyproject/*)          comp_name="${ref#pyproject/}" ;;
             commands/*)           comp_name="${ref#commands/}" ;;
             hooks/*)              comp_name="${ref#hooks/}" ;;
+            mcp:*)                comp_name="${ref#mcp:}" ;;
             my:*)                 comp_name="${ref#my:}" ;;
             external:scientific/*) comp_name="${ref#external:scientific/}" ;;
             external:*)           comp_name="${ref#external:}" ;;
@@ -436,6 +449,11 @@ list_components() {
         [ -f "$f" ] && echo "  rules/$(basename "$f")"
     done
 
+    header "MCP Servers"
+    for f in "$CLAUDE_DIR"/mcp/*.json; do
+        [ -f "$f" ] && echo "  mcp:$(basename "$f" .json)"
+    done
+
     header "pyproject Templates"
     for f in "$SCRIPT_DIR"/templates/pyproject/*.toml; do
         [ -f "$f" ] && echo "  pyproject/$(basename "$f")"
@@ -503,6 +521,65 @@ init_dirs() {
             cp "$gi_template" "$gi_target"
             info "Created .gitignore from template"
         fi
+    fi
+}
+
+# ---- .env.example for MCP env vars ------------------------------------------
+
+update_env_example() {
+    local target_dir="$1"
+    shift
+    local components=("$@")
+
+    # Collect env vars from MCP configs
+    local env_vars=()
+    for ref in "${components[@]}"; do
+        if [[ "$ref" != mcp:* ]]; then
+            continue
+        fi
+        local name="${ref#mcp:}"
+        local src="$CLAUDE_DIR/mcp/$name.json"
+        [ -f "$src" ] || continue
+        # Extract ${VAR_NAME} patterns from the file
+        while IFS= read -r var; do
+            env_vars+=("$var")
+        done < <(grep -oP '\$\{\K[^}]+' "$src" 2>/dev/null || true)
+    done
+
+    [ ${#env_vars[@]} -eq 0 ] && return 0
+
+    # Deduplicate
+    local unique_vars=()
+    for var in "${env_vars[@]}"; do
+        local found=0
+        for u in "${unique_vars[@]+"${unique_vars[@]}"}"; do
+            [ "$u" = "$var" ] && found=1 && break
+        done
+        [ "$found" = "0" ] && unique_vars+=("$var")
+    done
+
+    local env_file="$target_dir/.env.example"
+    local needs_header=1
+    if [ -f "$env_file" ] && grep -q "# MCP Server" "$env_file" 2>/dev/null; then
+        needs_header=0
+    fi
+
+    local added=0
+    for var in "${unique_vars[@]}"; do
+        if [ -f "$env_file" ] && grep -q "^${var}=" "$env_file" 2>/dev/null; then
+            continue
+        fi
+        if [ "$needs_header" = "1" ]; then
+            [ -f "$env_file" ] && echo "" >> "$env_file"
+            echo "# MCP Server API keys" >> "$env_file"
+            needs_header=0
+        fi
+        echo "${var}=" >> "$env_file"
+        ((added++)) || true
+    done
+
+    if [ "$added" -gt 0 ]; then
+        info "Updated .env.example with $added MCP env var(s)"
     fi
 }
 
@@ -683,6 +760,7 @@ main() {
     # Write manifest (skip in dry run)
     if [ "$dry_run" != "1" ] && [ ${#installed[@]} -gt 0 ]; then
         write_manifest "$target" "${bundle:-custom}" "$mode_label" "${installed[@]}"
+        update_env_example "$target" "${installed[@]}"
     fi
 
     # Summary

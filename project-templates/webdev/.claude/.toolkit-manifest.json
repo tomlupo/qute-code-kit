@@ -1,0 +1,32 @@
+{
+  "source": "/home/twilc/projects/qute-code-kit",
+  "bundle": "webdev",
+  "installed": "2026-01-30T12:04:12Z",
+  "mode": "copy",
+  "components": [
+    {"type": "rule", "name": "code-quality.md", "src": "rules/code-quality.md"},
+    {"type": "rule", "name": "general-rules.md", "src": "rules/general-rules.md"},
+    {"type": "rule", "name": "work-organization.md", "src": "rules/work-organization.md"},
+    {"type": "root", "name": "CLAUDE.md", "src": "root/CLAUDE.md"},
+    {"type": "root", "name": "AGENTS.md", "src": "root/AGENTS.md"},
+    {"type": "skill", "name": "generating-commit-messages", "src": "my:generating-commit-messages"},
+    {"type": "skill", "name": "worktrees", "src": "my:worktrees"},
+    {"type": "mcp", "name": "fetch", "src": "mcp:fetch"},
+    {"type": "mcp", "name": "sequential-thinking", "src": "mcp:sequential-thinking"},
+    {"type": "mcp", "name": "memory", "src": "mcp:memory"},
+    {"type": "settings", "name": "project-webdev.json", "src": "settings/project-webdev.json"},
+    {"type": "pyproject", "name": "webdev-uv.toml", "src": "pyproject/webdev-uv.toml"},
+    {"type": "skill", "name": "context-management", "src": "my:context-management"},
+    {"type": "skill", "name": "pdf-skill", "src": "my:pdf-skill"},
+    {"type": "command", "name": "gist-report.md", "src": "commands/gist-report.md"},
+    {"type": "command", "name": "gist-transcript.md", "src": "commands/gist-transcript.md"},
+    {"type": "agent", "name": "frontend-designer.md", "src": "external:frontend-designer.md"},
+    {"type": "agent", "name": "code-refactorer.md", "src": "external:code-refactorer.md"},
+    {"type": "agent", "name": "prd-writer.md", "src": "external:prd-writer.md"},
+    {"type": "mcp", "name": "vercel", "src": "mcp:vercel"},
+    {"type": "mcp", "name": "chrome-devtools", "src": "mcp:chrome-devtools"},
+    {"type": "mcp", "name": "playwright", "src": "mcp:playwright"},
+    {"type": "mcp", "name": "docker", "src": "mcp:docker"},
+    {"type": "mcp", "name": "figma", "src": "mcp:figma"}
+  ]
+}
