@@ -32,14 +32,41 @@ The workflow: **source components** are authored in `claude/`, grouped by **bund
 | `@bundle` | `claude/bundles/bundle.txt` | (expands to listed components) |
 | `@skills/name` | `claude/bundles/skills/name.txt` | (expands to listed components) |
 
+## Skills and slash commands
+
+Slash commands and skills are now unified in Claude Code. Every skill can be invoked with `/` syntax, and every slash command can be called as a skill. **Prefer creating skills over commands** for new components — skills support progressive disclosure, subagent integration, and new invocation controls.
+
+### Skill frontmatter properties
+
+| Property | Values | Default | Purpose |
+|----------|--------|---------|---------|
+| `name` | string | (required) | Skill identifier |
+| `description` | string | (required) | When to use this skill (include trigger phrases) |
+| `user-invocable` | `true` / `false` | `true` | Whether users can invoke via `/skill-name` |
+| `disable-model-invocation` | `true` / `false` | `false` | Prevent model from auto-invoking |
+| `agent` | agent name (e.g. `Explore`) | (none) | Spawn a subagent to execute the skill |
+| `context` | `fork` | (none) | Fork context for parallel execution |
+
+**When to use each property:**
+
+- `disable-model-invocation: true` — For user-initiated actions only (e.g., `gist-report`, `gist-transcript`)
+- `user-invocable: false` — For model-only skills (e.g., `context-management` which the model should auto-apply)
+- `agent: <name>` — For search/research skills where a subagent protects the main context window (e.g., `paper-reading` with `agent: Explore`)
+- `context: fork` — For skills that produce side-output in parallel (e.g., `readme` generation, memory/summarization)
+
+### Existing commands
+
+The `claude/commands/` directory still works for backward compatibility. Existing `commands/` refs in bundles are still supported by `setup-project.sh`. However, new user-invocable actions should be created as skills instead.
+
 ## Adding a new component
 
 ### Skill
 
 1. Create `claude/skills/my/skill-name/` with a `SKILL.md` file inside
-2. Add `my:skill-name` to the appropriate bundle `.txt` file(s) in `claude/bundles/`
-3. Add a row to the Skills table in `README.md`
-4. Regenerate affected templates (see below)
+2. Add frontmatter with `name`, `description`, and any invocation controls (`disable-model-invocation`, `user-invocable`, `agent`, `context`)
+3. Add `my:skill-name` to the appropriate bundle `.txt` file(s) in `claude/bundles/`
+4. Add a row to the Skills table in `README.md`
+5. Regenerate affected templates (see below)
 
 ### Agent
 
@@ -61,11 +88,12 @@ The workflow: **source components** are authored in `claude/`, grouped by **bund
 2. Add `hooks/hook-name.py` to bundle file(s)
 3. Regenerate templates
 
-### Command
+### Command (legacy — prefer skills)
 
 1. Create `claude/commands/command-name.md`
 2. Add `commands/command-name.md` to bundle file(s)
 3. Regenerate templates
+4. **Note:** Consider creating a skill instead — skills support subagents, invocation controls, and progressive disclosure
 
 ### Rule
 
@@ -141,5 +169,7 @@ Add individual components to an existing project:
 - No personal paths in committed files
 - MCP configs use cross-platform `npx` (not `cmd /c`)
 - Skills are directories containing `SKILL.md`; agents can be single `.md` files or directories with `AGENT.md`
+- Prefer skills over commands for new user-invocable actions
+- Use skill frontmatter properties (`agent`, `context`, `disable-model-invocation`, `user-invocable`) to control invocation behavior
 - Keep `README.md` tables in sync with bundle contents
 - Always regenerate templates after component or bundle changes

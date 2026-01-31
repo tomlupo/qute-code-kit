@@ -1,6 +1,7 @@
 ---
 name: readme
 description: When the user wants to create or update a README.md file for a project. Also use when the user says "write readme," "create readme," "document this project," "project documentation," or asks for help with README.md. This skill creates absurdly thorough documentation for Python quantitative development and research projects, covering local setup, architecture, data pipelines, and reproducibility.
+context: fork
 ---
 
 # README Generator — Python Quantitative Development & Research

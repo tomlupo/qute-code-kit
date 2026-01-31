@@ -21,9 +21,9 @@ my:qrd
 @skills/ml-core
 @skills/statistics
 
-# Commands
-commands/gist-report.md
-commands/gist-transcript.md
+# Skills (formerly commands — now skills per slash/skill merge)
+my:gist-report
+my:gist-transcript
 
 # Agents
 my:mlflow-analyzer.md
