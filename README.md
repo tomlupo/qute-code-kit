@@ -43,7 +43,7 @@ A collection of AI tools and utilities for autonomous coding, skill creation, an
 ./setup-project.sh ~/projects/app --add @skills/visualization
 
 # Add multiple components
-./setup-project.sh ~/projects/app --add my:sql-patterns --add commands/gist-report.md
+./setup-project.sh ~/projects/app --add my:sql-patterns --add my:gist-report
 
 # Update existing project (overwrite)
 ./setup-project.sh ~/projects/app --update --bundle quant
@@ -64,8 +64,8 @@ A collection of AI tools and utilities for autonomous coding, skill creation, an
 | Bundle | Contents | Use For |
 |--------|----------|---------|
 | `minimal` | Rules, CLAUDE.md, AGENTS.md, commit messages, worktrees | Any project |
-| `quant` | minimal + ML skills, scientific skills, MLflow, paper reading | Data science, ML, quant |
-| `webdev` | minimal + frontend agents, web settings | Web apps, frontend |
+| `quant` | minimal + ML skills, scientific skills, MLflow, paper reading, gist skills | Data science, ML, quant |
+| `webdev` | minimal + frontend agents, web settings, gist skills | Web apps, frontend |
 
 Skill sub-bundles (use with `--add @skills/<name>`):
 
@@ -120,15 +120,20 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 
 ### Skills
 
+> **Note:** Slash commands and skills are now unified in Claude Code. Skills support invocation controls (`disable-model-invocation`, `user-invocable`), subagent delegation (`agent`), and context forking (`context: fork`). See `CLAUDE.md` for details.
+
 | Skill | Bundles | Notes |
 |-------|---------|-------|
 | generating-commit-messages | minimal, quant, webdev | Mandatory for commits |
 | worktrees | minimal, quant, webdev | Git worktree management |
-| context-management | quant, webdev | Token budget management |
-| paper-reading | quant | Research paper analysis |
+| context-management | quant, webdev | Token budget management; `user-invocable: false` |
+| paper-reading | quant | Research paper analysis; `agent: Explore` |
 | sql-patterns | quant | SQL query patterns |
 | market-data-fetcher | quant | Multi-source market data |
 | qrd | quant | Quant R&D specs |
+| gist-report | quant, webdev | Shareable HTML reports via gist; `disable-model-invocation: true` |
+| gist-transcript | quant, webdev | Session transcript gist; `disable-model-invocation: true` |
+| readme | -- | README generation; `context: fork` |
 | pdf-skill | webdev | PDF extraction |
 | garmin-skill | -- | Standalone (not in any bundle) |
 | brand-dm-evo | -- | Project-specific |
@@ -201,7 +206,7 @@ qute-code-kit/
 ├── claude/                    # ALL Claude source components
 │   ├── skills/                #   my/ + external/
 │   ├── agents/                #   my/ + external/
-│   ├── commands/              #   Slash commands
+│   ├── commands/              #   Legacy slash commands (prefer skills)
 │   ├── settings/              #   Settings profiles
 │   ├── hooks/                 #   Reusable hooks
 │   ├── mcp/                   #   MCP server configs

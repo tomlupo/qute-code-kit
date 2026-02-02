@@ -1,9 +1,10 @@
 ---
 name: paper-reading
 description: |
-  Active reading and analysis of research papers. Use when reading academic papers, extracting insights, 
-  summarizing findings, or evaluating research quality. Triggers: "read this paper", "analyze paper", 
+  Active reading and analysis of research papers. Use when reading academic papers, extracting insights,
+  summarizing findings, or evaluating research quality. Triggers: "read this paper", "analyze paper",
   "summarize paper", "what does this paper say", "extract insights", "paper review", "literature review"
+agent: Explore
 ---
 
 # Paper Reading & Analysis
