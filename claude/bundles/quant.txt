@@ -9,6 +9,7 @@ pyproject/quant-uv.toml
 
 # Rules
 rules/python-rules.md
+rules/datasets.md
 
 # Skills
 my:context-management

@@ -1,10 +1,12 @@
 # Minimal bundle — rules + root files + essential skills
 # Base for all other bundles
 
-# Rules (from project-templates/quant/)
+# Rules
 rules/code-quality.md
 rules/general-rules.md
 rules/work-organization.md
+rules/context-management.md
+rules/documentation.md
 
 # Root files
 root/CLAUDE.md
