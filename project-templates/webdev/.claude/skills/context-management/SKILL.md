@@ -4,6 +4,7 @@ description: |
   Strategies for managing context/token budget in long conversations.
   Use when working on large codebases, extensive analysis, or multi-step tasks.
   Triggers: long tasks, large files, multiple searches, "running low on context", complex exploration
+user-invocable: false
 ---
 
 # Context Management Strategies

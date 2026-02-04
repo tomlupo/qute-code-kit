@@ -9,6 +9,7 @@ pyproject/quant-uv.toml
 
 # Rules
 rules/python-rules.md
+rules/python-patterns.md
 rules/datasets.md
 
 # Skills
@@ -29,6 +30,7 @@ my:gist-transcript
 # Agents
 my:mlflow-analyzer.md
 my:research-paper-analyst
+external:python-reviewer.md
 
 # Hooks
 hooks/post-commit-changelog-hook.py

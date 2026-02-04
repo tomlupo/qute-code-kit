@@ -15,6 +15,8 @@ root/AGENTS.md
 # Skills
 my:generating-commit-messages
 my:worktrees
+my:readme
+my:llm-external-review
 
 # MCP Servers
 mcp:fetch

@@ -1,6 +1,8 @@
 ---
 name: market-data-fetcher
 description: Fetch market data from multiple sources (Stooq, NBP, Yahoo Finance, FRED, pandas-datareader) with intelligent routing. Best for ad-hoc data queries, multi-source comparisons, and historical data downloads. Use when users request stock prices, indices, FX rates, or economic indicators.
+argument-hint: "[ticker] [start-date] [end-date]"
+allowed-tools: Bash, Read
 ---
 
 # Market Data Fetcher Skill

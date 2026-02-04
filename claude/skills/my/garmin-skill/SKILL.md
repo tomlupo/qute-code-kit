@@ -2,6 +2,8 @@
 name: garmin-health
 description: Token-efficient Garmin health data access via pre-computed SQLite summaries. Use for "health stats", "HRV", "sleep", "Garmin", "stress", "recovery", "training readiness", "body battery", or when preparing health briefings.
 version: 1.0.0
+argument-hint: "[command] [metric]"
+allowed-tools: Bash
 ---
 
 # Garmin Health Skill

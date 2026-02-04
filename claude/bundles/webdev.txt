@@ -1,6 +1,9 @@
 # Web Development / Frontend bundle
 @minimal
 
+# Rules
+rules/coding-standards.md
+
 # Settings
 settings/project-webdev.json
 
@@ -19,6 +22,8 @@ my:gist-transcript
 external:frontend-designer.md
 external:code-refactorer.md
 external:prd-writer.md
+external:security-auditor.md
+external:project-task-planner.md
 
 # MCP Servers
 mcp:vercel

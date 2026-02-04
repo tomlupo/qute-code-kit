@@ -4,6 +4,7 @@ description: |
   SQL query patterns, best practices, and templates.
   Use when writing queries, exploring databases, or analyzing data.
   Triggers: SQL, database queries, data analysis, schema exploration, "write a query"
+allowed-tools: Read, Grep, Glob
 ---
 
 # SQL Query Patterns

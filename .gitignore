@@ -80,6 +80,7 @@ out/
 ehthumbs.db
 Thumbs.db
 desktop.ini
+*:Zone.Identifier
 
 # Environment variables
 .env

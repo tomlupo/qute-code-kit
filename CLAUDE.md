@@ -40,12 +40,16 @@ Slash commands and skills are now unified in Claude Code. Every skill can be inv
 
 | Property | Values | Default | Purpose |
 |----------|--------|---------|---------|
-| `name` | string | (required) | Skill identifier |
-| `description` | string | (required) | When to use this skill (include trigger phrases) |
+| `name` | string | directory name | Skill identifier (lowercase, hyphens, max 64 chars) |
+| `description` | string | first paragraph | When to use this skill (include trigger phrases) |
+| `argument-hint` | string | (none) | Hint shown during autocomplete (e.g., `[issue-number]`) |
 | `user-invocable` | `true` / `false` | `true` | Whether users can invoke via `/skill-name` |
 | `disable-model-invocation` | `true` / `false` | `false` | Prevent model from auto-invoking |
-| `agent` | agent name (e.g. `Explore`) | (none) | Spawn a subagent to execute the skill |
-| `context` | `fork` | (none) | Fork context for parallel execution |
+| `allowed-tools` | tool names | (all) | Restrict tools when skill is active (e.g., `Read, Grep, Glob`) |
+| `model` | model name | (inherit) | Model to use when skill is active |
+| `agent` | agent name (e.g. `Explore`) | (none) | Subagent type when `context: fork` is set |
+| `context` | `fork` | (none) | Fork context for isolated subagent execution |
+| `hooks` | hook config | (none) | Lifecycle hooks scoped to this skill (see Hooks section) |
 
 **When to use each property:**
 
@@ -53,6 +57,23 @@ Slash commands and skills are now unified in Claude Code. Every skill can be inv
 - `user-invocable: false` — For model-only skills (e.g., `context-management` which the model should auto-apply)
 - `agent: <name>` — For search/research skills where a subagent protects the main context window (e.g., `paper-reading` with `agent: Explore`)
 - `context: fork` — For skills that produce side-output in parallel (e.g., `readme` generation, memory/summarization)
+- `allowed-tools` — For read-only or restricted skills (e.g., a safe-reader with `Read, Grep, Glob`)
+- `model` — When a specific model is better suited (e.g., `haiku` for lightweight agents)
+- `argument-hint` — For skills invoked with arguments (e.g., `/fix-issue [issue-number]`)
+- `hooks` — For skills that need validation before tool calls (e.g., security checks on Bash commands)
+
+### Skill dynamic features
+
+**String substitutions** in skill content:
+
+| Variable | Description |
+|----------|-------------|
+| `$ARGUMENTS` | All arguments passed when invoking the skill |
+| `$ARGUMENTS[N]` | Specific argument by 0-based index |
+| `$N` | Shorthand for `$ARGUMENTS[N]` |
+| `${CLAUDE_SESSION_ID}` | Current session ID |
+
+**Dynamic context injection:** Use `` !`command` `` to run shell commands before skill content is sent to Claude. The command output replaces the placeholder.
 
 ### Existing commands
 
@@ -63,7 +84,7 @@ The `claude/commands/` directory still works for backward compatibility. Existin
 ### Skill
 
 1. Create `claude/skills/my/skill-name/` with a `SKILL.md` file inside
-2. Add frontmatter with `name`, `description`, and any invocation controls (`disable-model-invocation`, `user-invocable`, `agent`, `context`)
+2. Add frontmatter with `name`, `description`, and any controls (`disable-model-invocation`, `user-invocable`, `allowed-tools`, `model`, `agent`, `context`, `hooks`)
 3. Add `my:skill-name` to the appropriate bundle `.txt` file(s) in `claude/bundles/`
 4. Add a row to the Skills table in `README.md`
 5. Regenerate affected templates (see below)
@@ -71,9 +92,23 @@ The `claude/commands/` directory still works for backward compatibility. Existin
 ### Agent
 
 1. Create `claude/agents/my/agent-name.md` (single file) or `claude/agents/my/agent-name/` (directory with `AGENT.md`)
-2. Add `my:agent-name` or `my:agent-name.md` to bundle file(s)
-3. Update `README.md`
-4. Regenerate templates
+2. Add frontmatter with `name`, `description`, and any controls (see table below)
+3. Add `my:agent-name` or `my:agent-name.md` to bundle file(s)
+4. Update `README.md`
+5. Regenerate templates
+
+#### Agent frontmatter properties
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `name` | Yes | Unique identifier (lowercase, hyphens) |
+| `description` | Yes | When Claude should delegate to this agent |
+| `tools` | No | Allowed tools (inherits all if omitted) |
+| `disallowedTools` | No | Tools to deny from inherited list |
+| `model` | No | `sonnet`, `opus`, `haiku`, or `inherit` (default) |
+| `permissionMode` | No | `default`, `acceptEdits`, `dontAsk`, `bypassPermissions`, `plan` |
+| `skills` | No | Skills preloaded into agent context at startup |
+| `hooks` | No | Lifecycle hooks scoped to this agent |
 
 ### MCP server
 
@@ -84,9 +119,29 @@ The `claude/commands/` directory still works for backward compatibility. Existin
 
 ### Hook
 
+Hooks can be defined in two ways:
+
+**Standalone scripts** (deployed via bundles):
 1. Create `claude/hooks/hook-name.py`
 2. Add `hooks/hook-name.py` to bundle file(s)
-3. Regenerate templates
+3. Configure the hook event in `settings.json` (see below)
+4. Regenerate templates
+
+**In skill/agent frontmatter** (scoped to component lifecycle):
+```yaml
+hooks:
+  PreToolUse:
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: "./scripts/validate.sh"
+```
+
+Hook types: `command` (shell script), `prompt` (LLM evaluation), `agent` (multi-turn subagent verification).
+
+Hook events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `PermissionRequest`, `Notification`, `SubagentStart`, `SubagentStop`, `Stop`, `PreCompact`, `SessionEnd`.
+
+Options: `once: true` (run once per session, skills only), `async: true` (non-blocking, command hooks only).
 
 ### Command (legacy — prefer skills)
 
@@ -170,6 +225,7 @@ Add individual components to an existing project:
 - MCP configs use cross-platform `npx` (not `cmd /c`)
 - Skills are directories containing `SKILL.md`; agents can be single `.md` files or directories with `AGENT.md`
 - Prefer skills over commands for new user-invocable actions
-- Use skill frontmatter properties (`agent`, `context`, `disable-model-invocation`, `user-invocable`) to control invocation behavior
+- Use skill frontmatter properties (`allowed-tools`, `model`, `agent`, `context`, `hooks`, `disable-model-invocation`, `user-invocable`) to control behavior
+- Use agent frontmatter properties (`tools`, `disallowedTools`, `model`, `permissionMode`, `skills`, `hooks`) for subagent configuration
 - Keep `README.md` tables in sync with bundle contents
 - Always regenerate templates after component or bundle changes

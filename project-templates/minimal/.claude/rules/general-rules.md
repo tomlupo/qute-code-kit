@@ -37,26 +37,11 @@ When the user highlights a problem (e.g., types "analyze problem", "fix error", 
 2. Narrow down to the 1-2 most likely causes using recent context and prior steps.
 3. Insert diagnostics, print statements, or logs to validate assumptions before proposing or implementing a fix.
 
-## Documentation
-- Target 100-250 lines per document; note at top if exceeding
-- Use clear headings, code examples, bullet points, tables
-
-## Data Files
-- Raw data is immutable - never modify in place
-- Every dataset needs documentation at `docs/datasets/{name}.md`
-- Processing flow: `data/raw/` -> (`data/intermediate/` if needed) -> `data/processed/`
-
 ## Task Tracking
+
 - TASKS.md tracks project work: Now (1-2) / Next (3-5) / Later / Completed
 - Complex tasks get planning docs at `docs/tasks/{name}.md`
 - Use TodoWrite for immediate conversation-level step tracking
-
-## Context Management
-
-- **Search before reading** - find relevant files with grep/glob before opening them
-- **Progressive disclosure** - read headers/first 50 lines first, deep-dive only if relevant
-- **Save large outputs to files** - query results >100 rows, generated code >100 lines -> write to file, show summary in chat
-- **When exploring broadly** (5+ files) - extract key points to a digest file instead of holding everything in context
 
 ## Proactive Use of Capabilities
 
@@ -69,6 +54,7 @@ When the user highlights a problem (e.g., types "analyze problem", "fix error", 
 ### Claude Code Specific
 
 When using Claude Code, leverage specialized subagents:
+
 - `Explore` agent for codebase understanding questions
 - `code-reviewer` agent after significant code changes
 - `prd-writer` for product requirements documents

@@ -1,0 +1,21 @@
+{
+  "format": "TSV for Anki import: Front<TAB>Back<TAB>Tags",
+  "counts": {
+    "general": 250,
+    "sport_fitness": 120,
+    "travel": 100,
+    "tech": 70,
+    "investing": 60
+  },
+  "tags": [
+    "general",
+    "sport_fitness",
+    "travel",
+    "tech",
+    "investing"
+  ],
+  "import_notes": [
+    "In Anki: File -> Import -> select TSV; set fields: Front, Back, Tags.",
+    "If tags don't import automatically, map the 3rd column to 'Tags'."
+  ]
+}
