@@ -137,5 +137,8 @@ htmlcov/
 coverage.xml
 *.cover
 
-# External repos
+# External plugins (cloned from GitHub)
+external/
+
+# Other local repos
 repos/
