@@ -6,10 +6,10 @@ A collection of AI tools and utilities for autonomous coding, skill creation, an
 - **Setup Script** (`setup-project.sh`): Bootstrap Claude Code projects with skills, agents, rules, and configs
 - Ralph (`repos/ralph/README.md`): file-based agent loop for autonomous coding
 - SkillForge (`repos/SkillForge/README.md`): 4-phase methodology for skill creation
-- Claude Marketplace (`claude-marketplace/README.md`): personal Claude Code plugin marketplace
+- Plugins (`plugins/`): Runtime hooks and commands (doc-enforcer, forced-eval, notifications, etc.)
 - Claude Skills (`claude/skills/README.md`): custom and external skills for Claude Code
 - Claude Agents (`claude/agents/`): custom and external agent definitions
-- Clawdbot (`clawdbot/`): auxiliary tools and skills for booking analysis
+- Documentation (`docs/`): Guides and tutorials
 - Project Templates (`project-templates/`): starter templates and guidance
 - Prompts (`prompts/`): prompt references and templates
 - Resources (`resources/README.md`): external references and experiments
@@ -190,18 +190,23 @@ cp -r repos/SkillForge ~/.claude/skills/
 # Then use: SkillForge: {goal}
 ```
 
-#### Claude Marketplace
+#### Plugins (Marketplace)
+The `plugins/` directory contains runtime hooks and commands. Install the full marketplace:
 ```bash
-claude plugin install ~/projects/qute-code-kit/claude-marketplace
-# Or from GitHub:
-claude plugin install github:twilc/claude-marketplace
+claude plugin install github:tomlupo/qute-code-kit
 ```
+
+Or install locally during development:
+```bash
+claude plugin install /path/to/qute-code-kit
+```
+
+See `docs/plugins-explained.md` for details.
 
 ## Directory Map
 ```
 qute-code-kit/
-├── setup-project.sh           # Project setup script
-├── setup-project.bat          # Windows wrapper (WSL)
+├── setup-project.sh           # Symlink to scripts/setup-project.sh
 ├── CLAUDE.md                  # Repo-wide Claude guidance
 ├── claude/                    # ALL Claude source components
 │   ├── skills/                #   my/ + external/
@@ -211,19 +216,21 @@ qute-code-kit/
 │   ├── hooks/                 #   Reusable hooks
 │   ├── mcp/                   #   MCP server configs
 │   ├── bundles/               #   Bundle manifests
-│   ├── rules/                 #   Rule templates (code-quality, general, python, work-org)
+│   ├── rules/                 #   Rule templates
 │   └── root-files/            #   CLAUDE.md, AGENTS.md templates
+├── plugins/                   # Runtime hooks/commands (marketplace)
+├── external/                  # External plugins (gitignored)
+├── docs/                      # Documentation
+│   ├── getting-started.md
+│   ├── bundles-explained.md
+│   ├── plugins-explained.md
+│   └── workflows/
+├── scripts/                   # All tooling
+│   ├── setup-project.sh       #   Bundle deployment
+│   ├── build-marketplace.py   #   Plugin manifest builder
+│   └── ...
 ├── templates/                 # Non-Claude project scaffolding
-│   ├── pyproject/             #   python-uv, quant-uv, webdev-uv
-│   └── .gitignore.claude
 ├── project-templates/         # GENERATED example outputs
-│   ├── archive-quant/         #   Legacy reference
-│   ├── minimal/               #   setup-project.sh --bundle minimal
-│   ├── quant/                 #   setup-project.sh --bundle quant
-│   └── webdev/                #   setup-project.sh --bundle webdev
-├── claude-marketplace/        # Claude Code plugin marketplace
-├── clawdbot/                  # Clawdbot tools and skills
-├── repos/                     # Subprojects (Ralph, SkillForge)
 ├── resources/                 # External links and experiments
 └── prompts/                   # Prompt references
 ```
