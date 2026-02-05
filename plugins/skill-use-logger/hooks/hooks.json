@@ -1,0 +1,16 @@
+{
+  "description": "Logs skill invocations to .claude/skill-use-log.jsonl",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/log_skill_use.py",
+            "tools": ["Skill"]
+          }
+        ]
+      }
+    ]
+  }
+}

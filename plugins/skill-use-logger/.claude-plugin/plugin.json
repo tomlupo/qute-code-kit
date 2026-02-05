@@ -1,0 +1,7 @@
+{
+  "name": "skill-use-logger",
+  "description": "Logs skill invocations to .claude/skill-use-log.jsonl for analytics",
+  "author": {
+    "name": "twilc"
+  }
+}

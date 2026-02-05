@@ -1,0 +1,12 @@
+{
+  "name": "session-persistence",
+  "version": "1.0.0",
+  "description": "Persist session state across Claude sessions — saves what you were working on and reports it on next start",
+  "author": "twilc",
+  "commands": [
+    "commands/list.md",
+    "commands/load.md"
+  ],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}

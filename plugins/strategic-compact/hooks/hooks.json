@@ -1,0 +1,25 @@
+{
+  "description": "Strategic context compaction suggestions at logical intervals",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/suggest_compact.py"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/pre_compact.py"
+          }
+        ]
+      }
+    ]
+  }
+}

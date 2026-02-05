@@ -1,0 +1,7 @@
+{
+  "name": "session-persistence",
+  "description": "Persist session state across Claude sessions \u2014 saves what you were working on and reports it on next start",
+  "author": {
+    "name": "twilc"
+  }
+}

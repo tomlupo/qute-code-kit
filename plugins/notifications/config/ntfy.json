@@ -1,0 +1,19 @@
+{
+  "server": "https://ntfy.sh",
+  "topic": "claude-notifications",
+  "priority": "default",
+  "tags": ["robot"],
+  "events": {
+    "task_complete": true,
+    "build_success": true,
+    "build_failure": true,
+    "test_complete": true,
+    "commit": false,
+    "error": true,
+    "session_end": false
+  },
+  "filters": {
+    "min_duration_seconds": 30,
+    "commands": ["npm", "python", "pytest", "make", "cargo"]
+  }
+}

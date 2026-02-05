@@ -1,0 +1,16 @@
+{
+  "description": "Track code and doc file edits, remind when docs may need updating",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/track_edits.py",
+            "tools": ["Edit", "Write"]
+          }
+        ]
+      }
+    ]
+  }
+}

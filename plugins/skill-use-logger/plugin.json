@@ -1,0 +1,9 @@
+{
+  "name": "skill-use-logger",
+  "version": "1.0.0",
+  "description": "Logs skill invocations to .claude/skill-use-log.jsonl for analytics",
+  "author": "twilc",
+  "commands": [],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}

@@ -1,0 +1,15 @@
+{
+  "name": "notifications",
+  "version": "1.0.0",
+  "description": "Push notifications via ntfy.sh for Claude events",
+  "author": "twilc",
+  "commands": [
+    "commands/send.md",
+    "commands/config.md",
+    "commands/test.md",
+    "commands/gist-report.md",
+    "commands/gist-transcript.md"
+  ],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}

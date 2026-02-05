@@ -1,0 +1,9 @@
+{
+  "name": "doc-enforcer",
+  "version": "1.0.0",
+  "description": "PostToolUse hook that tracks code vs doc file edits and reminds when documentation may need updating",
+  "author": "twilc",
+  "commands": [],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}
