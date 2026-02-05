@@ -1,9 +1,9 @@
 {
   "name": "strategic-compact",
-  "version": "1.0.0",
-  "description": "Strategic context compaction suggestions at logical intervals — suggests /compact after threshold tool calls, logs compaction events",
+  "version": "1.1.0",
+  "description": "Strategic context compaction — suggests /compact after threshold tool calls, provides /handoff for manual session transitions",
   "author": "twilc",
-  "commands": [],
+  "commands": ["commands/handoff.md"],
   "skills": [],
   "hooks": "hooks/hooks.json"
 }

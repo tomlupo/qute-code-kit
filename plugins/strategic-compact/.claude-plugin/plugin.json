@@ -1,6 +1,6 @@
 {
   "name": "strategic-compact",
-  "description": "Strategic context compaction suggestions at logical intervals \u2014 suggests /compact after threshold tool calls, logs compaction events",
+  "description": "Strategic context compaction \u2014 suggests /compact after threshold tool calls, provides /handoff for manual session transitions",
   "author": {
     "name": "twilc"
   }
