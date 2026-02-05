@@ -1,0 +1,14 @@
+{
+  "plugins": [
+    {
+      "name": "compound-engineering-plugin",
+      "repo": "github:EveryInc/compound-engineering-plugin",
+      "branch": "main"
+    },
+    {
+      "name": "homunculus",
+      "repo": "github:humanplane/homunculus",
+      "branch": "main"
+    }
+  ]
+}

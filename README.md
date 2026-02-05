@@ -17,6 +17,15 @@ A collection of AI tools and utilities for autonomous coding, skill creation, an
 
 ## Quick Start
 
+### First-Time Setup (Clone External Plugins)
+
+After cloning this repo, fetch external plugins:
+
+```bash
+python scripts/setup-externals.py        # Fetch missing plugins from manifest
+python scripts/setup-externals.py --update   # Update existing plugins
+```
+
 ### Setup a New Project
 
 ```bash

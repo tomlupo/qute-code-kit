@@ -102,7 +102,7 @@
     {
       "name": "homunculus",
       "description": "A Claude Code plugin that's alive. Observes everything, learns instincts, evolves capabilities. Bound to one maker.",
-      "version": "1.0.0",
+      "version": "2.0.0-alpha",
       "author": {
         "name": "Nikshep Saravanna"
       },

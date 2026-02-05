@@ -53,9 +53,23 @@ plugins/plugin-name/
 ```bash
 python scripts/build-marketplace.py    # Rebuild marketplace manifest
 python scripts/create-plugin.py name   # Scaffold new plugin
-python scripts/fetch-external.py url   # Clone external plugin
-python scripts/update-externals.py     # Update all externals
+python scripts/setup-externals.py      # Fetch all external plugins from manifest
+python scripts/setup-externals.py --update  # Update existing external plugins
+python scripts/fetch-external.py github:user/repo  # Clone single external plugin
 ```
+
+### External plugins
+
+External plugins are gitignored but tracked in `external-plugins.json`. After cloning the repo:
+
+```bash
+python scripts/setup-externals.py      # Fetch missing plugins
+```
+
+To add a new external plugin:
+1. Clone it: `python scripts/fetch-external.py github:user/repo`
+2. Add entry to `external-plugins.json`
+3. Rebuild: `python scripts/build-marketplace.py`
 
 ### Available plugins
 
