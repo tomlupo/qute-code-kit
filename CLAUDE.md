@@ -32,6 +32,43 @@ The workflow: **source components** are authored in `claude/`, grouped by **bund
 | `@bundle` | `claude/bundles/bundle.txt` | (expands to listed components) |
 | `@skills/name` | `claude/bundles/skills/name.txt` | (expands to listed components) |
 
+## Plugins
+
+Plugins live in `plugins/` and provide runtime hooks/commands. Unlike bundle components (deployed to projects), plugins are installed globally via `claude plugin install`.
+
+### Plugin structure
+
+```
+plugins/plugin-name/
+├── plugin.json           # Manifest (name, description, version)
+├── hooks/
+│   └── hooks.json        # Lifecycle hooks
+├── commands/             # Slash commands
+├── skills/               # Domain knowledge
+└── scripts/              # Hook implementations
+```
+
+### Managing plugins
+
+```bash
+python scripts/build-marketplace.py    # Rebuild marketplace manifest
+python scripts/create-plugin.py name   # Scaffold new plugin
+python scripts/fetch-external.py url   # Clone external plugin
+python scripts/update-externals.py     # Update all externals
+```
+
+### Available plugins
+
+| Plugin | Type | Description |
+|--------|------|-------------|
+| doc-enforcer | hook | Reminds when docs may need updating |
+| forced-eval | hook | Forces skill evaluation before implementation |
+| strategic-compact | hook | Suggests /compact at tool-call thresholds |
+| skill-use-logger | hook | Logs skill invocations to JSONL |
+| notifications | hook+command | Push notifications via ntfy.sh |
+| session-persistence | hook+command | Save/restore session state |
+| research-workflow | command | ML/DS research lifecycle |
+
 ## Skills and slash commands
 
 Slash commands and skills are now unified in Claude Code. Every skill can be invoked with `/` syntax, and every slash command can be called as a skill. **Prefer creating skills over commands** for new components — skills support progressive disclosure, subagent integration, and new invocation controls.
