@@ -1,0 +1,113 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "qute-marketplace",
+  "description": "Personal Claude Code plugin marketplace",
+  "owner": {
+    "name": "twilc",
+    "email": "twilc@users.noreply.github.com"
+  },
+  "plugins": [
+    {
+      "name": "doc-enforcer",
+      "description": "PostToolUse hook that tracks code vs doc file edits and reminds when documentation may need updating",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/doc-enforcer",
+      "category": "utility"
+    },
+    {
+      "name": "forced-eval",
+      "description": "Force explicit evaluation of Skills, MCP Tools, and Agents before implementation (84% activation rate)",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/forced-eval",
+      "category": "utility"
+    },
+    {
+      "name": "notifications",
+      "description": "Push notifications via ntfy.sh for Claude events",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/notifications",
+      "category": "utility"
+    },
+    {
+      "name": "research-workflow",
+      "description": "Research workflow for ML/data science: hypotheses, experiments, findings, paper reading",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/research-workflow",
+      "category": "utility"
+    },
+    {
+      "name": "session-persistence",
+      "description": "Persist session state across Claude sessions \u2014 saves what you were working on and reports it on next start",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/session-persistence",
+      "category": "utility"
+    },
+    {
+      "name": "skill-use-logger",
+      "description": "Logs skill invocations to .claude/skill-use-log.jsonl for analytics",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/skill-use-logger",
+      "category": "utility"
+    },
+    {
+      "name": "strategic-compact",
+      "description": "Strategic context compaction suggestions at logical intervals \u2014 suggests /compact after threshold tool calls, logs compaction events",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/strategic-compact",
+      "category": "utility"
+    },
+    {
+      "name": "coding-tutor",
+      "description": "Personalized coding tutorials that use your actual codebase for examples with spaced repetition quizzes",
+      "version": "1.0.0",
+      "author": {
+        "name": "Nityesh Agarwal"
+      },
+      "source": "./external/compound-engineering-plugin/plugins/coding-tutor",
+      "category": "utility"
+    },
+    {
+      "name": "compound-engineering",
+      "description": "AI-powered development tools. 28 agents, 24 commands, 15 skills, 1 MCP server for code review, research, design, and workflow automation.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Kieran Klaassen",
+        "email": "kieran@every.to",
+        "url": "https://github.com/kieranklaassen"
+      },
+      "source": "./external/compound-engineering-plugin/plugins/compound-engineering",
+      "category": "utility"
+    },
+    {
+      "name": "homunculus",
+      "description": "A Claude Code plugin that's alive. Observes everything, learns instincts, evolves capabilities. Bound to one maker.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Nikshep Saravanna"
+      },
+      "source": "./external/homunculus/plugins/homunculus",
+      "category": "utility"
+    }
+  ]
+}
