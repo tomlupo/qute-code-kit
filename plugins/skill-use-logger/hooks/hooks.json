@@ -3,11 +3,11 @@
   "hooks": {
     "PostToolUse": [
       {
+        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/log_skill_use.py",
-            "tools": ["Skill"]
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/log_skill_use.py"
           }
         ]
       }
