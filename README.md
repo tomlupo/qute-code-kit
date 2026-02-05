@@ -233,7 +233,8 @@ qute-code-kit/
 │   ├── getting-started.md
 │   ├── bundles-explained.md
 │   ├── plugins-explained.md
-│   └── workflows/
+│   ├── working-with-claude.md
+│   └── workflow-patterns.md
 ├── scripts/                   # All tooling
 │   ├── setup-project.sh       #   Bundle deployment
 │   ├── build-marketplace.py   #   Plugin manifest builder
