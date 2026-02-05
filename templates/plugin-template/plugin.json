@@ -1,0 +1,12 @@
+{
+  "name": "{{PLUGIN_NAME}}",
+  "version": "1.0.0",
+  "description": "{{PLUGIN_NAME}} plugin for Claude Code",
+  "author": "twilc",
+  "commands": [
+    "commands/example.md"
+  ],
+  "skills": [],
+  "rules": [],
+  "hooks": ""
+}
