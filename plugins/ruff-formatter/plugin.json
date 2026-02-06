@@ -1,0 +1,9 @@
+{
+  "name": "ruff-formatter",
+  "version": "1.0.0",
+  "description": "Auto-format and lint Python files with ruff after edits",
+  "author": "twilc",
+  "commands": [],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}

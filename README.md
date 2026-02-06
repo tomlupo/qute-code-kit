@@ -109,6 +109,7 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | session-persistence | qute-marketplace | x | | |
 | skill-use-logger | qute-marketplace | x | | |
 | strategic-compact | qute-marketplace | x | | |
+| ruff-formatter | qute-marketplace | | x | |
 | llm-council | qute-marketplace | | x | |
 | llm-external-review | qute-marketplace | | x | |
 | compound-engineering | every-marketplace | x | | |

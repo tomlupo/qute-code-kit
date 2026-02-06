@@ -1,0 +1,7 @@
+{
+  "name": "ruff-formatter",
+  "description": "Auto-format and lint Python files with ruff after edits",
+  "author": {
+    "name": "twilc"
+  }
+}

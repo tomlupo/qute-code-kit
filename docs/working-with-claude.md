@@ -17,6 +17,7 @@ Every Claude session has an automated lifecycle powered by plugins that fire on 
 | `PostToolUse` | adaptive-learning | Logs tool name, truncated I/O, session context to `observations.jsonl` (auto-rotates at 10MB) |
 | `PostToolUse` | doc-enforcer | Tracks code vs doc file edits. After 3+ code files without a doc edit, surfaces reminder. |
 | `PostToolUse` | skill-use-logger | Appends skill invocations to `.claude/skill-use-log.jsonl` |
+| `PostToolUse` | ruff-formatter | Auto-formats `.py` files with `ruff format` + `ruff check --fix` after edits. Silently skips if ruff unavailable. |
 | `PostToolUse` | notifications | On long-running Bash commands (>30s), sends push notification via ntfy.sh |
 | `PreCompact` | strategic-compact | Logs compaction events to `.claude/compact-log.jsonl` |
 | `Stop` | session-persistence | Writes structured session file to `~/.claude/sessions/{date}-{id}-session.tmp` |
@@ -306,7 +307,7 @@ paper-reading → qrd → market-data-fetcher → sql-patterns → mlflow-analyz
 
 ## Plugin Ecosystem
 
-### Qute Plugins (8)
+### Qute Plugins (9)
 
 | Plugin | Events | Commands | Purpose |
 |--------|--------|----------|---------|
@@ -315,6 +316,7 @@ paper-reading → qrd → market-data-fetcher → sql-patterns → mlflow-analyz
 | forced-eval | UserPromptSubmit | — | Force skill/MCP/agent evaluation before implementation |
 | notifications | PostToolUse | send, config, test, gist-report, gist-transcript | Push notifications via ntfy.sh for long-running commands |
 | research-workflow | — | start, hypothesis, experiment, finding, paper, index | ML/DS research lifecycle in `docs/research/` |
+| ruff-formatter | PostToolUse | — | Auto-format Python files with ruff after edits |
 | session-persistence | SessionStart, Stop | list, load | Save/restore session state across sessions |
 | skill-use-logger | PostToolUse | — | Log skill invocations to JSONL for analytics |
 | strategic-compact | PreToolUse, PreCompact | handoff | Context compaction suggestions + session transitions |
