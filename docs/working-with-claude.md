@@ -100,26 +100,78 @@ brainstorm → write-plan → execute-plan
 **Compound Engineering** (knowledge-compounding lifecycle):
 
 ```
-plan → deepen → work → review → compound → repeat
-  |       |       |       |         |
-ideas  research execute  13+     capture
-       agents         agents   learnings
-         ↑                        |
-         └── knowledge feeds back ─┘
+brainstorm → plan → deepen → work → review → triage → resolve → compound
+                                                                    |
+                                    docs/solutions/ ←───────────────┘
+                                         |
+                                    next plan reads past learnings
 ```
 
-- `/workflows:brainstorm` — Explore requirements before committing to a plan
-- `/workflows:plan` — Structured planning with local + external research phases
-- `/deepen-plan` — Enhance plans with 40+ parallel research agents
-- `/workflows:work` — Execute with worktrees, task tracking, optional swarm mode
-- `/workflows:review` — Multi-agent code review (13+ specialist agents in parallel)
-- `/workflows:compound` — Capture solved problems to `docs/solutions/` for future reuse
+**Step 1: `/workflows:brainstorm`** — Clarify WHAT to build
+- Asks one question at a time, explores 2-3 approaches, applies YAGNI
+- Spawns: `repo-research-analyst` for existing patterns
+- Output: `docs/brainstorms/YYYY-MM-DD-<topic>-brainstorm.md`
+- Skip if: requirements are already clear
+
+**Step 2: `/workflows:plan`** — Detail HOW to build it
+- Auto-reads recent brainstorm from `docs/brainstorms/`
+- Spawns: `repo-research-analyst`, `learnings-researcher` (searches `docs/solutions/`), optionally `best-practices-researcher`, `framework-docs-researcher`, `spec-flow-analyzer`
+- Detail levels: MINIMAL / MORE / A LOT
+- Output: `docs/plans/YYYY-MM-DD-feat-<name>-plan.md`
+
+**Step 3: `/deepen-plan`** — Enhance with massive parallel research
+- Discovers ALL skills, agents, and learnings dynamically (no hardcoding)
+- Spawns 30-50+ parallel agents: every matched skill, every `docs/solutions/` entry, Context7 queries, web searches
+- Output: enhanced plan with "Research Insights" subsections
+
+**Step 4: `/workflows:work`** — Execute the plan
+- Creates branch/worktree via `git-worktree` skill
+- TodoWrite task list, implements step by step
+- Incremental commits at logical units, continuous tests
+- Optional: Figma sync (`figma-design-sync` agent), lint checks
+- Output: PR with screenshots and commits
+
+**Step 5: `/workflows:review`** — Multi-agent code review (13+ agents in parallel)
+- Agents: `security-sentinel`, `performance-oracle`, `architecture-strategist`, `code-simplicity-reviewer`, `data-integrity-guardian`, `pattern-recognition-specialist`, `agent-native-reviewer`, `kieran-python-reviewer`, `kieran-typescript-reviewer`, `kieran-rails-reviewer`, `dhh-rails-reviewer`, `schema-drift-detector`, `design-implementation-reviewer`
+- Conditional: `data-migration-expert` + `deployment-verification-agent` if PR has migrations
+- Output: `todos/*-pending-{p1|p2|p3}-*.md` — P1 findings block merge
+
+**Step 6: `/triage`** — Approve or reject findings (runs on Haiku for speed)
+- Presents each finding one by one: severity, scenario, proposed fix, effort
+- User says: **yes** (approve) / **next** (skip) / **custom** (modify)
+- Output: approved items become `todos/*-ready-*.md`
+
+**Step 7: `/resolve_todo_parallel`** — Fix approved findings
+- Spawns `pr-comment-resolver` per todo in parallel
+- Commits fixes, marks todos complete
+- Also: `/resolve_parallel` (TODO comments in code), `/resolve_pr_parallel` (PR review comments)
+
+**Step 8: `/workflows:compound`** — Capture what was learned
+- Spawns 6 parallel subagents: context analyzer, solution extractor, related docs finder, prevention strategist, category classifier, documentation writer
+- Output: `docs/solutions/<category>/<symptom>-<module>-YYYYMMDD.md`
+- Categories: `performance-issues/`, `database-issues/`, `security-issues/`, `ui-bugs/`, `integration-issues/`, `logic-errors/`, `build-errors/`, `test-failures/`, `runtime-errors/`
 
 **Shortcuts**:
 - `/lfg` — Full autonomous loop: plan -> deepen -> work -> review -> resolve -> test
 - `/slfg` — Same as `/lfg` but with swarm mode (parallel specialist subagents)
+- `/plan_review` — Quick 3-agent plan review (dhh-rails, kieran-rails, code-simplicity)
 
-**Combined usage**:
+**Todo lifecycle**:
+```
+/workflows:review → todos/*-pending-{p1|p2|p3}-*.md
+/triage           → todos/*-ready-{p1|p2|p3}-*.md
+/resolve_*        → todos/*-complete-{p1|p2|p3}-*.md
+```
+
+**File artifacts**:
+```
+docs/brainstorms/    ← /workflows:brainstorm
+docs/plans/          ← /workflows:plan (PROTECTED — never deleted by review)
+docs/solutions/      ← /workflows:compound (PROTECTED — knowledge base)
+todos/               ← /workflows:review + /triage + /resolve
+```
+
+**Combined with superpowers**:
 
 ```
 superpowers:brainstorming     → clarify what to build
