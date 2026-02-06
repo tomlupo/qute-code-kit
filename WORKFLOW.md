@@ -127,8 +127,8 @@ These run in the background via hooks — no invocation needed.
 
 Install via their respective setup scripts.
 
-- **homunculus** — learns from your work, builds instincts
-  - `/homunculus:status`, `/homunculus:evolve`, `/homunculus:export`
+- **adaptive-learning** — observes tool usage, learns instincts, surfaces them at session start
+  - `/adaptive-learning:status`, `/adaptive-learning:analyze`, `/adaptive-learning:export`
 - **compound-engineering** — full dev lifecycle
   - `/workflows:brainstorm` → `/workflows:plan` → `/workflows:work` → `/workflows:review`
 

@@ -1,0 +1,15 @@
+{
+  "name": "adaptive-learning",
+  "version": "1.0.0",
+  "description": "Observe tool usage patterns, learn instincts, and surface them at session start",
+  "author": "twilc",
+  "commands": [
+    "commands/status.md",
+    "commands/analyze.md",
+    "commands/export.md",
+    "commands/import.md",
+    "commands/ingest-insights.md"
+  ],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}

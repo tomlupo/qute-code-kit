@@ -33,11 +33,8 @@
 
   "enabledPlugins": {
     "pyright-lsp@claude-plugins-official": true,
-    "forced-eval@qute-marketplace": true,
-    "compound-engineering@every-marketplace": true,
     "feature-dev@claude-plugins-official": true,
     "llm-council@qute-marketplace": true,
-    "llm-external-review@qute-marketplace": true,
-    "datasets-guide@qute-marketplace": true
+    "llm-external-review@qute-marketplace": true
   }
 }

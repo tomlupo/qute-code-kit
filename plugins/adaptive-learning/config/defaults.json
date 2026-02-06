@@ -1,0 +1,17 @@
+{
+  "max_observation_size_mb": 10,
+  "max_io_chars": 5000,
+  "archive_count": 3,
+  "confidence": {
+    "initial": 0.3,
+    "auto_approve": 0.7,
+    "confirm_boost": 0.05,
+    "contradict_penalty": 0.10,
+    "weekly_decay": 0.02
+  },
+  "session_start": {
+    "max_instincts": 5,
+    "min_confidence": 0.3
+  },
+  "exclude_tools": []
+}

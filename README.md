@@ -95,19 +95,25 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | commit-commands | claude-plugins-official | x | | |
 | hookify | claude-plugins-official | x | | |
 | code-simplifier | claude-plugins-official | x | | |
+| superpowers | claude-plugins-official | x | | |
+| playground | claude-plugins-official | x | | |
 | pyright-lsp | claude-plugins-official | | x | |
 | feature-dev | claude-plugins-official | | x | x |
 | frontend-design | claude-plugins-official | | | x |
 | agent-sdk-dev | claude-plugins-official | | | x |
 | plugin-dev | claude-plugins-official | | | x |
-| forced-eval | qute-marketplace | | x | x |
+| doc-enforcer | qute-marketplace | x | | |
+| forced-eval | qute-marketplace | x | | |
+| notifications | qute-marketplace | x | | |
+| research-workflow | qute-marketplace | x | | |
+| session-persistence | qute-marketplace | x | | |
+| skill-use-logger | qute-marketplace | x | | |
+| strategic-compact | qute-marketplace | x | | |
 | llm-council | qute-marketplace | | x | |
 | llm-external-review | qute-marketplace | | x | |
-| datasets-guide | qute-marketplace | | x | |
-| notifications | qute-marketplace | x | | |
-| context-management | qute-marketplace | x | | |
-| documentation-guide | qute-marketplace | x | | |
-| compound-engineering | every-marketplace | | x | x |
+| compound-engineering | every-marketplace | x | | |
+| coding-tutor | every-marketplace | x | | |
+| adaptive-learning | qute-marketplace | x | | |
 | document-skills | anthropic-agent-skills | x | | |
 | example-skills | anthropic-agent-skills | x | | |
 
@@ -200,9 +206,16 @@ cp -r repos/SkillForge ~/.claude/skills/
 ```
 
 #### Plugins (Marketplace)
-The `plugins/` directory contains runtime hooks and commands. Install the full marketplace:
+The `plugins/` directory contains runtime hooks and commands. This repo is the qute-marketplace source (4 marketplaces total: claude-plugins-official, qute-marketplace via tomlupo/qute-code-kit, every-marketplace, anthropic-agent-skills).
+
 ```bash
-claude plugin install github:tomlupo/qute-code-kit
+# Add the marketplace
+claude plugin marketplace add tomlupo/qute-code-kit
+
+# Install all qute-marketplace plugins
+claude plugin install doc-enforcer@qute-marketplace
+claude plugin install forced-eval@qute-marketplace
+# ... etc
 ```
 
 Or install locally during development:

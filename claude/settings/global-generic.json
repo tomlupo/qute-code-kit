@@ -11,10 +11,18 @@
     "commit-commands@claude-plugins-official": true,
     "hookify@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "playground@claude-plugins-official": true,
+    "doc-enforcer@qute-marketplace": true,
+    "forced-eval@qute-marketplace": true,
     "notifications@qute-marketplace": true,
+    "research-workflow@qute-marketplace": true,
+    "session-persistence@qute-marketplace": true,
+    "skill-use-logger@qute-marketplace": true,
+    "strategic-compact@qute-marketplace": true,
+    "compound-engineering@every-marketplace": true,
+    "adaptive-learning@qute-marketplace": true,
     "document-skills@anthropic-agent-skills": true,
-    "example-skills@anthropic-agent-skills": true,
-    "context-management@qute-marketplace": true,
-    "documentation-guide@qute-marketplace": true
+    "example-skills@anthropic-agent-skills": true
   }
 }

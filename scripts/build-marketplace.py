@@ -254,15 +254,13 @@ def build_marketplace():
 
     all_plugins = []
 
-    # Scan plugins/ directory
+    # Scan plugins/ directory (local plugins only)
     print("📂 Scanning plugins/")
     plugins = scan_plugins(PLUGINS_DIR, "plugins")
     all_plugins.extend(plugins)
 
-    # Scan external/ directory
-    print("\n📂 Scanning external/")
-    external = scan_plugins(EXTERNAL_DIR, "external")
-    all_plugins.extend(external)
+    # Note: external/ plugins are NOT included in this marketplace.
+    # They come from their own marketplaces (every-marketplace, etc.).
 
     # Build marketplace.json
     marketplace = {

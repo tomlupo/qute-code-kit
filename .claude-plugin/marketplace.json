@@ -8,6 +8,16 @@
   },
   "plugins": [
     {
+      "name": "adaptive-learning",
+      "description": "Observe tool usage patterns, learn instincts, and surface them at session start",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/adaptive-learning",
+      "category": "utility"
+    },
+    {
       "name": "doc-enforcer",
       "description": "PostToolUse hook that tracks code vs doc file edits and reminds when documentation may need updating",
       "version": "1.0.0",
@@ -75,38 +85,6 @@
         "name": "twilc"
       },
       "source": "./plugins/strategic-compact",
-      "category": "utility"
-    },
-    {
-      "name": "coding-tutor",
-      "description": "Personalized coding tutorials that use your actual codebase for examples with spaced repetition quizzes",
-      "version": "1.0.0",
-      "author": {
-        "name": "Nityesh Agarwal"
-      },
-      "source": "./external/compound-engineering-plugin/plugins/coding-tutor",
-      "category": "utility"
-    },
-    {
-      "name": "compound-engineering",
-      "description": "AI-powered development tools. 28 agents, 24 commands, 15 skills, 1 MCP server for code review, research, design, and workflow automation.",
-      "version": "1.0.0",
-      "author": {
-        "name": "Kieran Klaassen",
-        "email": "kieran@every.to",
-        "url": "https://github.com/kieranklaassen"
-      },
-      "source": "./external/compound-engineering-plugin/plugins/compound-engineering",
-      "category": "utility"
-    },
-    {
-      "name": "homunculus",
-      "description": "A Claude Code plugin that's alive. Observes everything, learns instincts, evolves capabilities. Bound to one maker.",
-      "version": "2.0.0-alpha",
-      "author": {
-        "name": "Nikshep Saravanna"
-      },
-      "source": "./external/homunculus/plugins/homunculus",
       "category": "utility"
     }
   ]
