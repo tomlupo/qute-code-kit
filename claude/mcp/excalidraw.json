@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "excalidraw": {
+      "command": "node",
+      "args": ["/home/botops/.local/lib/excalidraw-render/dist/index.js"]
+    }
+  }
+}
