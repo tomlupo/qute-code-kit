@@ -1,0 +1,16 @@
+{
+  "description": "Post-commit changelog reminder for quant projects",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/post-commit-changelog-hook.py"
+          }
+        ]
+      }
+    ]
+  }
+}

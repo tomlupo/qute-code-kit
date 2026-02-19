@@ -1,0 +1,14 @@
+{
+  "name": "qute-webdev",
+  "version": "1.0.0",
+  "description": "Web development skills and agents: PDF processing, frontend design, code refactoring, PRD writing, security auditing",
+  "author": "twilc",
+  "commands": [],
+  "skills": [
+    "skills/context-management",
+    "skills/pdf-skill",
+    "skills/gist-report",
+    "skills/gist-transcript"
+  ],
+  "hooks": ""
+}

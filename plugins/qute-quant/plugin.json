@@ -1,0 +1,27 @@
+{
+  "name": "qute-quant",
+  "version": "1.0.0",
+  "description": "Quantitative finance, data science, and ML skills: paper reading, market data, SQL, scikit-learn, polars, statsmodels, plotly, and more",
+  "author": "twilc",
+  "commands": [],
+  "skills": [
+    "skills/context-management",
+    "skills/paper-reading",
+    "skills/sql-patterns",
+    "skills/market-data-fetcher",
+    "skills/qrd",
+    "skills/gist-report",
+    "skills/gist-transcript",
+    "skills/scikit-learn",
+    "skills/shap",
+    "skills/pytorch-lightning",
+    "skills/aeon",
+    "skills/exploratory-data-analysis",
+    "skills/statsmodels",
+    "skills/pymc",
+    "skills/matplotlib",
+    "skills/plotly",
+    "skills/polars"
+  ],
+  "hooks": "hooks/hooks.json"
+}

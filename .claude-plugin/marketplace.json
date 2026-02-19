@@ -48,6 +48,36 @@
       "category": "utility"
     },
     {
+      "name": "qute-minimal",
+      "description": "Essential Claude Code skills: commit messages, git worktrees, README generation, external LLM review",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/qute-minimal",
+      "category": "utility"
+    },
+    {
+      "name": "qute-quant",
+      "description": "Quantitative finance, data science, and ML skills: paper reading, market data, SQL, scikit-learn, polars, statsmodels, plotly, and more",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/qute-quant",
+      "category": "utility"
+    },
+    {
+      "name": "qute-webdev",
+      "description": "Web development skills and agents: PDF processing, frontend design, code refactoring, PRD writing, security auditing",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/qute-webdev",
+      "category": "utility"
+    },
+    {
       "name": "research-workflow",
       "description": "Research workflow for ML/data science: hypotheses, experiments, findings, paper reading",
       "version": "1.0.0",

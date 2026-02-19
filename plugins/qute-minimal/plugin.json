@@ -1,0 +1,14 @@
+{
+  "name": "qute-minimal",
+  "version": "1.0.0",
+  "description": "Essential Claude Code skills: commit messages, git worktrees, README generation, external LLM review",
+  "author": "twilc",
+  "commands": [],
+  "skills": [
+    "skills/generating-commit-messages",
+    "skills/worktrees",
+    "skills/readme",
+    "skills/llm-external-review"
+  ],
+  "hooks": ""
+}
