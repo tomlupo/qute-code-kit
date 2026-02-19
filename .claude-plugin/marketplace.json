@@ -38,6 +38,16 @@
       "category": "utility"
     },
     {
+      "name": "image-generator",
+      "description": "Generate and edit images using Google Gemini API (text-to-image, editing, multi-turn refinement)",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/image-generator",
+      "category": "utility"
+    },
+    {
       "name": "notifications",
       "description": "Push notifications via ntfy.sh for Claude events",
       "version": "1.0.0",
@@ -69,7 +79,7 @@
     },
     {
       "name": "session-persistence",
-      "description": "Persist session state across Claude sessions \u2014 saves what you were working on and reports it on next start",
+      "description": "Persist session state across Claude sessions — saves what you were working on and reports it on next start",
       "version": "1.0.0",
       "author": {
         "name": "twilc"
@@ -89,7 +99,7 @@
     },
     {
       "name": "strategic-compact",
-      "description": "Strategic context compaction \u2014 suggests /compact after threshold tool calls, provides /handoff for manual session transitions",
+      "description": "Strategic context compaction — suggests /compact after threshold tool calls, provides /handoff for manual session transitions",
       "version": "1.1.0",
       "author": {
         "name": "twilc"
