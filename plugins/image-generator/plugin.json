@@ -1,0 +1,14 @@
+{
+  "name": "image-generator",
+  "version": "1.0.0",
+  "description": "Generate and edit images using Google Gemini API (text-to-image, editing, multi-turn refinement)",
+  "author": "twilc",
+  "commands": [
+    "commands/generate.md",
+    "commands/edit.md"
+  ],
+  "skills": [
+    "skills/image-generator"
+  ],
+  "hooks": ""
+}

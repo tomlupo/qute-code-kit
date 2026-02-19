@@ -1,0 +1,7 @@
+{
+  "name": "image-generator",
+  "description": "Generate and edit images using Google Gemini API",
+  "author": {
+    "name": "twilc"
+  }
+}
