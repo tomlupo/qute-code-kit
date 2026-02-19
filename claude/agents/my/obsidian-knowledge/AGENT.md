@@ -2,7 +2,9 @@
 name: obsidian-knowledge-agent
 description: Use when user needs information from Obsidian vault, asks about documentation, references internal knowledge base, or needs to search/explore notes. Proactively retrieve context from vault for technical questions, project details, or historical decisions.
 model: sonnet
-tools: mcp__obsidian__search-vault, mcp__obsidian__read-note, mcp__obsidian__list-available-vaults, mcp__obsidian__create-note, mcp__obsidian__edit-note, mcp__obsidian__add-tags, mcp__obsidian__remove-tags, mcp__obsidian__move-note, Read, Glob, Grep
+tools: Read, Glob, Grep
+mcpServers:
+  - obsidian
 ---
 
 You are an expert knowledge curator and information retrieval specialist with deep expertise in navigating and extracting insights from knowledge systems.

@@ -81,10 +81,9 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | Sub-bundle | Skills |
 |------------|--------|
 | `ml-core` | scikit-learn, shap, pytorch-lightning, aeon, EDA |
-| `statistics` | statsmodels, pymc, scikit-survival, statistical-analysis |
-| `visualization` | matplotlib, seaborn, plotly, networkx, umap-learn |
-| `research-tools` | openalex, perplexity-search, literature-review, citations |
-| `data-processing` | polars, dask, vaex |
+| `statistics` | statsmodels, pymc |
+| `visualization` | matplotlib, plotly |
+| `data-processing` | polars |
 
 ### Plugins
 
@@ -167,29 +166,26 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | exploratory-data-analysis | @skills/ml-core | quant |
 | statsmodels | @skills/statistics | quant |
 | pymc | @skills/statistics | quant |
-| scikit-survival | @skills/statistics | quant |
-| statistical-analysis | @skills/statistics | quant |
-| matplotlib | @skills/visualization | -- |
-| seaborn | @skills/visualization | -- |
-| plotly | @skills/visualization | -- |
-| networkx | @skills/visualization | -- |
-| scientific-visualization | @skills/visualization | -- |
-| umap-learn | @skills/visualization | -- |
-| openalex-database | @skills/research-tools | -- |
-| perplexity-search | @skills/research-tools | -- |
-| literature-review | @skills/research-tools | -- |
-| citation-management | @skills/research-tools | -- |
-| polars | @skills/data-processing | -- |
-| dask | @skills/data-processing | -- |
-| vaex | @skills/data-processing | -- |
-| transformers | -- | -- |
-| torch_geometric | -- | -- |
-| sympy | -- | -- |
-| simpy | -- | -- |
-| pymoo | -- | -- |
+| matplotlib | @skills/visualization | quant |
+| plotly | @skills/visualization | quant |
+| polars | @skills/data-processing | quant |
 | context7 | -- | -- |
 | dignified-python-313 | -- | -- |
-| nano-banana-pro | -- | -- |
+
+### Agents
+
+| Agent | Bundle | Model | Skills | Notes |
+|-------|--------|-------|--------|-------|
+| research-paper-analyst | quant | opus | paper-reading | PDF analysis + structured reading |
+| mlflow-analyzer | quant | haiku | mlflow, shap | Experiment analysis + SHAP interpretability |
+| python-reviewer | quant | sonnet | dignified-python-313 | Code review with Python 3.13 standards |
+| database-explorer | -- | sonnet | sql-patterns | SQL via postgres MCP |
+| obsidian-knowledge | -- | sonnet | -- | Knowledge retrieval via obsidian MCP |
+| frontend-designer | webdev | sonnet | -- | Design mockups to component specs |
+| code-refactorer | webdev | sonnet | -- | Improve structure without changing behavior |
+| prd-writer | webdev | sonnet | -- | Product requirements documents |
+| security-auditor | webdev | sonnet | -- | Codebase security audits |
+| project-task-planner | webdev | sonnet | -- | Development task lists from PRDs |
 
 ### Other Tools
 

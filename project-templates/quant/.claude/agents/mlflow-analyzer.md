@@ -3,7 +3,9 @@ name: mlflow-analyzer
 description: Analyze MLflow experiment data and SHAP interpretability. Use when user asks to compare experiments, find best runs, analyze hyperparameter effects, understand SHAP values, interpret feature importance, or export experiment data. Proactively use for MLflow analysis or model interpretability tasks.
 tools: Read, Grep, Glob, Bash
 model: haiku
-skills: mlflow
+skills:
+  - mlflow
+  - shap
 ---
 
 You are an MLflow experiment analysis and model interpretability specialist.

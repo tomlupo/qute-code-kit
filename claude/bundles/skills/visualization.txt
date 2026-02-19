@@ -1,7 +1,3 @@
 # Visualization skill sub-bundle
 external:scientific/matplotlib
-external:scientific/seaborn
 external:scientific/plotly
-external:scientific/networkx
-external:scientific/scientific-visualization
-external:scientific/umap-learn
