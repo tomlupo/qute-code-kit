@@ -230,7 +230,6 @@ cat ~/project/.claude/.toolkit-manifest.json
 | Sub-bundle | Skills included | Add with |
 |------------|----------------|----------|
 | `@skills/ml-core` | scikit-learn, shap, pytorch-lightning, aeon, EDA | `--add @skills/ml-core` |
-| `@skills/statistics` | statsmodels, pymc, scikit-survival, statistical-analysis | `--add @skills/statistics` |
-| `@skills/visualization` | matplotlib, seaborn, plotly, networkx, sci-viz, umap | `--add @skills/visualization` |
-| `@skills/data-processing` | polars, dask, vaex | `--add @skills/data-processing` |
-| `@skills/research-tools` | openalex, perplexity, literature-review, citations | `--add @skills/research-tools` |
+| `@skills/statistics` | statsmodels, pymc | `--add @skills/statistics` |
+| `@skills/visualization` | matplotlib, plotly | `--add @skills/visualization` |
+| `@skills/data-processing` | polars | `--add @skills/data-processing` |

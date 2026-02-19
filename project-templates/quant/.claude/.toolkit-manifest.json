@@ -1,7 +1,7 @@
 {
-  "source": "/home/twilc/projects/qute-code-kit",
+  "source": "/home/user/qute-code-kit",
   "bundle": "quant",
-  "installed": "2026-02-04T17:54:01Z",
+  "installed": "2026-02-19T23:25:40Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "code-quality.md", "src": "rules/code-quality.md"},
@@ -35,8 +35,9 @@
     {"type": "skill", "name": "exploratory-data-analysis", "src": "external:scientific/exploratory-data-analysis"},
     {"type": "skill", "name": "statsmodels", "src": "external:scientific/statsmodels"},
     {"type": "skill", "name": "pymc", "src": "external:scientific/pymc"},
-    {"type": "skill", "name": "scikit-survival", "src": "external:scientific/scikit-survival"},
-    {"type": "skill", "name": "statistical-analysis", "src": "external:scientific/statistical-analysis"},
+    {"type": "skill", "name": "matplotlib", "src": "external:scientific/matplotlib"},
+    {"type": "skill", "name": "plotly", "src": "external:scientific/plotly"},
+    {"type": "skill", "name": "polars", "src": "external:scientific/polars"},
     {"type": "skill", "name": "gist-report", "src": "my:gist-report"},
     {"type": "skill", "name": "gist-transcript", "src": "my:gist-transcript"},
     {"type": "agent", "name": "mlflow-analyzer.md", "src": "my:mlflow-analyzer.md"},

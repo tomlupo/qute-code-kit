@@ -81,10 +81,9 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | Sub-bundle | Skills |
 |------------|--------|
 | `ml-core` | scikit-learn, shap, pytorch-lightning, aeon, EDA |
-| `statistics` | statsmodels, pymc, scikit-survival, statistical-analysis |
-| `visualization` | matplotlib, seaborn, plotly, networkx, umap-learn |
-| `research-tools` | openalex, perplexity-search, literature-review, citations |
-| `data-processing` | polars, dask, vaex |
+| `statistics` | statsmodels, pymc |
+| `visualization` | matplotlib, plotly |
+| `data-processing` | polars |
 
 ### Plugins
 
@@ -167,29 +166,11 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | exploratory-data-analysis | @skills/ml-core | quant |
 | statsmodels | @skills/statistics | quant |
 | pymc | @skills/statistics | quant |
-| scikit-survival | @skills/statistics | quant |
-| statistical-analysis | @skills/statistics | quant |
-| matplotlib | @skills/visualization | -- |
-| seaborn | @skills/visualization | -- |
-| plotly | @skills/visualization | -- |
-| networkx | @skills/visualization | -- |
-| scientific-visualization | @skills/visualization | -- |
-| umap-learn | @skills/visualization | -- |
-| openalex-database | @skills/research-tools | -- |
-| perplexity-search | @skills/research-tools | -- |
-| literature-review | @skills/research-tools | -- |
-| citation-management | @skills/research-tools | -- |
-| polars | @skills/data-processing | -- |
-| dask | @skills/data-processing | -- |
-| vaex | @skills/data-processing | -- |
-| transformers | -- | -- |
-| torch_geometric | -- | -- |
-| sympy | -- | -- |
-| simpy | -- | -- |
-| pymoo | -- | -- |
+| matplotlib | @skills/visualization | quant |
+| plotly | @skills/visualization | quant |
+| polars | @skills/data-processing | quant |
 | context7 | -- | -- |
 | dignified-python-313 | -- | -- |
-| nano-banana-pro | -- | -- |
 
 ### Other Tools
 

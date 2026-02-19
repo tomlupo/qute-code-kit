@@ -1,4 +1,2 @@
 # Data processing skill sub-bundle
 external:scientific/polars
-external:scientific/dask
-external:scientific/vaex

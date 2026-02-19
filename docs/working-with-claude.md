@@ -196,11 +196,11 @@ The full loop from literature to production:
 | SQL templates | `/sql-patterns` | Copy-pasteable query templates: time-series, cohort analysis, window functions, CTEs |
 | Experiment analysis | `mlflow-analyzer` agent | Lightweight Haiku agent for experiment comparison, hyperparameter sensitivity |
 | Model explainability | `shap` skill | SHAP values for tree-based, deep learning, linear, and black-box models |
-| Statistical analysis | `statistical-analysis` / `statsmodels` / `pymc` / `scikit-survival` | Test selection, Bayesian modeling, survival analysis |
+| Statistical analysis | `statsmodels` / `pymc` | Statistical modeling, Bayesian inference |
 | Time series ML | `aeon` skill | Classification, regression, clustering, forecasting, anomaly detection |
 | Deep learning | `pytorch-lightning` | LightningModules, multi-GPU training, callbacks, logging |
 | EDA | `exploratory-data-analysis` | Auto-detect 200+ scientific file formats, generate quality reports |
-| Visualization | `@skills/visualization` | matplotlib, seaborn, plotly, networkx, scientific-visualization, umap-learn |
+| Visualization | `@skills/visualization` | matplotlib, plotly |
 | Documentation | `/readme` | Generate comprehensive project README (runs in forked context) |
 
 **MCP servers used**: `postgres` (database), `firecrawl` (web scraping), `sequential-thinking` (complex reasoning), `memory` (persistent facts)
@@ -429,13 +429,11 @@ paper-reading → qrd → market-data-fetcher → sql-patterns → mlflow-analyz
 
 **`@skills/ml-core`**: scikit-learn, shap, pytorch-lightning, aeon, exploratory-data-analysis
 
-**`@skills/statistics`**: statsmodels, pymc, scikit-survival, statistical-analysis
+**`@skills/statistics`**: statsmodels, pymc
 
-**`@skills/visualization`**: matplotlib, seaborn, plotly, networkx, scientific-visualization, umap-learn
+**`@skills/visualization`**: matplotlib, plotly
 
-**`@skills/research-tools`**: openalex-database, perplexity-search, literature-review, citation-management
-
-**`@skills/data-processing`**: polars, dask, vaex
+**`@skills/data-processing`**: polars
 
 ### Agents
 

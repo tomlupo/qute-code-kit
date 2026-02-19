@@ -1,7 +1,7 @@
 {
-  "source": "/home/twilc/projects/qute-code-kit",
+  "source": "/home/user/qute-code-kit",
   "bundle": "minimal",
-  "installed": "2026-02-04T17:53:58Z",
+  "installed": "2026-02-19T23:25:34Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "code-quality.md", "src": "rules/code-quality.md"},
