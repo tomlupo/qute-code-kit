@@ -172,6 +172,21 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | context7 | -- | -- |
 | dignified-python-313 | -- | -- |
 
+### Agents
+
+| Agent | Bundle | Model | Skills | Notes |
+|-------|--------|-------|--------|-------|
+| research-paper-analyst | quant | opus | paper-reading | PDF analysis + structured reading |
+| mlflow-analyzer | quant | haiku | mlflow, shap | Experiment analysis + SHAP interpretability |
+| python-reviewer | quant | sonnet | dignified-python-313 | Code review with Python 3.13 standards |
+| database-explorer | -- | sonnet | sql-patterns | SQL via postgres MCP |
+| obsidian-knowledge | -- | sonnet | -- | Knowledge retrieval via obsidian MCP |
+| frontend-designer | webdev | sonnet | -- | Design mockups to component specs |
+| code-refactorer | webdev | sonnet | -- | Improve structure without changing behavior |
+| prd-writer | webdev | sonnet | -- | Product requirements documents |
+| security-auditor | webdev | sonnet | -- | Codebase security audits |
+| project-task-planner | webdev | sonnet | -- | Development task lists from PRDs |
+
 ### Other Tools
 
 #### Ralph
