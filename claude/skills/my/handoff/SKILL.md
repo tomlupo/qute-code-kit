@@ -1,10 +1,16 @@
-# /strategic-compact:handoff
+---
+name: handoff
+description: Prepare a handoff document to continue work in a new session. Captures context, decisions, blockers, and environment state for seamless session transitions.
+argument-hint: "[goal]"
+---
+
+# /handoff
 
 Prepare a handoff document to continue work in a new session. Captures what matters for resuming — context, decisions, blockers, and environment state.
 
 ## Behavior
 
-When the user invokes `/strategic-compact:handoff [goal]`:
+When the user invokes `/handoff [goal]`:
 
 1. **Gather environment state** automatically:
    - Run `git diff --name-only` and `git status --short` to detect modified/staged files
@@ -97,10 +103,4 @@ In a new session:
 
 ```
 Load the handoff from .claude/handoffs/<filename>.md and continue
-```
-
-Or use with session-persistence if installed:
-
-```
-/session-persistence:load
 ```
