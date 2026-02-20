@@ -96,6 +96,16 @@
       },
       "source": "./plugins/strategic-compact",
       "category": "utility"
+    },
+    {
+      "name": "flow",
+      "description": "Lightweight workflow orchestration \u2014 ideas, brainstorms, plans, tasks, completion with Manus-style discipline hooks",
+      "version": "1.0.0",
+      "author": {
+        "name": "twilc"
+      },
+      "source": "./plugins/flow",
+      "category": "workflow"
     }
   ]
 }

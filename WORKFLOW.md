@@ -123,6 +123,27 @@ These run in the background via hooks — no invocation needed.
 - `/research-workflow:experiment` — design experiment
 - `/research-workflow:findings` — record findings
 
+### Flow (Workflow Orchestration)
+
+Lightweight lifecycle management with Manus-style discipline hooks. Works standalone or alongside compound-engineering.
+
+```
+Lifecycle: idea → brainstorm → plan → activate → work (with hooks) → complete
+```
+
+| Command | Purpose |
+|---------|---------|
+| `/flow:idea` | Capture idea to `docs/ideas/`, add to TASKS.md Later |
+| `/flow:activate <path>` | Set active plan — hooks come alive |
+| `/flow:deactivate` | Clear active plan — hooks go silent |
+| `/flow:status` | Overview: active plan, tasks, ideas, completed |
+| `/flow:complete` | Archive plan to `docs/plans/completed/`, update TASKS.md |
+| `/flow:handoff` | Flow-aware session handoff document |
+
+**With compound-engineering**: `/workflows:plan` creates the plan, `/flow:activate` tracks it, `/flow:complete` archives it.
+
+**Standalone**: Create plans manually or via `/brainstorming` + `/writing-plans`, then activate and track.
+
 ### External Plugins (Optional)
 
 Install via their respective setup scripts.

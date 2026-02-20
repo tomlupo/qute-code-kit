@@ -1,0 +1,10 @@
+{
+  "name": "flow",
+  "version": "1.0.0",
+  "description": "Lightweight workflow orchestration — ideas, brainstorms, plans, tasks, completion. Manus-style discipline hooks keep agents on track during plan execution.",
+  "author": {
+    "name": "twilc"
+  },
+  "repository": "https://github.com/twilc/qute-code-kit",
+  "license": "MIT"
+}
