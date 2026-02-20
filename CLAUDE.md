@@ -76,6 +76,7 @@ To add a new external plugin:
 | Plugin | Type | Description |
 |--------|------|-------------|
 | doc-enforcer | hook | Reminds when docs may need updating |
+| flow | hook+command | Workflow orchestration: ideas, plans, tasks, completion with discipline hooks |
 | forced-eval | hook | Forces skill evaluation before implementation |
 | strategic-compact | hook | Suggests /compact at tool-call thresholds |
 | skill-use-logger | hook | Logs skill invocations to JSONL |

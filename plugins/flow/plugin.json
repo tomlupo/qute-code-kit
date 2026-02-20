@@ -1,0 +1,16 @@
+{
+  "name": "flow",
+  "version": "1.0.0",
+  "description": "Lightweight workflow orchestration — ideas, brainstorms, plans, tasks, completion. Manus-style discipline hooks keep agents on track during plan execution.",
+  "author": "twilc",
+  "commands": [
+    "commands/idea.md",
+    "commands/activate.md",
+    "commands/deactivate.md",
+    "commands/status.md",
+    "commands/complete.md",
+    "commands/handoff.md"
+  ],
+  "skills": [],
+  "hooks": "hooks/hooks.json"
+}
