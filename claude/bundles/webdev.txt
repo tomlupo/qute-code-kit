@@ -13,6 +13,7 @@ pyproject/webdev-uv.toml
 # Skills
 my:context-management
 my:pdf-skill
+external:visual-explainer
 
 # Skills (formerly commands — now skills per slash/skill merge)
 my:gist-report
