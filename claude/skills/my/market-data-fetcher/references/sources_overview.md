@@ -12,6 +12,7 @@ Comprehensive comparison of all supported data sources for the market-data-fetch
 | **Tiingo** | US stocks fallback | 86,000+ securities, 30+ years | Yes (API key) | 50/hr, 1000/day | Free |
 | **CCXT (Binance)** | Cryptocurrency | BTC, ETH, altcoins | No | Exchange limits | Free |
 | **FRED** | Economic indicators | US economic data (GDP, CPI, rates) | Yes (API key) | None documented | Free |
+| **FinancialData.Net** | Fundamentals, options, insider data | US/intl stocks, options, fundamentals, insider | Yes (API key) | Tier-dependent | Free/Paid |
 | **pandas-datareader** | Meta-source fallback | Multiple sources via single interface | Varies | Varies | Free |
 
 ## Dividend Treatment Quick Reference
@@ -368,7 +369,92 @@ df = fetcher.fetch('BTC/USD')
 
 ---
 
-### 5. pandas-datareader
+### 7. FinancialData.Net (financialdata.net)
+
+**Purpose**: Comprehensive financial data API covering stocks, fundamentals, options, forex, crypto, and institutional data.
+
+**Coverage**:
+- US stocks, international stocks, ETFs, commodities, OTC
+- Options (chain, prices, Greeks), futures
+- Cryptocurrency, forex
+- Financial statements (income, balance sheet, cash flow)
+- Financial ratios (liquidity, solvency, efficiency, profitability, valuation)
+- Company info, key metrics, market cap
+- Insider transactions, senate/house trading
+- Institutional investors, holdings
+- Earnings/IPO/splits/dividends calendars
+- Press releases (company, SEC, Fed)
+
+**Data Available**:
+- OHLCV prices (daily, minute)
+- Real-time quotes (Premium)
+- 50+ API endpoints
+- JSON and CSV output formats
+
+**Subscription Tiers**:
+| Tier | Access |
+|------|--------|
+| **Free** | Symbol lists, stock prices, commodity prices, OTC data |
+| **Standard** | Company info, financials, ratios, derivatives, crypto |
+| **Premium** | Real-time quotes, international data, forex, press releases |
+
+**Strengths**:
+- Comprehensive coverage in a single API
+- Options and derivatives data (chain, Greeks)
+- Institutional and insider trading data
+- Financial statements and ratios
+- Senate/House trading disclosures
+- Event calendars (earnings, IPO, splits, dividends)
+- MCP server for AI agent integration
+- Python SDK available (`fdnpy`)
+
+**Limitations**:
+- **Requires API key** (free tier available)
+- Premium endpoints need paid subscription
+- Record limits per call (300-500, paginated)
+- No Polish market-specific data
+
+**Best For**:
+- Fundamental analysis
+- Options research
+- Institutional ownership tracking
+- Congressional trading monitoring
+- Financial statement analysis
+- Event-driven strategy research
+
+**API Details**:
+- Base URL: `https://financialdata.net/api/v1/`
+- Auth: Query parameter `?key=API_KEY`
+- Pagination: `offset` parameter, limits vary by endpoint (300-500)
+- Timezones: EST for stocks, UTC for crypto/forex
+
+**Example Usage**:
+
+```python
+from fetch_financialdata import FinancialDataFetcher, fetch_financialdata
+
+# Stock prices
+df = fetch_financialdata('AAPL', start_date='2024-01-01')
+
+# Financial statements
+df = fetch_financialdata('AAPL', endpoint='income-statements', period='year')
+
+# Option chain
+df = fetch_financialdata('AAPL', endpoint='option-chain')
+
+# Insider transactions
+df = fetch_financialdata('AAPL', endpoint='insider-transactions')
+
+# Senate trading
+fetcher = FinancialDataFetcher()
+df = fetcher.get_senate_trading()
+```
+
+**Setup**: Get API key at https://financialdata.net, set `FINANCIAL_DATA_API_KEY` env var.
+
+---
+
+### 8. pandas-datareader
 
 **Purpose**: Meta-source providing unified interface to multiple data providers.
 
@@ -412,11 +498,12 @@ The unified fetcher automatically selects sources based on ticker patterns:
 1. **Cryptocurrency** (BTC/USDT, ETHUSDT) → CCXT/Binance
 2. **Polish stocks** (pko, cdr, pzu) → Stooq
 3. **PLN FX rates** (USD, EUR, GBP) → NBP API
-4. **US stocks** (AAPL, MSFT, GOOGL) → Yahoo Finance → Tiingo (fallback)
+4. **US stocks** (AAPL, MSFT, GOOGL) → Yahoo Finance → Tiingo → FinancialData.Net (fallback)
 5. **International indices** (^SPX, ^IXIC) → Yahoo Finance
 6. **Economic indicators** (GDP, UNRATE) → FRED
 7. **Currency pairs** (USDPLN, EURUSD) → Stooq
-8. **Fallback** → pandas-datareader
+8. **Fundamentals/options** → FinancialData.Net (via `fd_endpoint` parameter)
+9. **Fallback** → pandas-datareader
 
 ### Manual Source Selection
 
@@ -511,6 +598,12 @@ pip install ccxt
   - Get at: https://api.tiingo.com/
   - Set: `TIINGO_API_KEY` environment variable
 
+- **FinancialData.Net**: Required for all endpoints
+  - Get at: https://financialdata.net
+  - Set: `FINANCIAL_DATA_API_KEY` environment variable
+  - Free tier: stock prices, symbol lists
+  - Standard/Premium: fundamentals, options, forex, insider data
+
 - **CCXT**: No API key needed for public historical data
 
 ---
@@ -562,4 +655,10 @@ If experiencing rate limiting:
 | **Cryptocurrency analysis** | CCXT/Binance | Free unlimited history |
 | **Bitcoin/ETH tracking** | CCXT | Best crypto coverage |
 | **Hourly crypto data** | CCXT with `timeframe='1h'` | Supports all intervals |
-| **US stocks when Yahoo fails** | Tiingo | Best free tier backup |
+| **US stocks when Yahoo fails** | Tiingo → FinancialData.Net | Best free tier backup |
+| **Fundamental analysis** | FinancialData.Net | Income/balance/cash flow statements |
+| **Financial ratios** | FinancialData.Net | Liquidity, solvency, profitability, valuation |
+| **Options research** | FinancialData.Net | Option chain, prices, Greeks |
+| **Insider trading** | FinancialData.Net | Insider transactions, congress trading |
+| **Institutional ownership** | FinancialData.Net | Holders, holdings, portfolio stats |
+| **Event calendars** | FinancialData.Net | Earnings, IPO, splits, dividends |

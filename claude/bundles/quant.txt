@@ -38,3 +38,4 @@ hooks/post-commit-changelog-hook.py
 # MCP Servers
 mcp:firecrawl
 mcp:postgres
+mcp:financialdata

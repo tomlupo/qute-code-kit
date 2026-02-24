@@ -1,6 +1,6 @@
 ---
 name: market-data-fetcher
-description: Fetch market data from multiple sources (Stooq, NBP, Yahoo Finance, FRED, pandas-datareader) with intelligent routing. Best for ad-hoc data queries, multi-source comparisons, and historical data downloads. Use when users request stock prices, indices, FX rates, or economic indicators.
+description: Fetch market data from multiple sources (Stooq, NBP, Yahoo Finance, FRED, FinancialData.Net, pandas-datareader) with intelligent routing. Best for ad-hoc data queries, multi-source comparisons, and historical data downloads. Use when users request stock prices, indices, FX rates, economic indicators, fundamentals, options, or financial statements.
 argument-hint: "[ticker] [start-date] [end-date]"
 allowed-tools: Bash, Read
 ---
@@ -63,7 +63,15 @@ Use this skill when users request:
    - Requires free API key
    - Best for: Macroeconomic data
 
-7. **pandas-datareader**
+7. **FinancialData.Net** (financialdata.net) - **NEW**
+   - US/international stocks, ETFs, commodities, crypto, forex
+   - Options, futures, financial statements, ratios, insider trading
+   - Requires API key (free tier available)
+   - Best for: Fundamentals, options data, institutional/insider data
+   - **Endpoints**: 50+ covering prices, statements, ratios, calendars
+   - **MCP server**: Available for direct AI agent integration
+
+8. **pandas-datareader**
    - Meta-source accessing multiple providers
    - Useful fallback
    - Best for: When primary sources fail
@@ -103,6 +111,7 @@ uv run scripts/fetch_unified.py PKO 2024-01-01 2024-12-31
 uv run scripts/fetch_stooq.py WIG20 2024-01-01
 uv run scripts/fetch_nbp.py USD 2024-01-01 2024-12-31
 uv run scripts/fetch_yahoo.py AAPL 2024-01-01
+uv run scripts/fetch_financialdata.py AAPL 2024-01-01 2024-12-31
 ```
 
 **Python module usage**:
@@ -374,6 +383,52 @@ registry.add_ticker_mapping('PLXTRDM00011', 'bloomberg', 'XTB PW Equity')
 
 # Save registry to CSV
 registry.save()
+```
+
+### Pattern 11: FinancialData.Net (Prices, Fundamentals, Options)
+
+Use for stock prices, company fundamentals, financial statements, options data, and institutional/insider trading:
+
+```python
+from fetch_financialdata import FinancialDataFetcher, fetch_financialdata
+
+# Stock prices (Free tier)
+df = fetch_financialdata('AAPL', start_date='2024-01-01', end_date='2024-12-31')
+
+# Company information (Standard tier)
+df = fetch_financialdata('MSFT', endpoint='company-information')
+
+# Income statements
+df = fetch_financialdata('AAPL', endpoint='income-statements', period='year')
+
+# Balance sheet
+df = fetch_financialdata('AAPL', endpoint='balance-sheet-statements', period='quarter')
+
+# Financial ratios
+df = fetch_financialdata('AAPL', endpoint='profitability-ratios')
+
+# Option chain
+df = fetch_financialdata('AAPL', endpoint='option-chain')
+
+# Crypto prices
+df = fetch_financialdata('BTC', endpoint='crypto-prices')
+
+# Forex prices
+df = fetch_financialdata('EURUSD', endpoint='forex-prices')
+
+# Insider transactions
+df = fetch_financialdata('AAPL', endpoint='insider-transactions')
+
+# Senate/House trading
+fetcher = FinancialDataFetcher()
+df = fetcher.get_senate_trading()
+
+# Via unified fetcher (auto-routing includes FinancialData as fallback)
+from fetch_unified import fetch_market_data
+df = fetch_market_data('AAPL', source='financialdata', start_date='2024-01-01')
+
+# Access fundamentals via unified fetcher
+df = fetch_market_data('AAPL', source='financialdata', fd_endpoint='income-statements')
 ```
 
 ## Date Format Handling

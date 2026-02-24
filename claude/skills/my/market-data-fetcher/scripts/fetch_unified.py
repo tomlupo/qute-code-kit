@@ -83,6 +83,12 @@ except ImportError:
         """Fallback if ccxt not available."""
         return '/' in s or s.upper().endswith(('USDT', 'USDC', 'BTC'))
 
+try:
+    from fetch_financialdata import FinancialDataFetcher
+    FINANCIALDATA_AVAILABLE = True
+except ImportError:
+    FINANCIALDATA_AVAILABLE = False
+
 
 class UnifiedMarketDataFetcher:
     """
@@ -116,6 +122,7 @@ class UnifiedMarketDataFetcher:
 
     def __init__(self, use_cache: bool = True, cache_hours: int = 24,
                  fred_api_key: Optional[str] = None, tiingo_api_key: Optional[str] = None,
+                 financialdata_api_key: Optional[str] = None,
                  crypto_exchange: str = 'binance', use_registry: bool = True):
         """
         Initialize unified fetcher.
@@ -125,6 +132,7 @@ class UnifiedMarketDataFetcher:
             cache_hours: Cache validity in hours
             fred_api_key: FRED API key (optional)
             tiingo_api_key: Tiingo API key (optional, or set TIINGO_API_KEY env var)
+            financialdata_api_key: FinancialData.Net API key (optional, or set FINANCIAL_DATA_API_KEY env var)
             crypto_exchange: Default crypto exchange for CCXT (default: binance)
             use_registry: Whether to use TickerRegistry for lookups
         """
@@ -132,6 +140,7 @@ class UnifiedMarketDataFetcher:
         self.cache_hours = cache_hours
         self.fred_api_key = fred_api_key
         self.tiingo_api_key = tiingo_api_key
+        self.financialdata_api_key = financialdata_api_key
         self.crypto_exchange = crypto_exchange
 
         # Initialize TickerRegistry for ISIN/ticker lookups
@@ -176,6 +185,15 @@ class UnifiedMarketDataFetcher:
                 self.fetchers['ccxt'] = CCXTFetcher(crypto_exchange, use_cache, cache_hours)
             except Exception as e:
                 print(f"[Unified] CCXT unavailable: {e}")
+
+        # Initialize FinancialData.Net (requires API key)
+        if FINANCIALDATA_AVAILABLE:
+            try:
+                self.fetchers['financialdata'] = FinancialDataFetcher(
+                    financialdata_api_key, use_cache, cache_hours
+                )
+            except ValueError:
+                print("[Unified] FinancialData.Net API key not configured, FinancialData unavailable")
 
     def fetch(self, identifier: str, start_date: Optional[str] = None,
               end_date: Optional[str] = None, source: Optional[str] = None,
@@ -362,6 +380,8 @@ class UnifiedMarketDataFetcher:
             sources = ['yahoo']
             if 'tiingo' in self.fetchers:
                 sources.append('tiingo')
+            if 'financialdata' in self.fetchers:
+                sources.append('financialdata')
             sources.extend(['pdr', 'stooq'])
             return sources
 
@@ -374,13 +394,17 @@ class UnifiedMarketDataFetcher:
                 sources = ['yahoo']
                 if 'tiingo' in self.fetchers:
                     sources.append('tiingo')
+                if 'financialdata' in self.fetchers:
+                    sources.append('financialdata')
                 sources.extend(['pdr', 'stooq'])
                 return sources
 
-        # Default fallback order (Yahoo first, Tiingo as backup)
+        # Default fallback order (Yahoo first, Tiingo and FinancialData as backup)
         sources = ['yahoo']
         if 'tiingo' in self.fetchers:
             sources.append('tiingo')
+        if 'financialdata' in self.fetchers:
+            sources.append('financialdata')
         sources.extend(['stooq', 'pdr'])
         return sources
 
@@ -421,6 +445,11 @@ class UnifiedMarketDataFetcher:
             # CCXT needs timeframe parameter
             timeframe = kwargs.pop('timeframe', '1d')
             return fetcher.fetch(ticker, start_date, end_date, timeframe=timeframe, **kwargs)
+
+        elif source == 'financialdata':
+            # FinancialData.Net - supports endpoint parameter for different data types
+            endpoint = kwargs.pop('fd_endpoint', 'stock-prices')
+            return fetcher.fetch(ticker, start_date, end_date, endpoint=endpoint, **kwargs)
 
         else:
             # Standard fetchers (stooq, yahoo, fred, tiingo)
@@ -470,6 +499,7 @@ def fetch_market_data(identifier: str, start_date: Optional[str] = None,
                      use_registry: bool = True,
                      fred_api_key: Optional[str] = None,
                      tiingo_api_key: Optional[str] = None,
+                     financialdata_api_key: Optional[str] = None,
                      crypto_exchange: str = 'binance',
                      **kwargs) -> pd.DataFrame:
     """
@@ -487,8 +517,9 @@ def fetch_market_data(identifier: str, start_date: Optional[str] = None,
         use_registry: Whether to use TickerRegistry for lookups
         fred_api_key: FRED API key (optional)
         tiingo_api_key: Tiingo API key (optional, or set TIINGO_API_KEY env var)
+        financialdata_api_key: FinancialData.Net API key (optional, or set FINANCIAL_DATA_API_KEY env var)
         crypto_exchange: Default crypto exchange for CCXT (default: binance)
-        **kwargs: Additional arguments (e.g., timeframe='1h' for crypto)
+        **kwargs: Additional arguments (e.g., timeframe='1h' for crypto, fd_endpoint for FinancialData)
 
     Returns:
         DataFrame with market data
@@ -498,7 +529,8 @@ def fetch_market_data(identifier: str, start_date: Optional[str] = None,
         use_registry=use_registry,
         fred_api_key=fred_api_key,
         tiingo_api_key=tiingo_api_key,
-        crypto_exchange=crypto_exchange
+        financialdata_api_key=financialdata_api_key,
+        crypto_exchange=crypto_exchange,
     )
     return fetcher.fetch(identifier, start_date, end_date, source, **kwargs)
 
@@ -613,3 +645,16 @@ if __name__ == '__main__':
             print(f"   Error: {e}")
     else:
         print("\n10. Tiingo not available (set TIINGO_API_KEY)")
+
+    # Test 11: FinancialData.Net (if available)
+    if 'financialdata' in fetcher.fetchers:
+        print("\n11. Fetching AAPL via FinancialData.Net:")
+        try:
+            df = fetcher.fetch('AAPL', start_date='20240101', end_date='20240131',
+                              source='financialdata')
+            print(f"   Retrieved {len(df)} rows")
+            print(df.head(3))
+        except Exception as e:
+            print(f"   Error: {e}")
+    else:
+        print("\n11. FinancialData.Net not available (set FINANCIAL_DATA_API_KEY)")
