@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "financialdata": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://financialdata.net/mcp?key=${FINANCIAL_DATA_API_KEY}"],
+      "env": {
+        "FINANCIAL_DATA_API_KEY": "${FINANCIAL_DATA_API_KEY}"
+      }
+    }
+  }
+}

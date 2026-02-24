@@ -11,6 +11,7 @@ Most data sources work out-of-the-box without configuration:
 - **CCXT/Crypto**: No setup required (via ccxt package)
 - **Tiingo**: **API key required** (free)
 - **FRED**: **API key required** (free)
+- **FinancialData.Net**: **API key required** (free tier available)
 - **pandas-datareader**: No setup (but some sub-sources may need keys)
 
 ---
@@ -278,6 +279,114 @@ Supported exchanges include:
 ### Rate Limits
 
 CCXT has built-in rate limiting that respects exchange-specific limits. Additional caching (24 hours default) reduces requests further.
+
+---
+
+## FinancialData.Net API Setup
+
+### Why FinancialData.Net Requires API Key
+
+FinancialData.Net provides comprehensive financial data covering stocks, fundamentals, options, forex, crypto, financial statements, ratios, and insider/institutional trading. A free tier provides basic stock prices and symbol lists.
+
+### Step 1: Register for API Key
+
+1. Visit: https://financialdata.net
+2. Click "Sign Up" or "Get API Key"
+3. Create an account
+4. Navigate to your API settings
+5. Copy your API key
+
+### Step 2: Configure API Key
+
+#### Option 1: Environment Variable (Recommended)
+
+**Windows (PowerShell)**:
+```powershell
+$env:FINANCIAL_DATA_API_KEY = "your_api_key_here"
+
+# Make permanent
+[System.Environment]::SetEnvironmentVariable('FINANCIAL_DATA_API_KEY', 'your_api_key_here', 'User')
+```
+
+**Windows (Command Prompt)**:
+```cmd
+set FINANCIAL_DATA_API_KEY=your_api_key_here
+
+# Make permanent
+setx FINANCIAL_DATA_API_KEY "your_api_key_here"
+```
+
+**Linux/Mac**:
+```bash
+export FINANCIAL_DATA_API_KEY="your_api_key_here"
+
+# Add to ~/.bashrc or ~/.zshrc for persistence
+echo 'export FINANCIAL_DATA_API_KEY="your_api_key_here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+#### Option 2: Direct Parameter
+
+Pass the API key directly in code:
+
+```python
+from scripts.fetch_financialdata import fetch_financialdata
+
+df = fetch_financialdata('AAPL', api_key='your_api_key_here')
+```
+
+Or with unified fetcher:
+
+```python
+from scripts.fetch_unified import UnifiedMarketDataFetcher
+
+fetcher = UnifiedMarketDataFetcher(financialdata_api_key='your_api_key_here')
+df = fetcher.fetch('AAPL', source='financialdata')
+```
+
+### Step 3: Verify Setup
+
+Test that FinancialData.Net API key is working:
+
+```python
+from scripts.fetch_financialdata import FinancialDataFetcher
+
+try:
+    fetcher = FinancialDataFetcher()  # Will auto-detect key from env
+    df = fetcher.get_stock_prices('AAPL', start_date='20240101', end_date='20240131')
+    print(f"Success! Retrieved {len(df)} data points")
+    print(df.head())
+except ValueError as e:
+    print(f"API key not configured: {e}")
+```
+
+### FinancialData.Net Subscription Tiers
+
+| Tier | Endpoints | Examples |
+|------|-----------|---------|
+| **Free** | Symbol lists, stock prices, commodity prices, OTC data | stock-symbols, stock-prices, commodity-prices |
+| **Standard** | Company info, financials, ratios, derivatives, crypto | income-statements, option-chain, key-metrics |
+| **Premium** | Real-time quotes, international data, forex, press releases | stock-quotes, forex-prices, press-releases |
+
+### MCP Server
+
+FinancialData.Net also provides an MCP server for direct AI agent integration:
+
+```json
+{
+  "mcpServers": {
+    "financialdata": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://financialdata.net/mcp?key=YOUR_KEY"],
+      "env": {
+        "FINANCIAL_DATA_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+The MCP server exposes tools like `getStockPrices`, `getIncomeStatements`, etc.
 
 ---
 
@@ -607,6 +716,7 @@ def test_all_sources():
         ('Tiingo (US stock)', 'MSFT', 'tiingo'),
         ('CCXT (Crypto)', 'BTC/USDT', 'ccxt'),
         ('FRED (Economic data)', 'GDP', 'fred'),
+        ('FinancialData.Net (US stock)', 'AAPL', 'financialdata'),
     ]
 
     for name, ticker, source in tests:
@@ -638,6 +748,7 @@ python test_config.py
 
 - **FRED API**: https://fred.stlouisfed.org/docs/api/
 - **Tiingo API**: https://api.tiingo.com/documentation/general/overview
+- **FinancialData.Net API**: https://financialdata.net/documentation
 - **CCXT**: https://github.com/ccxt/ccxt/wiki
 - **yfinance**: https://github.com/ranaroussi/yfinance
 - **pandas-datareader**: https://pandas-datareader.readthedocs.io/
