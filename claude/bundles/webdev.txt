@@ -18,6 +18,9 @@ my:pdf-skill
 my:gist-report
 my:gist-transcript
 
+# External skills
+external:visual-explainer
+
 # Agents
 external:frontend-designer.md
 external:code-refactorer.md

@@ -27,6 +27,9 @@ my:qrd
 my:gist-report
 my:gist-transcript
 
+# External skills
+external:visual-explainer
+
 # Agents
 my:mlflow-analyzer.md
 my:research-paper-analyst

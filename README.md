@@ -190,6 +190,7 @@ Skill sub-bundles (use with `--add @skills/<name>`):
 | context7 | -- | -- |
 | dignified-python-313 | -- | -- |
 | nano-banana-pro | -- | -- |
+| visual-explainer | -- | quant, webdev |
 
 ### Other Tools
 

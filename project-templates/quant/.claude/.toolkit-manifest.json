@@ -1,7 +1,7 @@
 {
-  "source": "/home/twilc/projects/qute-code-kit",
+  "source": "/home/user/qute-code-kit",
   "bundle": "quant",
-  "installed": "2026-02-04T17:54:01Z",
+  "installed": "2026-02-24T16:57:10Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "code-quality.md", "src": "rules/code-quality.md"},
@@ -39,6 +39,7 @@
     {"type": "skill", "name": "statistical-analysis", "src": "external:scientific/statistical-analysis"},
     {"type": "skill", "name": "gist-report", "src": "my:gist-report"},
     {"type": "skill", "name": "gist-transcript", "src": "my:gist-transcript"},
+    {"type": "skill", "name": "visual-explainer", "src": "external:visual-explainer"},
     {"type": "agent", "name": "mlflow-analyzer.md", "src": "my:mlflow-analyzer.md"},
     {"type": "agent", "name": "research-paper-analyst", "src": "my:research-paper-analyst"},
     {"type": "agent", "name": "python-reviewer.md", "src": "external:python-reviewer.md"},
