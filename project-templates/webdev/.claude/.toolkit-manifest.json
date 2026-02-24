@@ -1,7 +1,7 @@
 {
-  "source": "/home/twilc/projects/qute-code-kit",
+  "source": "/home/user/qute-code-kit",
   "bundle": "webdev",
-  "installed": "2026-02-04T17:54:02Z",
+  "installed": "2026-02-24T16:57:16Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "code-quality.md", "src": "rules/code-quality.md"},
@@ -25,6 +25,7 @@
     {"type": "skill", "name": "pdf-skill", "src": "my:pdf-skill"},
     {"type": "skill", "name": "gist-report", "src": "my:gist-report"},
     {"type": "skill", "name": "gist-transcript", "src": "my:gist-transcript"},
+    {"type": "skill", "name": "visual-explainer", "src": "external:visual-explainer"},
     {"type": "agent", "name": "frontend-designer.md", "src": "external:frontend-designer.md"},
     {"type": "agent", "name": "code-refactorer.md", "src": "external:code-refactorer.md"},
     {"type": "agent", "name": "prd-writer.md", "src": "external:prd-writer.md"},
