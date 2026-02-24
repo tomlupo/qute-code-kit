@@ -112,6 +112,21 @@ Create new subdirectories as needed. Keep files in root `/docs/` for smaller pro
 - **Reference**: Quick lookup sections (if applicable)
 - **Related docs**: Links to related documentation
 
+### 4-Doc Pattern for Data Pipelines
+
+Every data pipeline should have exactly 4 docs, each with a single concern:
+
+| Doc | Location | Answers |
+|-----|----------|---------|
+| Instruction | `docs/instructions/{name}_pipeline.md` | What to run — commands, steps |
+| Dataset | `docs/datasets/{dataset_name}.md` | What the data looks like — schema, loading |
+| Methodology | `docs/methodology/{name}_extraction.md` | Why it works this way — design decisions |
+| Reference | `docs/reference/{name}_convention.md` | What the conventions are — IDs, config files |
+
+No duplication across the 4 — each piece of information lives in exactly one doc. All 4 cross-reference each other in a "Related" section.
+
+If the `pipeline-docs` skill is available, use it (`/pipeline-docs`) for templates and a guided workflow.
+
 ### Common Patterns
 - **Setup guides**: Prerequisites → Installation → Configuration → Verification
 - **API docs**: Endpoint → Parameters → Response → Examples → Errors
