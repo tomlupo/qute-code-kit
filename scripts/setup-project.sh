@@ -98,6 +98,8 @@ resolve_source() {
             local name="${ref#tomlupo:}"
             if [ -d "$CLAUDE_DIR/skills/$name" ]; then
                 src="$CLAUDE_DIR/skills/$name"
+            elif [ -f "$CLAUDE_DIR/agents/$name.md" ]; then
+                src="$CLAUDE_DIR/agents/$name.md"
             elif [ -f "$CLAUDE_DIR/agents/$name" ]; then
                 src="$CLAUDE_DIR/agents/$name"
             elif [ -d "$CLAUDE_DIR/agents/$name" ]; then
@@ -114,6 +116,8 @@ resolve_source() {
             # Bare name — try as skill or agent (flat structure)
             if [ -d "$CLAUDE_DIR/skills/$ref" ]; then
                 src="$CLAUDE_DIR/skills/$ref"
+            elif [ -f "$CLAUDE_DIR/agents/$ref.md" ]; then
+                src="$CLAUDE_DIR/agents/$ref.md"
             elif [ -f "$CLAUDE_DIR/agents/$ref" ]; then
                 src="$CLAUDE_DIR/agents/$ref"
             elif [ -d "$CLAUDE_DIR/agents/$ref" ]; then
@@ -168,7 +172,11 @@ resolve_target() {
             if [[ "$src" == *"/skills/"* ]]; then
                 echo "$target_dir/.claude/skills/$name/"
             elif [[ "$src" == *"/agents/"* ]]; then
-                echo "$target_dir/.claude/agents/$name"
+                if [ -f "$src" ]; then
+                    echo "$target_dir/.claude/agents/$(basename "$src")"
+                else
+                    echo "$target_dir/.claude/agents/$name"
+                fi
             fi
             ;;
         mcp:*)
@@ -179,6 +187,8 @@ resolve_target() {
             # Bare name — try as skill or agent (flat structure)
             if [ -d "$CLAUDE_DIR/skills/$ref" ]; then
                 echo "$target_dir/.claude/skills/$ref/"
+            elif [ -f "$CLAUDE_DIR/agents/$ref.md" ]; then
+                echo "$target_dir/.claude/agents/$ref.md"
             elif [ -f "$CLAUDE_DIR/agents/$ref" ]; then
                 echo "$target_dir/.claude/agents/$ref"
             elif [ -d "$CLAUDE_DIR/agents/$ref" ]; then
@@ -216,6 +226,8 @@ detect_type() {
             # Bare name — detect from flat structure
             if [ -d "$CLAUDE_DIR/skills/$ref" ]; then
                 echo "skill"
+            elif [ -f "$CLAUDE_DIR/agents/$ref.md" ]; then
+                echo "agent"
             elif [ -f "$CLAUDE_DIR/agents/$ref" ] || [ -d "$CLAUDE_DIR/agents/$ref" ]; then
                 echo "agent"
             else
@@ -297,7 +309,7 @@ install_component() {
         if [ "$dry_run" = "1" ]; then
             echo -e "  ${YELLOW}SKIP${NC}  $ref  ->  $dst  (exists)"
         fi
-        return 0
+        return 2
     fi
 
     if [ "$dry_run" = "1" ]; then
@@ -432,9 +444,10 @@ list_components() {
     done
 
     header "pyproject Templates"
-    for f in "$SCRIPT_DIR"/templates/pyproject/*.toml; do
+    for f in "$REPO_DIR"/templates/pyproject/*.toml; do
         [ -f "$f" ] && echo "  pyproject/$(basename "$f")"
     done
+    return 0
 }
 
 list_bundles() {
@@ -507,7 +520,17 @@ update_env_example() {
         # Extract ${VAR_NAME} patterns from the file
         while IFS= read -r var; do
             env_vars+=("$var")
-        done < <(grep -oP '\$\{\K[^}]+' "$src" 2>/dev/null || true)
+        done < <(
+            awk '
+            {
+                line = $0
+                while (match(line, /\$\{[^}]+\}/)) {
+                    print substr(line, RSTART + 2, RLENGTH - 3)
+                    line = substr(line, RSTART + RLENGTH)
+                }
+            }
+            ' "$src"
+        )
     done
 
     [ ${#env_vars[@]} -eq 0 ] && return 0
@@ -717,7 +740,12 @@ main() {
         if install_component "$ref" "$target" "$use_link" "$force" "$dry_run"; then
             installed+=("$ref")
         else
-            ((failed++)) || true
+            local status=$?
+            if [ "$status" -eq 2 ]; then
+                ((skipped++)) || true
+            else
+                ((failed++)) || true
+            fi
         fi
     done
 
@@ -730,11 +758,22 @@ main() {
     # Summary
     if [ "$dry_run" = "1" ]; then
         echo ""
-        echo -e "${BOLD}Summary:${NC} ${#unique[@]} components would be installed"
+        echo -e "${BOLD}Summary:${NC} ${#installed[@]} components would be installed"
+        if [ "$skipped" -gt 0 ]; then
+            echo "  Skipped (already exist): $skipped"
+        fi
+        if [ "$failed" -gt 0 ]; then
+            echo -e "  ${YELLOW}Failed validation: $failed${NC}"
+        fi
     else
         header "Done"
         echo "  Installed: ${#installed[@]} components"
-        [ "$failed" -gt 0 ] && echo -e "  ${YELLOW}Failed: $failed${NC}"
+        if [ "$skipped" -gt 0 ]; then
+            echo "  Skipped (already exist): $skipped"
+        fi
+        if [ "$failed" -gt 0 ]; then
+            echo -e "  ${YELLOW}Failed: $failed${NC}"
+        fi
         echo "  Manifest: $target/.claude/.toolkit-manifest.json"
     fi
 }

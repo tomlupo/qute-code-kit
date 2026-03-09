@@ -21,5 +21,5 @@ This plugin is part of the qute-marketplace. If you have the marketplace install
 To modify this plugin:
 
 1. Edit files in this directory
-2. Run `python scripts/build.py` from the marketplace root
+2. Run `python scripts/build-marketplace.py` from the marketplace root
 3. Restart Claude to apply changes
