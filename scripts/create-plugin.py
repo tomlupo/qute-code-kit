@@ -3,7 +3,7 @@
 Create a new plugin from template.
 
 Usage:
-    python scripts/create.py <plugin-name>
+    python scripts/create-plugin.py <plugin-name>
 """
 
 import json
@@ -71,15 +71,15 @@ def create_plugin(name: str):
     print(f"\n📝 Next steps:")
     print(f"   1. Edit {plugin_dir}/plugin.json to configure commands/skills")
     print(f"   2. Add your commands to {plugin_dir}/commands/")
-    print(f"   3. Run: python scripts/build.py")
+    print(f"   3. Run: python scripts/build-marketplace.py")
     print(f"   4. Restart Claude to use /{normalized_name}:* commands")
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python scripts/create.py <plugin-name>")
+        print("Usage: python scripts/create-plugin.py <plugin-name>")
         print("\nExample:")
-        print("  python scripts/create.py my-awesome-plugin")
+        print("  python scripts/create-plugin.py my-awesome-plugin")
         sys.exit(1)
 
     plugin_name = sys.argv[1]
