@@ -1,132 +1,88 @@
 # Setup Guide
 
-## Installation Options
+## 1. Global Setup (once per machine)
 
-### Option A: Plugins (recommended)
-
-Plugins install skills and agents globally. Pick your profile:
+### Add marketplaces
 
 ```bash
 claude plugin marketplace add tomlupo/qute-code-kit
-claude plugin install qute-quant@qute-marketplace
+claude plugin marketplace add anthropics/claude-code-plugins
+claude plugin marketplace add anthropics/example-agent-skills
+claude plugin marketplace add every-ai-dev/compound-engineering
 ```
 
-Then copy rules to each project:
+### Install plugins
 
 ```bash
-./scripts/copy-rules.sh ~/project --preset quant
+# Essential hooks + universal skills (ruff, doc-enforcer, skill-eval, commits, worktrees, handoff, readme)
+claude plugin install qute-essentials@qute-marketplace
+
+# Recommended third-party
+claude plugin install context7@claude-plugins-official
+claude plugin install superpowers@claude-plugins-official
+claude plugin install compound-engineering@every-marketplace
 ```
 
-### Option B: Bundles (legacy)
-
-Bundles deploy everything (skills, agents, rules, MCP configs, settings) to a single project:
+### Copy global settings
 
 ```bash
-./setup-project.sh ~/project --bundle quant --init
+cp claude/settings/global-generic.json ~/.claude/settings.json
 ```
 
-| Bundle | Contents | Use for |
-|--------|----------|---------|
-| `minimal` | 5 rules, CLAUDE.md, AGENTS.md, 4 skills | Any project |
-| `quant` | minimal + python rules, 17 ML/quant skills, 3 agents, MCP configs | Data science, ML, quant |
-| `webdev` | minimal + coding standards, 4 skills, 5 agents, MCP configs | Web apps, frontend |
+Edit to taste — this sets up tool permissions and plugin references.
 
-Bundle commands:
+## 2. Set Up a Project
+
+### Option A: Script (recommended)
 
 ```bash
-./setup-project.sh ~/project --bundle quant --init      # first-time setup with directories
-./setup-project.sh ~/project --bundle quant --update     # update existing project
-./setup-project.sh ~/project --bundle quant --diff       # preview changes
-./setup-project.sh ~/project --add my:paper-reading      # add single component
-./setup-project.sh ~/project --add @skills/visualization # add sub-bundle
-./setup-project.sh --list                                # list available components
-./setup-project.sh --list-bundles                        # list bundles and contents
+./scripts/setup-project.sh ~/project --bundle quant --init
 ```
 
-## Work Modes
+This copies rules, skills, agents, MCP configs, settings, and root files to the target project.
 
-Set up CLI aliases to inject behavioral context:
+| Bundle | What you get |
+|--------|-------------|
+| `minimal` | 4 rules, CLAUDE.md, AGENTS.md |
+| `quant` | minimal + python/data rules, 14 skills, MCP (firecrawl, postgres), pyproject |
+| `webdev` | minimal + typescript rules, 2 skills, MCP (vercel, playwright, docker, figma, chrome-devtools), pyproject |
+
+Common commands:
 
 ```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias claude-dev='claude --context ~/.claude/contexts/dev.md'
-alias claude-research='claude --context ~/.claude/contexts/research.md'
-alias claude-review='claude --context ~/.claude/contexts/review.md'
+./scripts/setup-project.sh ~/project --bundle quant --update    # update existing project
+./scripts/setup-project.sh ~/project --bundle quant --diff      # preview changes
+./scripts/setup-project.sh ~/project --add paper-reading        # add single component
+./scripts/setup-project.sh --list                               # list available components
+./scripts/setup-project.sh --list-bundles                       # list bundles and contents
 ```
 
-Create context files:
+### Option B: Manual
+
+Copy what you need from `claude/` to your project's `.claude/`:
 
 ```bash
-mkdir -p ~/.claude/contexts
-
-cat > ~/.claude/contexts/dev.md << 'EOF'
-# Development Mode
-Prioritize working code over explanation. Write tests. Make atomic commits.
-When in doubt, ship something working and iterate.
-EOF
-
-cat > ~/.claude/contexts/research.md << 'EOF'
-# Research Mode
-Read widely before concluding. Document sources and findings.
-No code until requirements are crystal clear.
-EOF
-
-cat > ~/.claude/contexts/review.md << 'EOF'
-# Review Mode
-Read thoroughly before commenting. Prioritize issues by severity.
-Check for security vulnerabilities. Be constructive.
-EOF
+cp claude/rules/general-rules.md ~/project/.claude/rules/
+cp -r claude/skills/paper-reading ~/project/.claude/skills/
+cp claude/agents/research-synthesizer.md ~/project/.claude/agents/
 ```
 
-| Mode | Alias | Behavior |
-|------|-------|----------|
-| Development | `claude-dev` | Code first, explain after. Tests, atomic commits. |
-| Research | `claude-research` | Read widely, document findings. No code until clear. |
-| Review | `claude-review` | Thorough reading, severity-based feedback, security checks. |
+## 3. Verify
 
-## Utility Plugins
-
-Install separately from profile plugins. All are optional:
-
-| Plugin | Type | What it does |
-|--------|------|-------------|
-| `forced-eval` | Hook | Evaluates skills/agents before every implementation (~50% → ~84% skill activation) |
-| `strategic-compact` | Hook | Suggests `/compact` at 50 tool calls, then every 25 |
-| `doc-enforcer` | Hook | Reminds when 3+ code files edited without doc updates |
-| `ruff-formatter` | Hook | Auto-formats Python with ruff after edits |
-| `skill-use-logger` | Hook | Logs skill invocations to `.claude/skill-use-log.jsonl` |
-| `session-persistence` | Hook + Command | Auto-saves sessions, `/session-persistence:load` to restore |
-| `notifications` | Hook + Command | Push notifications via ntfy.sh for long tasks |
-| `adaptive-learning` | Hook + Command | Observes tool patterns, learns instincts, surfaces at session start |
-
-## External Plugins
-
-Third-party plugins tracked in `external-plugins.json`:
+In your project directory:
 
 ```bash
-python scripts/setup-externals.py              # fetch all from manifest
-python scripts/setup-externals.py --update     # update existing
-python scripts/fetch-external.py github:user/repo  # add new one
-python scripts/build-marketplace.py            # rebuild marketplace
+claude
+# Then run: /check-setup
 ```
 
-| Plugin | Source | Description |
-|--------|--------|-------------|
-| compound-engineering | every-marketplace | Full dev lifecycle with knowledge compounding |
-| superpowers | claude-plugins-official | Structured planning, TDD, debugging, code review |
-| context7 | claude-plugins-official | Live framework docs (100+ frameworks) |
+This audits your project against the kit and reports missing or outdated components.
 
-## Kit Development
+## 4. Browse Documentation
 
-```bash
-# Create a new plugin
-python scripts/create-plugin.py my-plugin
-
-# Rebuild marketplace after plugin changes
-python scripts/build-marketplace.py
-
-# Regenerate project templates after component changes
-./setup-project.sh project-templates/minimal --bundle minimal --update
-./setup-project.sh project-templates/quant --bundle quant --update
-./setup-project.sh project-templates/webdev --bundle webdev --update
-```
+| Doc | Purpose |
+|-----|---------|
+| `docs/reference.md` | Complete inventory of all components |
+| `docs/cheatsheets/toolkit-reference.md` | Quick-reference card |
+| `docs/playbooks/*.md` | End-to-end workflow guides |
+| `docs/tips.md` | Practical usage tips |

@@ -50,7 +50,9 @@ Proceed with development tasks in the worktree. This environment is completely i
 
 All standard git operations (commit, push, pull, etc.) work normally within the worktree.
 
-**Note:** If this project runs services (web apps, docker-compose, etc.), see [apps.md](apps.md) for setup steps including environment file copying, port allocation, and service startup.
+**Notes:**
+- If this project runs services (web apps, docker-compose, etc.), see [apps.md](apps.md) for port allocation and service startup.
+- If this project has large data directories (quant, ML, data science), see [quant.md](quant.md) for symlinking data, venv setup, and experiment tracking.
 
 ### 5. List Active Worktrees (Optional)
 

@@ -1,1 +1,0 @@
-../../../claude/agents/external/frontend-designer.md

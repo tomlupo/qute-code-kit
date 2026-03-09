@@ -1,1 +1,0 @@
-../../../claude/hooks/post-commit-changelog-hook.py
