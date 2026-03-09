@@ -135,12 +135,12 @@ Note: settings are templates, not exact copies — differences are advisory, not
 
 For missing components:
 ```
-./setup-project.sh <target> --add <ref>
+./scripts/setup-project.sh <target> --add <ref>
 ```
 
 To sync everything at once:
 ```
-./setup-project.sh <target> --bundle <bundle> --update
+./scripts/setup-project.sh <target> --bundle <bundle> --update
 ```
 
 For settings/plugin differences, note that these need manual review since settings are templates adapted per project.

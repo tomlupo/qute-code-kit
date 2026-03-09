@@ -8,7 +8,7 @@ Reusable Claude Code components, bundled and deployed via `setup-project.sh`. Se
 claude/              Source components (rules, skills, agents, commands, hooks, MCP configs, settings)
 claude/bundles/      Bundle manifests — text files listing which components belong together
 templates/           Non-Claude scaffolding (pyproject templates, .gitignore)
-setup-project.sh     Engine — resolves bundles, copies/links components to a target project
+scripts/setup-project.sh  Engine — resolves bundles, copies/links components to a target project
 project-templates/   Generated reference outputs (minimal/, quant/, webdev/)
 ```
 
@@ -200,16 +200,16 @@ mcp:firecrawl
 1. Create `claude/bundles/newbundle.txt`
 2. List component refs (one per line); use `@minimal` to inherit the base
 3. Add a row to the Bundles table in `README.md`
-4. Optionally generate a template: `./setup-project.sh project-templates/newbundle --bundle newbundle`
+4. Optionally generate a template: `./scripts/setup-project.sh project-templates/newbundle --bundle newbundle`
 
 ## Refreshing templates
 
 After any component or bundle change, regenerate the affected templates:
 
 ```bash
-./setup-project.sh project-templates/minimal --bundle minimal --update
-./setup-project.sh project-templates/quant --bundle quant --update
-./setup-project.sh project-templates/webdev --bundle webdev --update
+./scripts/setup-project.sh project-templates/minimal --bundle minimal --update
+./scripts/setup-project.sh project-templates/quant --bundle quant --update
+./scripts/setup-project.sh project-templates/webdev --bundle webdev --update
 ```
 
 ## Auditing an existing project
@@ -217,7 +217,7 @@ After any component or bundle change, regenerate the affected templates:
 Preview what would change without modifying anything:
 
 ```bash
-./setup-project.sh ~/projects/existing-project --bundle quant --diff
+./scripts/setup-project.sh ~/projects/existing-project --bundle quant --diff
 ```
 
 Check what was previously installed:
@@ -229,13 +229,13 @@ cat ~/projects/existing-project/.claude/.toolkit-manifest.json
 Bring a project up to date with the latest kit:
 
 ```bash
-./setup-project.sh ~/projects/existing-project --bundle quant --update
+./scripts/setup-project.sh ~/projects/existing-project --bundle quant --update
 ```
 
 Add individual components to an existing project:
 
 ```bash
-./setup-project.sh ~/projects/existing-project --add paper-reading
+./scripts/setup-project.sh ~/projects/existing-project --add paper-reading
 ```
 
 ## Conventions

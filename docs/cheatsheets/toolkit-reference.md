@@ -6,16 +6,10 @@
 
 | Skill | Invocation | Notes |
 |-------|------------|-------|
-| generating-commit-messages | mandatory | Conventional commits format |
+| generating-commit-messages | automatic | Conventional commits format |
 | worktrees | `/worktrees` | Git worktree management |
 | readme | `/readme` | README generation (forked context) |
 | handoff | `/handoff` | Session transition documents |
-
-### Foundational (minimal bundle)
-
-| Skill | Invocation | Notes |
-|-------|------------|-------|
-| llm-external-review | `/llm-external-review` | Second opinions from Codex/Gemini |
 
 ### Research & Data (quant bundle)
 
@@ -31,16 +25,7 @@
 | qrd | `/qrd` | Quant R&D specification |
 | pipeline-docs | `/pipeline-docs` | 4-doc pipeline documentation |
 | python-patterns | model-invocable | Idiomatic Python reference |
-
-### ML (quant bundle, @skills/ml-core)
-
-| Skill | Notes |
-|-------|-------|
-| scikit-learn | ML patterns and workflows |
-| shap | Model explainability |
-| exploratory-data-analysis | Auto-detect file formats, quality reports |
-| polars | DataFrame library |
-| openalex-database | Academic paper database |
+| image-generator | `/image-generator` | Gemini API image generation |
 
 ### Output (quant + webdev)
 
@@ -48,20 +33,28 @@
 |-------|------------|-------|
 | gist-report | `/gist-report` | Styled HTML → GitHub gist (user-only) |
 | gist-transcript | `/gist-transcript` | Session transcript → gist (user-only) |
-| image-generator | `/image-generator` | Gemini API image generation (quant only) |
 | excalidraw | `/excalidraw` | Hand-drawn diagrams as JSON |
+
+### Standalone (not in bundles)
+
+| Skill | Notes |
+|-------|-------|
+| llm-external-review | Second opinions from Codex/Gemini |
+| bird-twitter | Twitter/X read-only via Bird CLI |
+| brand-dm-evo | Project-specific branding |
+| brand-rockbridge | Project-specific branding |
 
 ## Agents
 
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| security-auditor | Sonnet | Codebase security audit with report |
+| Agent | Trigger | Purpose |
+|-------|---------|---------|
+| research-synthesizer | "synthesize these papers", multiple sources | Cross-reference findings, identify consensus/conflicts |
+| data-pipeline-debugger | "data looks wrong", unexpected output | Trace data flow, isolate where transformation breaks |
 
 ## MCP Servers
 
 | Server | Bundle | Auth |
 |--------|--------|------|
-| memory | minimal | — |
 | firecrawl | quant | `FIRECRAWL_API_KEY` |
 | postgres | quant | `POSTGRES_CONNECTION_STRING` |
 | vercel | webdev | — |
@@ -93,13 +86,12 @@ claude plugin marketplace add anthropics/claude-code-skills # anthropic-agent-sk
 claude plugin marketplace add nichochar/compound-engineering # every-marketplace
 
 # Essential plugins
+claude plugin install qute-essentials@qute-marketplace
 claude plugin install context7@claude-plugins-official
 claude plugin install superpowers@claude-plugins-official
 claude plugin install compound-engineering@every-marketplace
+claude plugin install commit-commands@claude-plugins-official
 claude plugin install document-skills@anthropic-agent-skills
-
-# Kit plugin (hooks + universal skills)
-claude plugin install qute-essentials@qute-marketplace
 ```
 
 | Plugin | Source | What you get |
@@ -109,6 +101,14 @@ claude plugin install qute-essentials@qute-marketplace
 | superpowers | claude-plugins-official | Planning, TDD, debugging |
 | compound-engineering | every-marketplace | Full dev lifecycle |
 | document-skills | anthropic-agent-skills | PDF, PPTX, XLSX, canvas |
+
+## Settings Templates
+
+| Template | Purpose | Copy to |
+|----------|---------|---------|
+| `claude/settings/global-generic.json` | Global plugin list | `~/.claude/settings.json` |
+| `claude/settings/project-quant.json` | Quant project permissions | `<project>/.claude/settings.json` |
+| `claude/settings/project-webdev.json` | Webdev project permissions | `<project>/.claude/settings.json` |
 
 ## Headless Mode
 
@@ -125,6 +125,7 @@ docs/playbooks/
 ├── superpowers-workflow.md
 ├── compound-engineering-workflow.md
 ├── investment-research-workflow.md
+├── llm-council-workflow.md
 ├── multi-agent-code-review.md
 ├── research-to-production.md
 ├── session-continuity.md

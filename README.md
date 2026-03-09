@@ -14,7 +14,7 @@ cp claude/rules/general-rules.md ~/project/.claude/rules/
 cp -r claude/skills/paper-reading ~/project/.claude/skills/
 
 # 3. Or use the setup script
-./setup-project.sh ~/project --bundle quant --init
+./scripts/setup-project.sh ~/project --bundle quant --init
 ```
 
 See [Getting Started](docs/getting-started.md) for full setup including all recommended plugins.

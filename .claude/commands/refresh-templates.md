@@ -3,9 +3,9 @@ Regenerate all project-templates from their bundles.
 Run the following three commands sequentially (each depends on the previous succeeding):
 
 ```bash
-./setup-project.sh project-templates/minimal --bundle minimal --update && \
-./setup-project.sh project-templates/quant --bundle quant --update && \
-./setup-project.sh project-templates/webdev --bundle webdev --update
+./scripts/setup-project.sh project-templates/minimal --bundle minimal --update && \
+./scripts/setup-project.sh project-templates/quant --bundle quant --update && \
+./scripts/setup-project.sh project-templates/webdev --bundle webdev --update
 ```
 
 After all three complete, report a summary:

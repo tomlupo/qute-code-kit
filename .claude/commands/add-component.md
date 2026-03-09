@@ -36,7 +36,7 @@ Use the correct ref format from CLAUDE.md (e.g., `skill-name`, `mcp:server`, `ru
 
 Ask: "Want me to regenerate the affected project-templates now?"
 
-If yes, run the appropriate `./setup-project.sh project-templates/<bundle> --bundle <bundle> --update` command(s) for each affected bundle.
+If yes, run the appropriate `./scripts/setup-project.sh project-templates/<bundle> --bundle <bundle> --update` command(s) for each affected bundle.
 
 ## Step 5: Summary
 

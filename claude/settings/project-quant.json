@@ -29,12 +29,5 @@
       "Edit(config/**)",
       "Write(config/**)"
     ]
-  },
-
-  "enabledPlugins": {
-    "pyright-lsp@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true,
-    "llm-council@qute-marketplace": true,
-    "llm-external-review@qute-marketplace": true
   }
 }
