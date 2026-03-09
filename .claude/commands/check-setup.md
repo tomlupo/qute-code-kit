@@ -75,7 +75,6 @@ Pick the bundle name from the first available source:
 
 Read `claude/bundles/<bundle>.txt` from the kit repo. Recursively expand:
 - `@name` → read `claude/bundles/name.txt`
-- `@skills/name` → read `claude/bundles/skills/name.txt`
 
 Collect the full deduplicated list of component refs the bundle currently specifies. Ignore comment lines (`#`) and blank lines.
 
@@ -90,15 +89,15 @@ If the bundle file doesn't exist, report this and list only the installed/discov
 | Project path pattern | Component ref |
 |---------------------|---------------|
 | `.claude/rules/<name>.md` | `rules/<name>.md` |
-| `.claude/skills/<name>/` (directory) | Match against kit's `my:<name>` and `external:<name>` skills by directory name |
-| `.claude/agents/<name>` (file or dir) | Match against kit's agent refs by name |
+| `.claude/skills/<name>/` (directory) | Match against kit's `claude/skills/` by directory name |
+| `.claude/agents/<name>` (file or dir) | Match against kit's `claude/agents/` by name |
 | `.claude/commands/<name>.md` | `commands/<name>.md` |
 | `.claude/hooks/<name>` | `hooks/<name>` |
 | `.mcp/<name>/` | `mcp:<name>` |
 | Root `CLAUDE.md` exists | `root/CLAUDE.md` |
 | Root `AGENTS.md` exists | `root/AGENTS.md` |
 
-For skill/agent matching: read the kit's `claude/skills/my/`, `claude/skills/external/`, `claude/agents/my/`, and `claude/agents/external/` directories. Match discovered project directories/files against known kit component names.
+For skill/agent matching: read the kit's `claude/skills/` and `claude/agents/` directories. Match discovered project directories/files against known kit component names.
 
 ### B5. Compare bundle vs installed
 

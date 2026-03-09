@@ -1,8 +1,8 @@
-# Minimal bundle — rules + root files + essential skills
+# Minimal bundle — rules + root files
 # Base for all other bundles
+# Universal skills (commits, worktrees, handoff, readme) are in qute-essentials plugin
 
 # Rules
-rules/code-quality.md
 rules/general-rules.md
 rules/work-organization.md
 rules/context-management.md
@@ -11,14 +11,3 @@ rules/documentation.md
 # Root files
 root/CLAUDE.md
 root/AGENTS.md
-
-# Skills
-my:generating-commit-messages
-my:worktrees
-my:readme
-my:llm-external-review
-
-# MCP Servers
-mcp:fetch
-mcp:sequential-thinking
-mcp:memory

@@ -1,7 +1,0 @@
-{
-  "name": "adaptive-learning",
-  "description": "Observe tool usage patterns, learn instincts, and surface them at session start",
-  "author": {
-    "name": "twilc"
-  }
-}

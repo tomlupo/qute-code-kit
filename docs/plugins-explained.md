@@ -7,28 +7,26 @@ Plugins provide runtime hooks and commands that work across all projects.
 - **Hooks**: Lifecycle events (session start, tool use, etc.)
 - **Commands**: Slash commands like `/plugin:command`
 - **Skills**: Domain knowledge loaded on demand
-- **Rules**: Always-active guidelines
 
 ## Installing plugins
 
-```bash
-# Install the full marketplace
-claude plugin install github:tomlupo/qute-code-kit
+See `docs/cheatsheets/toolkit-reference.md` for the full install list.
 
-# Individual plugins are available via the marketplace
+```bash
+# Add the marketplace
+claude plugin marketplace add tomlupo/qute-code-kit
+
+# Install the essentials plugin
+claude plugin install qute-essentials@qute-marketplace
 ```
 
-## Available plugins
+## qute-essentials plugin
 
-| Plugin | Description |
-|--------|-------------|
-| doc-enforcer | Reminds when code changes need doc updates |
-| forced-eval | Forces skill/tool evaluation before implementation |
-| strategic-compact | Suggests /compact at token thresholds |
-| notifications | Push notifications via ntfy.sh |
-| session-persistence | Save/restore session state |
-| skill-use-logger | Logs skill invocations |
-| research-workflow | ML/DS research lifecycle |
+Merges all kit hooks and universal skills into one install:
+
+**Hooks:** forced-eval, ruff-formatter, doc-enforcer, skill-use-logger, notifications
+
+**Skills:** generating-commit-messages, worktrees, handoff, readme
 
 ## Creating plugins
 

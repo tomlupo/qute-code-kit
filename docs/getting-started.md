@@ -1,33 +1,65 @@
 # Getting Started
 
-qute-code-kit is a comprehensive Claude Code toolkit with:
-
-- **Bundles**: Deploy skills, agents, rules, and MCP configs to projects
-- **Plugins**: Runtime hooks and commands installed globally
-- **Documentation**: Guides and tutorials for workflows
-
-## Quick Start
-
-### Install as a plugin (global)
+## 1. Install plugins (global, one-time)
 
 ```bash
-claude plugin install github:tomlupo/qute-code-kit
+# Marketplaces
+claude plugin marketplace add tomlupo/qute-code-kit
+claude plugin marketplace add anthropics/claude-code-skills
+claude plugin marketplace add nichochar/compound-engineering
+
+# Essential plugins
+claude plugin install qute-essentials@qute-marketplace
+claude plugin install context7@claude-plugins-official
+claude plugin install superpowers@claude-plugins-official
+claude plugin install compound-engineering@every-marketplace
+claude plugin install commit-commands@claude-plugins-official
+claude plugin install document-skills@anthropic-agent-skills
+claude plugin install hookify@claude-plugins-official
+claude plugin install code-review@claude-plugins-official
+claude plugin install playground@claude-plugins-official
+claude plugin install claude-md-management@claude-plugins-official
 ```
 
-### Deploy to a project (bundle)
+## 2. Set up a project
+
+**Option A: Manual copy** (most common)
 
 ```bash
-./setup-project.sh ~/myproject --bundle minimal
+# Copy rules you need
+cp claude/rules/general-rules.md ~/project/.claude/rules/
+cp claude/rules/python-rules.md ~/project/.claude/rules/
+
+# Copy root files
+cp claude/root-files/CLAUDE.md ~/project/CLAUDE.md
+cp claude/root-files/AGENTS.md ~/project/AGENTS.md
+
+# Copy skills you want
+cp -r claude/skills/paper-reading ~/project/.claude/skills/
+
+# Copy MCP configs
+mkdir -p ~/project/.mcp/firecrawl
+cp claude/mcp/firecrawl.json ~/project/.mcp/firecrawl/.mcp.json
 ```
 
-### Available bundles
+**Option B: Bundle script** (bootstrap)
 
-- `minimal` - Core skills and rules
-- `quant` - Data science and ML workflows
-- `webdev` - Frontend development
+```bash
+./setup-project.sh ~/project --bundle quant --init
+```
+
+## 3. Audit your setup
+
+From within the kit repo:
+
+```
+/check-setup ~/project
+/check-setup user          # audit global plugin settings
+```
 
 ## Next Steps
 
-- [Understanding Bundles](bundles-explained.md)
-- [Understanding Plugins](plugins-explained.md)
-- [Planning Workflows Comparison](workflows/planning-workflows-comparison.md)
+- [Toolkit Reference](cheatsheets/toolkit-reference.md) — what's available
+- [Bundles Explained](bundles-explained.md) — how bundles work
+- [Plugins Explained](plugins-explained.md) — how plugins work
+- [Playbooks](playbooks/) — step-by-step workflows

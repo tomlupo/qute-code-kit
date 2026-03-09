@@ -4,9 +4,9 @@ Guided walkthrough for adding a new component to qute-code-kit.
 
 Ask the user for:
 
-1. **Component type** — one of: rule, command, hook, skill (my), skill (external), agent (my), agent (external), mcp, pyproject
+1. **Component type** — one of: rule, command, hook, skill, agent, mcp, pyproject
 2. **Name** — the component name (e.g., `my-new-skill`, `eslint`, `data-validation.md`)
-3. **Bundles** — which bundle(s) to add it to (minimal, quant, webdev, or a skill sub-bundle like `skills/ml-core`)
+3. **Bundles** — which bundle(s) to add it to (minimal, quant, webdev)
 
 Use $ARGUMENTS if the user already provided some of this info.
 
@@ -19,10 +19,8 @@ Based on the type, create the scaffold:
 | `rule` | Create `claude/rules/<name>.md` with a placeholder heading |
 | `command` | Create `claude/commands/<name>.md` with a placeholder heading |
 | `hook` | Create `claude/hooks/<name>.py` with a minimal Python stub |
-| `skill (my)` | Create `claude/skills/my/<name>/SKILL.md` with a placeholder |
-| `skill (external)` | Create `claude/skills/external/<name>/SKILL.md` with a placeholder |
-| `agent (my)` | Ask: single file (`claude/agents/my/<name>.md`) or directory (`claude/agents/my/<name>/AGENT.md`). Create accordingly. |
-| `agent (external)` | Same as agent (my) but under `claude/agents/external/` |
+| `skill` | Create `claude/skills/<name>/SKILL.md` with a placeholder |
+| `agent` | Ask: single file (`claude/agents/<name>.md`) or directory (`claude/agents/<name>/AGENT.md`). Create accordingly. |
 | `mcp` | Create `claude/mcp/<name>.json` — ask the user for the command, args, and any `${ENV_VAR}` placeholders |
 | `pyproject` | Create `templates/pyproject/<name>.toml` with a minimal `[project]` section |
 
@@ -30,12 +28,9 @@ After creating the file(s), tell the user the path(s) created and suggest they f
 
 ## Step 3: Add to bundle(s)
 
-For each bundle the user selected, append the component reference to the appropriate `.txt` file:
+For each bundle the user selected, append the component reference to the appropriate `.txt` file in `claude/bundles/`.
 
-- Main bundles: `claude/bundles/<name>.txt`
-- Skill sub-bundles: `claude/bundles/skills/<name>.txt`
-
-Use the correct ref format from CLAUDE.md (e.g., `my:skill-name`, `mcp:server`, `rules/name.md`).
+Use the correct ref format from CLAUDE.md (e.g., `skill-name`, `mcp:server`, `rules/name.md`).
 
 ## Step 4: Offer to regenerate templates
 

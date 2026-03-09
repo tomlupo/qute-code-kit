@@ -8,7 +8,8 @@ set -euo pipefail
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CLAUDE_DIR="$SCRIPT_DIR/claude"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+CLAUDE_DIR="$REPO_DIR/claude"
 
 # Colors (disable if not a terminal)
 if [ -t 1 ]; then
@@ -37,7 +38,7 @@ Arguments:
 
 Options:
   --bundle <name>        Apply bundle (minimal, quant, webdev)
-  --add <component>      Add single component (e.g., my:ai-review, mcp:playwright)
+  --add <component>      Add single component (e.g., paper-reading, mcp:playwright)
   --add @<sub-bundle>    Add skill sub-bundle (e.g., @skills/visualization)
   --link                 Symlink instead of copy
   --diff                 Dry run — show what would be installed
@@ -51,7 +52,7 @@ Options:
 Examples:
   setup-project.sh ~/projects/new-fund --bundle quant --init
   setup-project.sh ~/projects/existing-app --bundle webdev
-  setup-project.sh ~/projects/app --add my:ai-review
+  setup-project.sh ~/projects/app --add paper-reading
   setup-project.sh ~/projects/app --add mcp:playwright
   setup-project.sh ~/projects/app --add @skills/visualization
   setup-project.sh ~/projects/app --bundle quant --diff
@@ -84,7 +85,7 @@ resolve_source() {
             ;;
         pyproject/*)
             local name="${ref#pyproject/}"
-            src="$SCRIPT_DIR/templates/pyproject/$name"
+            src="$REPO_DIR/templates/pyproject/$name"
             ;;
         commands/*)
             src="$CLAUDE_DIR/$ref"
@@ -92,37 +93,31 @@ resolve_source() {
         hooks/*)
             src="$CLAUDE_DIR/$ref"
             ;;
-        my:*)
-            local name="${ref#my:}"
-            # Skills are directories, agents can be .md files or directories
-            if [ -d "$CLAUDE_DIR/skills/my/$name" ]; then
-                src="$CLAUDE_DIR/skills/my/$name"
-            elif [ -f "$CLAUDE_DIR/agents/my/$name" ]; then
-                src="$CLAUDE_DIR/agents/my/$name"
-            elif [ -d "$CLAUDE_DIR/agents/my/$name" ]; then
-                src="$CLAUDE_DIR/agents/my/$name"
-            fi
-            ;;
-        external:scientific/*)
-            local name="${ref#external:scientific/}"
-            if [ -d "$CLAUDE_DIR/skills/external/scientific-skills/$name" ]; then
-                src="$CLAUDE_DIR/skills/external/scientific-skills/$name"
-            fi
-            ;;
-        external:*)
-            local name="${ref#external:}"
-            if [ -d "$CLAUDE_DIR/skills/external/$name" ]; then
-                src="$CLAUDE_DIR/skills/external/$name"
-            elif [ -f "$CLAUDE_DIR/agents/external/$name" ]; then
-                src="$CLAUDE_DIR/agents/external/$name"
-            elif [ -d "$CLAUDE_DIR/agents/external/$name" ]; then
-                src="$CLAUDE_DIR/agents/external/$name"
+        tomlupo:*)
+            # Legacy prefix — resolve to flat skills/agents
+            local name="${ref#tomlupo:}"
+            if [ -d "$CLAUDE_DIR/skills/$name" ]; then
+                src="$CLAUDE_DIR/skills/$name"
+            elif [ -f "$CLAUDE_DIR/agents/$name" ]; then
+                src="$CLAUDE_DIR/agents/$name"
+            elif [ -d "$CLAUDE_DIR/agents/$name" ]; then
+                src="$CLAUDE_DIR/agents/$name"
             fi
             ;;
         mcp:*)
             local name="${ref#mcp:}"
             if [ -f "$CLAUDE_DIR/mcp/$name.json" ]; then
                 src="$CLAUDE_DIR/mcp/$name.json"
+            fi
+            ;;
+        *)
+            # Bare name — try as skill or agent (flat structure)
+            if [ -d "$CLAUDE_DIR/skills/$ref" ]; then
+                src="$CLAUDE_DIR/skills/$ref"
+            elif [ -f "$CLAUDE_DIR/agents/$ref" ]; then
+                src="$CLAUDE_DIR/agents/$ref"
+            elif [ -d "$CLAUDE_DIR/agents/$ref" ]; then
+                src="$CLAUDE_DIR/agents/$ref"
             fi
             ;;
     esac
@@ -160,19 +155,8 @@ resolve_target() {
             local name="${ref#hooks/}"
             echo "$target_dir/.claude/hooks/$name"
             ;;
-        my:*|external:scientific/*|external:*)
-            local name
-            case "$ref" in
-                my:*)
-                    name="${ref#my:}"
-                    ;;
-                external:scientific/*)
-                    name="${ref#external:scientific/}"
-                    ;;
-                external:*)
-                    name="${ref#external:}"
-                    ;;
-            esac
+        tomlupo:*)
+            local name="${ref#tomlupo:}"
             # Determine type from source
             local src
             src="$(resolve_source "$ref")"
@@ -192,7 +176,16 @@ resolve_target() {
             echo "$target_dir/.mcp/$name/.mcp.json"
             ;;
         *)
-            echo ""
+            # Bare name — try as skill or agent (flat structure)
+            if [ -d "$CLAUDE_DIR/skills/$ref" ]; then
+                echo "$target_dir/.claude/skills/$ref/"
+            elif [ -f "$CLAUDE_DIR/agents/$ref" ]; then
+                echo "$target_dir/.claude/agents/$ref"
+            elif [ -d "$CLAUDE_DIR/agents/$ref" ]; then
+                echo "$target_dir/.claude/agents/$ref/"
+            else
+                echo ""
+            fi
             ;;
     esac
 }
@@ -207,7 +200,7 @@ detect_type() {
         pyproject/*)          echo "pyproject" ;;
         commands/*)           echo "command" ;;
         hooks/*)              echo "hook" ;;
-        my:*|external:*)
+        tomlupo:*)
             local src
             src="$(resolve_source "$ref")"
             if [[ "$src" == *"/skills/"* ]]; then
@@ -219,7 +212,16 @@ detect_type() {
             fi
             ;;
         mcp:*) echo "mcp" ;;
-        *) echo "unknown" ;;
+        *)
+            # Bare name — detect from flat structure
+            if [ -d "$CLAUDE_DIR/skills/$ref" ]; then
+                echo "skill"
+            elif [ -f "$CLAUDE_DIR/agents/$ref" ] || [ -d "$CLAUDE_DIR/agents/$ref" ]; then
+                echo "agent"
+            else
+                echo "unknown"
+            fi
+            ;;
     esac
 }
 
@@ -364,9 +366,7 @@ write_manifest() {
             commands/*)           comp_name="${ref#commands/}" ;;
             hooks/*)              comp_name="${ref#hooks/}" ;;
             mcp:*)                comp_name="${ref#mcp:}" ;;
-            my:*)                 comp_name="${ref#my:}" ;;
-            external:scientific/*) comp_name="${ref#external:scientific/}" ;;
-            external:*)           comp_name="${ref#external:}" ;;
+            tomlupo:*)                 comp_name="${ref#tomlupo:}" ;;
             *)                    comp_name="$ref" ;;
         esac
 
@@ -378,7 +378,7 @@ write_manifest() {
 
     cat > "$manifest" <<EOF
 {
-  "source": "$SCRIPT_DIR",
+  "source": "$REPO_DIR",
   "bundle": "$bundle_name",
   "installed": "$timestamp",
   "mode": "$mode",
@@ -392,41 +392,18 @@ EOF
 # ---- Listing ----------------------------------------------------------------
 
 list_components() {
-    header "Skills (my)"
-    for d in "$CLAUDE_DIR"/skills/my/*/; do
-        [ -d "$d" ] && echo "  my:$(basename "$d")"
+    header "Skills"
+    for d in "$CLAUDE_DIR"/skills/*/; do
+        [ -d "$d" ] && echo "  $(basename "$d")"
     done
 
-    header "Skills (external)"
-    for d in "$CLAUDE_DIR"/skills/external/*/; do
-        [ -d "$d" ] || continue
-        local base
-        base="$(basename "$d")"
-        if [ "$base" = "scientific-skills" ]; then
-            for sd in "$d"*/; do
-                [ -d "$sd" ] && echo "  external:scientific/$(basename "$sd")"
-            done
-        else
-            echo "  external:$base"
-        fi
-    done
-
-    header "Agents (my)"
-    for f in "$CLAUDE_DIR"/agents/my/*; do
+    header "Agents"
+    for f in "$CLAUDE_DIR"/agents/*; do
         [ -e "$f" ] || continue
         local name
         name="$(basename "$f")"
         [[ "$name" == *.Identifier ]] && continue
-        echo "  my:$name"
-    done
-
-    header "Agents (external)"
-    for f in "$CLAUDE_DIR"/agents/external/*; do
-        [ -e "$f" ] || continue
-        local name
-        name="$(basename "$f")"
-        [[ "$name" == *.Identifier ]] && continue
-        echo "  external:$name"
+        echo "  $name"
     done
 
     header "Commands"
@@ -476,19 +453,6 @@ list_bundles() {
         done < "$f"
     done
 
-    header "Skill Sub-Bundles"
-    for f in "$CLAUDE_DIR"/bundles/skills/*.txt; do
-        [ -f "$f" ] || continue
-        local name
-        name="$(basename "$f" .txt)"
-        echo -e "\n${BOLD}@skills/$name${NC}:"
-        while IFS= read -r line || [ -n "$line" ]; do
-            line_trimmed="${line%%#*}"
-            line_trimmed="$(echo "$line_trimmed" | xargs)"
-            [ -z "$line_trimmed" ] && continue
-            echo "  $line_trimmed"
-        done < "$f"
-    done
 }
 
 # ---- Init project directories -----------------------------------------------
@@ -507,7 +471,7 @@ init_dirs() {
     done
 
     # Append .gitignore entries if template exists
-    local gi_template="$SCRIPT_DIR/templates/.gitignore.claude"
+    local gi_template="$REPO_DIR/templates/.gitignore.claude"
     local gi_target="$target_dir/.gitignore"
     if [ -f "$gi_template" ]; then
         if [ -f "$gi_target" ]; then

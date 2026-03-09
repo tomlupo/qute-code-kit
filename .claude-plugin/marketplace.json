@@ -8,103 +8,13 @@
   },
   "plugins": [
     {
-      "name": "adaptive-learning",
-      "description": "Observe tool usage patterns, learn instincts, and surface them at session start",
+      "name": "qute-essentials",
+      "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme)",
       "version": "1.0.0",
       "author": {
         "name": "twilc"
       },
-      "source": "./plugins/adaptive-learning",
-      "category": "utility"
-    },
-    {
-      "name": "doc-enforcer",
-      "description": "PostToolUse hook that tracks code vs doc file edits and reminds when documentation may need updating",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/doc-enforcer",
-      "category": "utility"
-    },
-    {
-      "name": "forced-eval",
-      "description": "Force explicit evaluation of Skills, MCP Tools, and Agents before implementation (84% activation rate)",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/forced-eval",
-      "category": "utility"
-    },
-    {
-      "name": "image-generator",
-      "description": "Generate and edit images using Google Gemini API (text-to-image, editing, style presets, dual JPG/PNG output)",
-      "version": "1.1.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/image-generator",
-      "category": "utility"
-    },
-    {
-      "name": "notifications",
-      "description": "Push notifications via ntfy.sh for Claude events",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/notifications",
-      "category": "utility"
-    },
-    {
-      "name": "research-workflow",
-      "description": "Research workflow for ML/data science: hypotheses, experiments, findings, paper reading",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/research-workflow",
-      "category": "utility"
-    },
-    {
-      "name": "ruff-formatter",
-      "description": "Auto-format and lint Python files with ruff after edits",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/ruff-formatter",
-      "category": "utility"
-    },
-    {
-      "name": "session-persistence",
-      "description": "Persist session state across Claude sessions — saves what you were working on and reports it on next start",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/session-persistence",
-      "category": "utility"
-    },
-    {
-      "name": "skill-use-logger",
-      "description": "Logs skill invocations to .claude/skill-use-log.jsonl for analytics",
-      "version": "1.0.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/skill-use-logger",
-      "category": "utility"
-    },
-    {
-      "name": "strategic-compact",
-      "description": "Strategic context compaction — suggests /compact after threshold tool calls, provides /handoff for manual session transitions",
-      "version": "1.1.0",
-      "author": {
-        "name": "twilc"
-      },
-      "source": "./plugins/strategic-compact",
+      "source": "./plugins/qute-essentials",
       "category": "utility"
     }
   ]

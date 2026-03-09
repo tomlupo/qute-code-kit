@@ -25,12 +25,10 @@ The workflow: **source components** are authored in `claude/`, grouped by **bund
 | `pyproject/name.toml` | `templates/pyproject/` | `pyproject.toml` |
 | `commands/name.md` | `claude/commands/` | `.claude/commands/` |
 | `hooks/name.py` | `claude/hooks/` | `.claude/hooks/` |
-| `my:name` | `claude/skills/my/` or `claude/agents/my/` | `.claude/skills/` or `.claude/agents/` |
-| `external:name` | `claude/skills/external/` or `claude/agents/external/` | `.claude/skills/` or `.claude/agents/` |
-| `external:scientific/name` | `claude/skills/external/scientific-skills/` | `.claude/skills/` |
+| `skill-name` | `claude/skills/skill-name/` | `.claude/skills/` |
+| `agent-name` | `claude/agents/agent-name.md` | `.claude/agents/` |
 | `mcp:name` | `claude/mcp/name.json` | `.mcp/name/.mcp.json` |
 | `@bundle` | `claude/bundles/bundle.txt` | (expands to listed components) |
-| `@skills/name` | `claude/bundles/skills/name.txt` | (expands to listed components) |
 
 ## Plugins
 
@@ -53,35 +51,13 @@ plugins/plugin-name/
 ```bash
 python scripts/build-marketplace.py    # Rebuild marketplace manifest
 python scripts/create-plugin.py name   # Scaffold new plugin
-python scripts/setup-externals.py      # Fetch all external plugins from manifest
-python scripts/setup-externals.py --update  # Update existing external plugins
-python scripts/fetch-external.py github:user/repo  # Clone single external plugin
 ```
-
-### External plugins
-
-External plugins are gitignored but tracked in `external-plugins.json`. After cloning the repo:
-
-```bash
-python scripts/setup-externals.py      # Fetch missing plugins
-```
-
-To add a new external plugin:
-1. Clone it: `python scripts/fetch-external.py github:user/repo`
-2. Add entry to `external-plugins.json`
-3. Rebuild: `python scripts/build-marketplace.py`
 
 ### Available plugins
 
-| Plugin | Type | Description |
-|--------|------|-------------|
-| doc-enforcer | hook | Reminds when docs may need updating |
-| forced-eval | hook | Forces skill evaluation before implementation |
-| strategic-compact | hook | Suggests /compact at tool-call thresholds |
-| skill-use-logger | hook | Logs skill invocations to JSONL |
-| notifications | hook+command | Push notifications via ntfy.sh |
-| session-persistence | hook+command | Save/restore session state |
-| research-workflow | command | ML/DS research lifecycle |
+| Plugin | Description |
+|--------|-------------|
+| qute-essentials | Hooks (forced-eval, ruff, doc-enforcer, skill-logger, notifications) + universal skills (commits, worktrees, handoff, readme) |
 
 ## Skills and slash commands
 
@@ -134,17 +110,17 @@ The `claude/commands/` directory still works for backward compatibility. Existin
 
 ### Skill
 
-1. Create `claude/skills/my/skill-name/` with a `SKILL.md` file inside
+1. Create `claude/skills/skill-name/` with a `SKILL.md` file inside
 2. Add frontmatter with `name`, `description`, and any controls (`disable-model-invocation`, `user-invocable`, `allowed-tools`, `model`, `agent`, `context`, `hooks`)
-3. Add `my:skill-name` to the appropriate bundle `.txt` file(s) in `claude/bundles/`
+3. Add `skill-name` to the appropriate bundle `.txt` file(s) in `claude/bundles/`
 4. Add a row to the Skills table in `README.md`
 5. Regenerate affected templates (see below)
 
 ### Agent
 
-1. Create `claude/agents/my/agent-name.md` (single file) or `claude/agents/my/agent-name/` (directory with `AGENT.md`)
+1. Create `claude/agents/agent-name.md` (single file) or `claude/agents/agent-name/` (directory with `AGENT.md`)
 2. Add frontmatter with `name`, `description`, and any controls (see table below)
-3. Add `my:agent-name` or `my:agent-name.md` to bundle file(s)
+3. Add `agent-name` to bundle file(s)
 4. Update `README.md`
 5. Regenerate templates
 
@@ -215,8 +191,7 @@ Bundle files live in `claude/bundles/`. Format: one component ref per line, `#` 
 # Example bundle
 @minimal                    # inherit all minimal components
 settings/project-quant.json
-my:paper-reading
-@skills/ml-core             # include a skill sub-bundle
+paper-reading
 mcp:firecrawl
 ```
 
@@ -224,13 +199,8 @@ mcp:firecrawl
 
 1. Create `claude/bundles/newbundle.txt`
 2. List component refs (one per line); use `@minimal` to inherit the base
-3. Add skill sub-bundles with `@skills/name` if needed
-4. Add a row to the Bundles table in `README.md`
-5. Optionally generate a template: `./setup-project.sh project-templates/newbundle --bundle newbundle`
-
-### Skill sub-bundles
-
-Group related external skills in `claude/bundles/skills/name.txt`. Reference them from bundles as `@skills/name` or add them individually via `--add @skills/name`.
+3. Add a row to the Bundles table in `README.md`
+4. Optionally generate a template: `./setup-project.sh project-templates/newbundle --bundle newbundle`
 
 ## Refreshing templates
 
@@ -265,8 +235,7 @@ Bring a project up to date with the latest kit:
 Add individual components to an existing project:
 
 ```bash
-./setup-project.sh ~/projects/existing-project --add my:paper-reading
-./setup-project.sh ~/projects/existing-project --add @skills/visualization
+./setup-project.sh ~/projects/existing-project --add paper-reading
 ```
 
 ## Conventions

@@ -1,20 +1,30 @@
 # AGENTS.md
 
-This file provides generic guidance to agentic coding tools like Claude Code, Codex, Cursor, Gemini, etc. when working with code in repositories.
+## Agent Instructions
 
-**⚠️ IMPORTANT:** Always consult the referenced files below before proceeding. They contain critical general rules and guidelines. Also check for `@CLAUDE.md` for any additional project-specific overrides.
+This repository uses Claude Code–style rules and skills as the primary source of agent behavior.
 
-See: @CLAUDE.md
+All coding agents (Codex, Claude, etc.) should follow the instructions
+defined in the following files:
 
-## User Maintained Files
+- `CLAUDE.md`
+- `.claude/skills/*`
+- `.claude/rules/*`
 
-@README.md - Project overview, setup, user documentation
+Treat those files as the canonical specification for:
 
-## General Guidelines
+- coding style
+- architecture conventions
+- workflows
+- testing and validation
 
-General guidelines from `.claude/rules/` directory:
+If instructions conflict, prefer the Claude rules.
 
-@.claude/rules/code-quality.md - Code quality principles, naming conventions, structure guidelines
-@.claude/rules/general-rules.md - Task workflow, communication style, problem solving approach
-@.claude/rules/python-rules.md - Python-specific best practices, environment setup, code style
-@.claude/rules/work-organization.md - File placement rules, directory structure, scratch-first principle
+## How to work in this repo
+
+1. Read `CLAUDE.md` first.
+2. Load relevant skills from `.claude/skills/`.
+3. Apply rules from `.claude/rules/`.
+4. Then explore the repository and implement changes.
+
+Do not invent new conventions if they are defined in the Claude rules.

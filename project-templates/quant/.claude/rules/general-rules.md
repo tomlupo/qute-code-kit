@@ -56,6 +56,5 @@ When the user highlights a problem (e.g., types "analyze problem", "fix error", 
 When using Claude Code, leverage specialized subagents:
 
 - `Explore` agent for codebase understanding questions
-- `code-reviewer` agent after significant code changes
-- `prd-writer` for product requirements documents
+- `security-auditor` agent for comprehensive security reviews
 - Let Claude Code select appropriate agents automatically when uncertain

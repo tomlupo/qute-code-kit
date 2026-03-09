@@ -122,14 +122,6 @@ For complex tasks requiring deep reasoning:
 2. "Rev the engine" with multiple critique rounds
 3. Use split role sub-agents for diverse analysis
 
-## Build Troubleshooting
-
-If build fails:
-1. Use **build-error-resolver** agent
-2. Analyze error messages
-3. Fix incrementally
-4. Verify after each fix
-
 ## Remember
 
 Context is a precious resource. Be surgical: search to find, sample to assess, read only what matters. Save verbose outputs to files and keep the conversation focused on insights and decisions, not raw data.

@@ -1,1 +1,0 @@
-# Garmin skill scripts

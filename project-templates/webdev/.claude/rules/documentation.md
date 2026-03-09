@@ -36,9 +36,9 @@ This is the primary pattern used in practice.
 **`/docs/reference/`** - Reference material (data dictionaries, benchmarks)
 - Examples: `schema_reference.md`, `features.md`, `metrics.md`, `config-format.md`
 
-**`/docs/research/`** - Dated research findings and experiments
+**`/docs/research/`** - Dated research notes and experiment writeups (lightweight documentation)
 - Examples: `2025-01-feature-comparison.md`, `2025-02-model-experiment.md`
-- Use `/experiment-document` command or `research-docs` skill to create structured findings
+- Note: This is for *documentation about research*. Full research projects with code + data go in top-level `/research/{study-name}/`
 
 **`/docs/models/`** - Design specifications for models and frameworks
 - Examples: `tactical-3p-model.md`, `portfolio-construction-framework.md`
@@ -88,7 +88,7 @@ Note: This pattern is available but the by-type pattern is more commonly used in
 
 ### Templates
 
-This plugin bundles a dataset documentation template at `templates/dataset_template.md`. Use it when creating `docs/datasets/{name}.md` files.
+Use `/pipeline-docs` skill for data pipeline documentation templates (instruction, dataset, methodology, reference). For dataset-only docs, the skill's dataset template follows the `datasets.md` rule conventions.
 
 Projects may also keep templates in `/.ai/templates/` for other document types.
 
@@ -111,6 +111,21 @@ Create new subdirectories as needed. Keep files in root `/docs/` for smaller pro
 - **Examples**: Practical illustrations
 - **Reference**: Quick lookup sections (if applicable)
 - **Related docs**: Links to related documentation
+
+### 4-Doc Pattern for Data Pipelines
+
+Every data pipeline should have exactly 4 docs, each with a single concern:
+
+| Doc | Location | Answers |
+|-----|----------|---------|
+| Instruction | `docs/instructions/{name}_pipeline.md` | What to run — commands, steps |
+| Dataset | `docs/datasets/{dataset_name}.md` | What the data looks like — schema, loading |
+| Methodology | `docs/methodology/{name}_extraction.md` | Why it works this way — design decisions |
+| Reference | `docs/reference/{name}_convention.md` | What the conventions are — IDs, config files |
+
+No duplication across the 4 — each piece of information lives in exactly one doc. All 4 cross-reference each other in a "Related" section.
+
+If the `pipeline-docs` skill is available, use it (`/pipeline-docs`) for templates and a guided workflow.
 
 ### Common Patterns
 - **Setup guides**: Prerequisites → Installation → Configuration → Verification

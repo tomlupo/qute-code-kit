@@ -1,9 +1,0 @@
-{
-  "plugins": [
-    {
-      "name": "compound-engineering-plugin",
-      "repo": "github:EveryInc/compound-engineering-plugin",
-      "branch": "main"
-    }
-  ]
-}

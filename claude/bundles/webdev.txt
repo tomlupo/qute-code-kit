@@ -2,7 +2,7 @@
 @minimal
 
 # Rules
-rules/coding-standards.md
+rules/typescript-rules.md
 
 # Settings
 settings/project-webdev.json
@@ -11,19 +11,8 @@ settings/project-webdev.json
 pyproject/webdev-uv.toml
 
 # Skills
-my:context-management
-my:pdf-skill
-
-# Skills (formerly commands — now skills per slash/skill merge)
-my:gist-report
-my:gist-transcript
-
-# Agents
-external:frontend-designer.md
-external:code-refactorer.md
-external:prd-writer.md
-external:security-auditor.md
-external:project-task-planner.md
+gist-report
+gist-transcript
 
 # MCP Servers
 mcp:vercel

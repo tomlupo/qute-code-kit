@@ -9,31 +9,23 @@ pyproject/quant-uv.toml
 
 # Rules
 rules/python-rules.md
-rules/python-patterns.md
 rules/datasets.md
 
 # Skills
-my:context-management
-my:paper-reading
-my:sql-patterns
-my:market-data-fetcher
-my:qrd
-
-# Skill sub-bundles
-@skills/ml-core
-@skills/statistics
-
-# Skills (formerly commands — now skills per slash/skill merge)
-my:gist-report
-my:gist-transcript
-
-# Agents
-my:mlflow-analyzer.md
-my:research-paper-analyst
-external:python-reviewer.md
-
-# Hooks
-hooks/post-commit-changelog-hook.py
+python-patterns
+paper-reading
+sql-patterns
+market-datasets
+qrd
+pipeline-docs
+investment-research
+investment-research-formal
+investment-research-dashboard
+llm-external-review
+analizy-pl-data
+gist-report
+gist-transcript
+image-generator
 
 # MCP Servers
 mcp:firecrawl
