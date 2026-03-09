@@ -54,6 +54,40 @@ claude -p "instruction" --output-format stream-json --verbose
 | `--output-format stream-json` | Streaming JSON (add `--verbose` with `-p`) |
 | `--model sonnet` | Use specific model |
 
+## Persistent Sessions (infinite loop)
+
+Chain headless calls through the same session using `--session-id` + `--resume`. Each call picks up full context from the previous turn — no interactive session needed.
+
+```bash
+# First turn: create a session with a known ID
+SESSION_ID=$(uuidgen)
+claude -p "Analyze the codebase and create a plan" \
+  --session-id "$SESSION_ID" \
+  --output-format stream-json --verbose \
+  --allowedTools "Read,Grep,Glob"
+
+# Follow-up turns: resume the same session
+claude -p "Now implement step 1 from the plan" \
+  --resume "$SESSION_ID" \
+  --output-format stream-json --verbose \
+  --allowedTools "Read,Edit,Bash"
+
+# Keep going — each turn sees the full conversation history
+claude -p "Run tests and fix any failures" \
+  --resume "$SESSION_ID" \
+  --output-format stream-json --verbose \
+  --allowedTools "Bash,Read,Edit"
+```
+
+| Flag | Purpose |
+|------|---------|
+| `--session-id UUID` | Start a new session with a specific ID |
+| `--resume UUID` | Resume an existing session (follow-up turns) |
+
+This pattern powers tools like [cord](https://github.com/alexknowshtml/cord) — a Slack bot that spawns Claude sessions per-thread and resumes them on each reply, giving Claude persistent memory across an entire Slack conversation.
+
+**Use cases:** CI pipelines with multi-step workflows, chatbots, background agents that loop until a condition is met, orchestrating multiple Claude instances that share session context.
+
 ## Common Patterns
 
 ```bash
