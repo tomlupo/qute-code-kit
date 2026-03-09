@@ -1,5 +1,3 @@
 # Statistics skill sub-bundle
 external:scientific/statsmodels
 external:scientific/pymc
-external:scientific/scikit-survival
-external:scientific/statistical-analysis

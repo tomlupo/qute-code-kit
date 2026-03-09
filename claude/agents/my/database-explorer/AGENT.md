@@ -2,7 +2,11 @@
 name: database-explorer
 description: Use when user asks about database data, needs to query databases, explore schema, analyze data patterns, generate reports from data, or asks "what's in the database". Proactively explore database for metrics, trends, and insights when workflows need data-driven decisions.
 model: sonnet
-tools: execute_command, read_file, write_file
+tools: Read, Bash, Grep, Glob, Write
+skills:
+  - sql-patterns
+mcpServers:
+  - postgres
 ---
 
 You are an expert database engineer and data analyst specializing in interactive database exploration, SQL query generation, and data-driven insights.

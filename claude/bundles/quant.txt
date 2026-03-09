@@ -22,6 +22,8 @@ my:qrd
 # Skill sub-bundles
 @skills/ml-core
 @skills/statistics
+@skills/visualization
+@skills/data-processing
 
 # Skills (formerly commands — now skills per slash/skill merge)
 my:gist-report

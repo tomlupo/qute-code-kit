@@ -1,0 +1,1 @@
+../../../claude/agents/external/security-auditor.md

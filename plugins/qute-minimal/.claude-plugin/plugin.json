@@ -1,0 +1,7 @@
+{
+  "name": "qute-minimal",
+  "description": "Essential Claude Code skills: commit messages, git worktrees, README generation, external LLM review",
+  "author": {
+    "name": "twilc"
+  }
+}
