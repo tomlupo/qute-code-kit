@@ -82,7 +82,6 @@ This audits your project against the kit and reports missing or outdated compone
 
 | Doc | Purpose |
 |-----|---------|
-| `docs/reference.md` | Complete inventory of all components |
-| `docs/cheatsheets/toolkit-reference.md` | Quick-reference card |
+| `docs/cheatsheets/toolkit-reference.md` | Complete inventory and quick-reference |
 | `docs/playbooks/*.md` | End-to-end workflow guides |
 | `docs/cheatsheets/claude-cli.md` | Claude Code CLI reference |
