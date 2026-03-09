@@ -137,7 +137,6 @@ docs/playbooks/
 
 ```
 docs/cheatsheets/
-├── toolkit-reference.md    ← this file
 ├── claude-cli.md
 ├── prompt-engineering.md
 └── xml-prompting.md
