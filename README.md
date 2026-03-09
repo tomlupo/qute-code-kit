@@ -5,19 +5,25 @@ Reusable Claude Code components — rules, skills, MCP configs, and plugins — 
 ## Quick Start
 
 ```bash
-# 1. Install plugins (global, one-time)
+# 1. Add marketplaces (one-time)
 claude plugin marketplace add tomlupo/qute-code-kit
+claude plugin marketplace add anthropics/claude-code-plugins
+claude plugin marketplace add anthropics/example-agent-skills
+claude plugin marketplace add every-ai-dev/compound-engineering
+
+# 2. Install plugins (one-time)
 claude plugin install qute-essentials@qute-marketplace
+claude plugin install context7@claude-plugins-official
+claude plugin install superpowers@claude-plugins-official
+claude plugin install compound-engineering@every-marketplace
 
-# 2. Copy components to your project
-cp claude/rules/general-rules.md ~/project/.claude/rules/
-cp -r claude/skills/paper-reading ~/project/.claude/skills/
+# 3. Copy global settings
+cp claude/settings/global-generic.json ~/.claude/settings.json
 
-# 3. Or use the setup script
-./scripts/setup-project.sh ~/project --bundle quant --init
+# 4. Set up a project (pick one)
+./scripts/setup-project.sh ~/project --bundle quant --init    # script
+cp claude/rules/general-rules.md ~/project/.claude/rules/     # or manual
 ```
-
-See [Getting Started](docs/getting-started.md) for full setup including all recommended plugins.
 
 ## What's Here
 
