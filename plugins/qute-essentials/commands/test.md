@@ -10,7 +10,9 @@ Send a test notification to verify configuration.
 
 ## Behavior
 
-1. **Read configuration** from `config/ntfy.json`
+1. **Read configuration** from:
+   - `plugins/qute-essentials/config/ntfy.json` (defaults)
+   - `.claude/config/ntfy.json` (project overrides)
 
 2. **Send test notification**:
    ```

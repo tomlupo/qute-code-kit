@@ -17,7 +17,9 @@ Send a push notification via ntfy.
 
 ## Behavior
 
-1. **Read configuration** from `config/ntfy.json`
+1. **Read configuration** from:
+   - `plugins/qute-essentials/config/ntfy.json` (defaults)
+   - `.claude/config/ntfy.json` (project overrides)
 
 2. **Send notification** via curl/requests:
    ```bash

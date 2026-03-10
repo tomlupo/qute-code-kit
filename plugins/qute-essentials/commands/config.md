@@ -2,6 +2,10 @@
 
 View or update notification configuration.
 
+Configuration is loaded in this order (last one wins):
+1. Plugin defaults in `plugins/qute-essentials/config/ntfy.json`
+2. Project overrides in `.claude/config/ntfy.json`
+
 ## Usage
 
 ```

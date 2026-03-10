@@ -4,25 +4,86 @@ Core notification module for ntfy integration.
 """
 
 import json
-import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 
-def get_config() -> dict:
-    """Load ntfy configuration."""
-    config_path = Path(__file__).parent.parent / "config" / "ntfy.json"
-    if not config_path.exists():
-        return {
-            "server": "https://ntfy.sh",
-            "topic": "claude-notifications",
-            "priority": "default",
-            "tags": ["robot"]
-        }
+DEFAULT_CONFIG: dict[str, Any] = {
+    "server": "https://ntfy.sh",
+    "topic": "claude-notifications",
+    "priority": "default",
+    "tags": ["robot"],
+    "events": {
+        "task_complete": True,
+        "build_success": True,
+        "build_failure": True,
+        "test_complete": True,
+        "commit": False,
+        "error": True,
+        "session_end": False,
+    },
+    "filters": {
+        "min_duration_seconds": 30,
+        "commands": ["npm", "python", "pytest", "make", "cargo"],
+    },
+}
 
-    with open(config_path) as f:
-        return json.load(f)
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Merge nested dictionaries recursively.
+
+    Args:
+        base: Base configuration dictionary.
+        override: Override configuration dictionary.
+
+    Returns:
+        A merged dictionary where override values win.
+    """
+    result = dict(base)
+    for key, value in override.items():
+        base_value = result.get(key)
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            result[key] = _deep_merge(base_value, value)
+        else:
+            result[key] = value
+    return result
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    """Load a JSON config file safely.
+
+    Args:
+        path: Path to JSON file.
+
+    Returns:
+        Parsed dictionary, or empty dict if unavailable/invalid.
+    """
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            data: Any = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def get_config() -> dict[str, Any]:
+    """Load notification configuration with project-level overrides.
+
+    Lookup order (later sources override earlier ones):
+    1) Built-in defaults
+    2) Plugin config: <plugin-root>/config/ntfy.json
+    3) Project config: <cwd>/.claude/config/ntfy.json
+    """
+    plugin_config_path = Path(__file__).parent.parent / "config" / "ntfy.json"
+    project_config_path = Path.cwd() / ".claude" / "config" / "ntfy.json"
+
+    config = dict(DEFAULT_CONFIG)
+    config = _deep_merge(config, _load_json(plugin_config_path))
+    config = _deep_merge(config, _load_json(project_config_path))
+    return config
 
 
 def send_notification(
