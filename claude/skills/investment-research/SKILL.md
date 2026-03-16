@@ -1,6 +1,6 @@
 ---
 name: investment-research
-description: Guides investment research projects from question through data, analysis, and deliverable. Use when starting a new research topic (portfolio construction, risk analysis, factor studies, asset allocation, fund analysis), when structuring a research directory, or when the user mentions research, backtest, calibration, or study.
+description: Guides investment research projects from question through data, analysis, and deliverable. Use when starting a new research topic (portfolio construction, risk analysis, factor studies, asset allocation, fund analysis), when structuring a research directory, or when the user mentions research, backtest, calibration, or study. Covers the full lifecycle from data sourcing through simulation to dashboard delivery.
 ---
 
 # Investment Research Workflow
