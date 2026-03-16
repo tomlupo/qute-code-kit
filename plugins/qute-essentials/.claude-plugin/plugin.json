@@ -1,0 +1,7 @@
+{
+  "name": "qute-essentials",
+  "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme)",
+  "author": {
+    "name": "twilc"
+  }
+}

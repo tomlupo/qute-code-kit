@@ -31,10 +31,24 @@ Produce three lists:
 
 **Unused bundles** — bundle files in `claude/bundles/` that are not referenced by any other bundle via `@name`. Top-level bundles (minimal, quant, webdev) are expected to be unused.
 
-### 4. README table check
+### 4. Plugin manifest validation
+
+For each plugin in `plugins/*/plugin.json`:
+
+- **author** must be an object (`{"name": "..."}`) not a string
+- **No deprecated fields** — `commands`, `skills`, `hooks`, `rules` arrays should NOT be present (Claude Code auto-discovers these from directory structure)
+- File must be valid JSON
+
+Also check `templates/plugin-template/plugin.json` follows the same rules.
+
+### 5. README table check
 
 Read `README.md` and compare the tables (Skills, Agents, MCP Servers, etc.) against the on-disk inventory from step 1. Report any components that are on disk but missing from the README, or listed in the README but not on disk.
 
-### 5. Report
+### 6. Stale references check
+
+Search source components (`claude/rules/`, `claude/agents/`) for references to agents or components that no longer exist on disk. Report any stale references with file path and line number.
+
+### 7. Report
 
 Print a structured report with sections for each check. Use clear headings and bullet points. End with a summary line: `✓ N checks passed, M issues found` (or `✓ All checks passed`).

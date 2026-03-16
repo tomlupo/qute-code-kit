@@ -7,7 +7,6 @@ Usage:
 """
 
 import json
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -68,10 +67,12 @@ def create_plugin(name: str):
         example_cmd.write_text(content)
 
     print(f"✅ Created plugin at: {plugin_dir}")
-    print(f"\n📝 Next steps:")
-    print(f"   1. Edit {plugin_dir}/plugin.json to configure commands/skills")
-    print(f"   2. Add your commands to {plugin_dir}/commands/")
-    print(f"   3. Run: python scripts/build-marketplace.py")
+    print("\n📝 Next steps:")
+    print(
+        f"   1. Add skills to {plugin_dir}/skills/, commands to {plugin_dir}/commands/"
+    )
+    print(f"   2. Add hooks to {plugin_dir}/hooks/hooks.json (if needed)")
+    print("   3. Run: python scripts/build-marketplace.py")
     print(f"   4. Restart Claude to use /{normalized_name}:* commands")
 
 
