@@ -2,17 +2,7 @@
   "name": "qute-essentials",
   "version": "1.0.0",
   "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme)",
-  "author": "twilc",
-  "commands": [
-    "commands/send.md",
-    "commands/config.md",
-    "commands/test.md"
-  ],
-  "skills": [
-    "skills/generating-commit-messages",
-    "skills/worktrees",
-    "skills/handoff",
-    "skills/readme"
-  ],
-  "hooks": "hooks/hooks.json"
+  "author": {
+    "name": "twilc"
+  }
 }

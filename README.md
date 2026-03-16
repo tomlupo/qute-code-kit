@@ -99,6 +99,7 @@ claude plugin install qute-essentials@qute-marketplace
 | pipeline-docs | `/pipeline-docs` |
 | python-patterns | model-invocable |
 | image-generator | `/image-generator` |
+| llm-external-review | `/llm-external-review` |
 
 ### Output
 
@@ -112,7 +113,6 @@ claude plugin install qute-essentials@qute-marketplace
 
 | Skill | Notes |
 |-------|-------|
-| llm-external-review | Second opinions from Codex/Gemini |
 | bird-twitter | Twitter/X posting |
 | brand-dm-evo | Project-specific branding |
 | brand-rockbridge | Project-specific branding |

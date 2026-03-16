@@ -8,6 +8,7 @@
 - What the Diff: https://app.whatthediff.ai/dashboard — AI-powered PR review summaries
 - LLM Council Reloaded: https://github.com/tomlupo/llm-council-reloaded — multi-model decision support (ask, debate, decide, minmax, brainstorm)
 - Ralph: https://github.com/snarktank/ralph — autonomous AI agent loop that runs coding tools repeatedly until PRD items are complete
+- The Companion: [The-Vibe-Company/companion: Web & Mobile UI for Claude Code & Codex . Launch sessions, stream responses, approve tools. All from your browser / mobile](https://github.com/The-Vibe-Company/companion?tab=readme-ov-file) - Web UI for Claude Code and Codex sessions
 
 ## Skill Engineering
 
