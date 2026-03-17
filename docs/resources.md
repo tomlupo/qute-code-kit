@@ -20,7 +20,6 @@
 - Vercel agent skills: https://github.com/vercel-labs/agent-skills
 - Everything Claude Code: https://github.com/affaan-m/everything-claude-code
 - QMD skill: https://github.com/tobi/qmd
-- UI UX Pro Max Skill: https://github.com/nextlevelbuilder/ui-ux-pro-max-skill — AI skill providing design intelligence for professional UI/UX across multiple platforms and frameworks
 - ACIP (Advanced Cognitive Inoculation Prompt): https://github.com/Dicklesworthstone/acip
 - Misc coding agent tips/scripts: https://github.com/Dicklesworthstone/misc_coding_agent_tips_and_scripts
 
