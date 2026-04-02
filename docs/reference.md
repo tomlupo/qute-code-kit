@@ -10,6 +10,8 @@
 | worktrees | `/worktrees` | Git worktree management |
 | readme | `/readme` | README generation (forked context) |
 | handoff | `/handoff` | Session transition documents |
+| gbu-review | model-invocable | Good / Bad / Ugly structured feedback |
+| llm-frustration-response | model-invocable | Productive response when user is frustrated with LLM output |
 
 ### Research & Data (quant bundle)
 
@@ -96,7 +98,7 @@ claude plugin install document-skills@anthropic-agent-skills
 
 | Plugin | Source | What you get |
 |--------|--------|--------------|
-| qute-essentials | qute-marketplace | Hooks: ruff, doc-enforcer, skill-eval, notifications. Skills: commits, worktrees, handoff, readme |
+| qute-essentials | qute-marketplace | Hooks: ruff, doc-enforcer, skill-eval, notifications. Skills: commits, worktrees, handoff, readme, gbu-review, llm-frustration-response |
 | context7 | claude-plugins-official | Framework doc lookup |
 | superpowers | claude-plugins-official | Planning, TDD, debugging |
 | compound-engineering | every-marketplace | Full dev lifecycle |

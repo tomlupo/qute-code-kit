@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "qute-essentials",
-      "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme)",
+      "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme, GBU review, LLM frustration response)",
       "version": "1.0.0",
       "author": {
         "name": "twilc"

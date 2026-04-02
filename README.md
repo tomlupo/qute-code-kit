@@ -67,7 +67,7 @@ project-templates/      Generated reference outputs
 | Type | Components |
 |------|------------|
 | Hooks | forced-eval, ruff-formatter, doc-enforcer, skill-use-logger, notifications |
-| Skills | generating-commit-messages, worktrees, handoff, readme |
+| Skills | generating-commit-messages, worktrees, handoff, readme, gbu-review, llm-frustration-response |
 
 ```bash
 claude plugin install qute-essentials@qute-marketplace
@@ -83,6 +83,8 @@ claude plugin install qute-essentials@qute-marketplace
 | worktrees | `/worktrees` | Git worktree management |
 | readme | `/readme` | README generation (forked context) |
 | handoff | `/handoff` | Session transition documents |
+| gbu-review | model-invocable | Good / Bad / Ugly structured feedback |
+| llm-frustration-response | model-invocable | When the user is frustrated with LLM output |
 
 ### Research & Data (quant bundle)
 
