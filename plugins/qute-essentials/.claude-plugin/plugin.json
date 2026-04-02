@@ -1,6 +1,6 @@
 {
   "name": "qute-essentials",
-  "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme, GBU review, LLM frustration response)",
+  "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme, gbu, wtf)",
   "author": {
     "name": "twilc"
   }

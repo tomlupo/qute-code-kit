@@ -57,7 +57,7 @@ python scripts/create-plugin.py name   # Scaffold new plugin
 
 | Plugin | Description |
 |--------|-------------|
-| qute-essentials | Hooks (forced-eval, ruff, doc-enforcer, skill-logger, notifications) + universal skills (commits, worktrees, handoff, readme, gbu-review, llm-frustration-response) |
+| qute-essentials | Hooks (forced-eval, ruff, doc-enforcer, skill-logger, notifications) + universal skills (commits, worktrees, handoff, readme, gbu, wtf) |
 
 ## Skills and slash commands
 
