@@ -101,6 +101,12 @@ claude plugin install qute-essentials@qute-marketplace
 | image-generator | `/image-generator` |
 | llm-external-review | `/llm-external-review` |
 
+### Web Development (webdev bundle)
+
+| Skill | Invocation |
+|-------|------------|
+| ui-ux-pro-max | `/ui-ux-pro-max` |
+
 ### Output
 
 | Skill | Invocation |
