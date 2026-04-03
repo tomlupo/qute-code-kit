@@ -4,13 +4,12 @@ Hook logger: captures Skill, Agent tool calls (PostToolUse) and native subagent
 invocations (SubagentStart). Appends JSONL entries to .claude/skill-use-log.jsonl.
 
 Entry shapes:
-  Skill        → {"timestamp", "type": "skill", "skill", "args", "session_id", "project"}
-  Agent tool   → {"timestamp", "type": "agent", "subagent_type", "description", "session_id", "project"}
-  SubagentStart→ {"timestamp", "type": "subagent", "agent_id", "agent_type", "session_id", "project"}
+  Skill        → {"timestamp", "type": "skill", "skill", "args", "project"}
+  Agent tool   → {"timestamp", "type": "agent", "subagent_type", "description", "project"}
+  SubagentStart→ {"timestamp", "type": "subagent", "agent_id", "agent_type", "project"}
 """
 
 import json
-import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +20,6 @@ LOG_FILE = Path(".claude") / "skill-use-log.jsonl"
 def build_entry(hook_input: dict) -> dict | None:
     base = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "session_id": os.environ.get("CLAUDE_SESSION_ID", "unknown"),
         "project": Path.cwd().name,
     }
 
