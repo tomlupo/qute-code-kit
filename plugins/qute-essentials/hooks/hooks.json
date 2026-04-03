@@ -35,7 +35,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/log_skill_use.py"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/log_use.py"
           }
         ]
       },
@@ -45,6 +45,16 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/on_task_complete.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/log_use.py"
           }
         ]
       }

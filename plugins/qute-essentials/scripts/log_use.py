@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-PostToolUse hook (filtered to Skill|Agent): log skill and agent invocations.
+Hook logger: captures Skill, Agent tool calls (PostToolUse) and native subagent
+invocations (SubagentStart). Appends JSONL entries to .claude/skill-use-log.jsonl.
 
-Reads tool input from stdin (JSON) and appends a JSONL entry to
-.claude/skill-use-log.jsonl.
-
-Entry shape:
-  Skill → {"timestamp", "type": "skill", "skill", "args", "session_id", "project"}
-  Agent → {"timestamp", "type": "agent", "subagent_type", "description", "session_id", "project"}
+Entry shapes:
+  Skill        → {"timestamp", "type": "skill", "skill", "args", "session_id", "project"}
+  Agent tool   → {"timestamp", "type": "agent", "subagent_type", "description", "session_id", "project"}
+  SubagentStart→ {"timestamp", "type": "subagent", "agent_id", "agent_type", "session_id", "project"}
 """
 
 import json
@@ -20,14 +19,15 @@ LOG_FILE = Path(".claude") / "skill-use-log.jsonl"
 
 
 def build_entry(hook_input: dict) -> dict | None:
-    tool_name = hook_input.get("tool_name", "")
-    tool_input = hook_input.get("tool_input", {})
-
     base = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "session_id": os.environ.get("CLAUDE_SESSION_ID", "unknown"),
         "project": Path.cwd().name,
     }
+
+    # PostToolUse: Skill or Agent tool calls
+    tool_name = hook_input.get("tool_name", "")
+    tool_input = hook_input.get("tool_input", {})
 
     if tool_name == "Skill":
         return {
@@ -43,6 +43,15 @@ def build_entry(hook_input: dict) -> dict | None:
             "type": "agent",
             "subagent_type": tool_input.get("subagent_type", "general-purpose"),
             "description": tool_input.get("description", ""),
+        }
+
+    # SubagentStart: native .claude/agents/ invocations
+    if "agent_id" in hook_input:
+        return {
+            **base,
+            "type": "subagent",
+            "agent_id": hook_input.get("agent_id", ""),
+            "agent_type": hook_input.get("agent_type", ""),
         }
 
     return None
