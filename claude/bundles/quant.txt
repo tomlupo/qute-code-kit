@@ -10,6 +10,7 @@ pyproject/quant-uv.toml
 # Rules
 rules/python-rules.md
 rules/datasets.md
+rules/git-workflow.md
 
 # Skills
 python-patterns
