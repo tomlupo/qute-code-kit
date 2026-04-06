@@ -5,9 +5,17 @@ Core notification module for ntfy integration.
 
 import json
 import os
+import platform
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+
+def get_default_topic() -> str:
+    """Generate topic from hostname and username: {hostname}-{username}-claude"""
+    hostname = platform.node().split(".")[0].lower()
+    username = os.environ.get("USER") or os.environ.get("USERNAME", "unknown")
+    return f"{hostname}-{username}-claude".lower()
 
 
 def get_config() -> dict:
@@ -16,9 +24,9 @@ def get_config() -> dict:
     if not config_path.exists():
         return {
             "server": "https://ntfy.sh",
-            "topic": "claude-notifications",
+            "topic": get_default_topic(),
             "priority": "default",
-            "tags": ["robot"]
+            "tags": ["robot"],
         }
 
     with open(config_path) as f:
@@ -29,7 +37,7 @@ def send_notification(
     message: str,
     title: str = "Claude",
     priority: str = "default",
-    tags: Optional[list[str]] = None
+    tags: Optional[list[str]] = None,
 ) -> bool:
     """
     Send a notification via ntfy.
@@ -46,7 +54,7 @@ def send_notification(
     config = get_config()
 
     server = config.get("server", "https://ntfy.sh")
-    topic = config.get("topic", "claude-notifications")
+    topic = config.get("topic") or get_default_topic()
 
     if tags is None:
         tags = config.get("tags", ["robot"])
@@ -57,13 +65,19 @@ def send_notification(
     cmd = [
         "curl",
         "-s",
-        "-o", "/dev/null",
-        "-w", "%{http_code}",
-        "-d", message,
-        "-H", f"Title: {title}",
-        "-H", f"Priority: {priority}",
-        "-H", f"Tags: {','.join(tags)}",
-        url
+        "-o",
+        "/dev/null",
+        "-w",
+        "%{http_code}",
+        "-d",
+        message,
+        "-H",
+        f"Title: {title}",
+        "-H",
+        f"Priority: {priority}",
+        "-H",
+        f"Tags: {','.join(tags)}",
+        url,
     ]
 
     try:
@@ -116,7 +130,7 @@ def notify_build(success: bool, output: str = "") -> bool:
     message = f"{status} Build {'completed' if success else 'failed'}"
     if output and not success:
         # Include first line of error
-        first_line = output.split('\n')[0][:100]
+        first_line = output.split("\n")[0][:100]
         message += f"\n{first_line}"
 
     priority = "default" if success else "high"
@@ -130,6 +144,6 @@ if __name__ == "__main__":
     success = send_notification(
         "🧪 Test notification from Claude Code",
         title="Claude Test",
-        tags=["robot", "test_tube"]
+        tags=["robot", "test_tube"],
     )
     print(f"Test notification: {'✅ sent' if success else '❌ failed'}")
