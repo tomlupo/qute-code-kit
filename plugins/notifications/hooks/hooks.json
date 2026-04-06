@@ -1,6 +1,16 @@
 {
   "description": "Push notifications via ntfy.sh for Claude events",
   "hooks": {
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/on_notification.py"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "hooks": [
