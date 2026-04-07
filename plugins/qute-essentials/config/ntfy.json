@@ -1,6 +1,6 @@
 {
   "server": "https://ntfy.sh",
-  "topic": "claude-notifications",
+  "topic": "",
   "priority": "default",
   "tags": ["robot"],
   "events": {
