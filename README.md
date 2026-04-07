@@ -163,6 +163,10 @@ claude plugin install qute-essentials@qute-marketplace
 | [Prompts](docs/prompts/) | `docs/prompts/` | Copy-paste into Claude |
 | [Resources](docs/resources.md) | `docs/resources.md` | External tools and links |
 
+## Worth Having
+
+- [gstack](https://github.com/garrytan/gstack) — virtual engineering team for Claude Code: 23 specialized roles (CEO, designer, QA lead, security officer, etc.) as slash-command skills for running a full product development sprint
+
 ## Kit Management
 
 ```bash
