@@ -11,3 +11,6 @@ rules/documentation.md
 # Root files
 root/CLAUDE.md
 root/AGENTS.md
+
+# Skills
+skill-assessment
