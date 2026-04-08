@@ -1,13 +1,14 @@
 {
-  "source": "/home/twilc/projects/qute-code-kit",
+  "source": "/home/user/qute-code-kit",
   "bundle": "minimal",
-  "installed": "2026-03-16T09:42:47Z",
+  "installed": "2026-04-08T20:09:47Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "general-rules.md", "src": "rules/general-rules.md"},
     {"type": "rule", "name": "work-organization.md", "src": "rules/work-organization.md"},
     {"type": "rule", "name": "context-management.md", "src": "rules/context-management.md"},
     {"type": "rule", "name": "documentation.md", "src": "rules/documentation.md"},
+    {"type": "rule", "name": "decisions.md", "src": "rules/decisions.md"},
     {"type": "root", "name": "CLAUDE.md", "src": "root/CLAUDE.md"},
     {"type": "root", "name": "AGENTS.md", "src": "root/AGENTS.md"}
   ]

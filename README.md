@@ -150,6 +150,7 @@ claude plugin install qute-essentials@qute-marketplace
 | work-organization | all files | minimal |
 | context-management | all files | minimal |
 | documentation | `docs/**`, `**/*.md` | minimal |
+| decisions | `docs/decisions/**` | minimal |
 | python-rules | `**/*.py` | quant |
 | typescript-rules | `**/*.{ts,tsx,js,jsx}` | webdev |
 | datasets | `data/**`, `docs/datasets/**` | quant |
