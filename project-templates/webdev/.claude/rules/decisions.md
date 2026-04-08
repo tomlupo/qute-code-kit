@@ -5,7 +5,7 @@ paths:
 
 # Decision Records
 
-Lightweight Architecture Decision Records (ADRs) for capturing significant technical choices.
+Lightweight decision records (ADRs) for capturing significant choices — architectural, methodological, data, or research.
 
 ## When to Record a Decision
 
@@ -13,11 +13,14 @@ Record a decision when:
 - Choosing between competing libraries, frameworks, or tools
 - Defining data models, schemas, or API contracts
 - Picking an architectural pattern (monolith vs. microservice, sync vs. async, etc.)
-- Making trade-offs with lasting consequences (performance vs. simplicity, buy vs. build)
+- Selecting a data source or processing approach (provider, cleaning method, frequency)
+- Choosing a statistical or modelling methodology (winsorization vs. trimming, rolling vs. expanding window)
+- Defining research protocol or evaluation criteria (backtest design, benchmark selection)
+- Making trade-offs with lasting consequences (performance vs. simplicity, buy vs. build, accuracy vs. interpretability)
 - Establishing conventions that the team must follow going forward
 - Deprecating or replacing an earlier decision
 
-Do NOT record routine choices (variable names, minor refactors, obvious defaults).
+Do NOT record routine choices (variable names, minor refactors, obvious defaults, one-off exploratory experiments).
 
 ## Format
 
