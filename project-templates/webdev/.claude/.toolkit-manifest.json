@@ -1,13 +1,14 @@
 {
   "source": "/home/user/qute-code-kit",
   "bundle": "webdev",
-  "installed": "2026-03-17T21:40:34Z",
+  "installed": "2026-04-08T20:12:45Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "general-rules.md", "src": "rules/general-rules.md"},
     {"type": "rule", "name": "work-organization.md", "src": "rules/work-organization.md"},
     {"type": "rule", "name": "context-management.md", "src": "rules/context-management.md"},
     {"type": "rule", "name": "documentation.md", "src": "rules/documentation.md"},
+    {"type": "rule", "name": "decisions.md", "src": "rules/decisions.md"},
     {"type": "root", "name": "CLAUDE.md", "src": "root/CLAUDE.md"},
     {"type": "root", "name": "AGENTS.md", "src": "root/AGENTS.md"},
     {"type": "rule", "name": "typescript-rules.md", "src": "rules/typescript-rules.md"},
