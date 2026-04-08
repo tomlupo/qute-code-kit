@@ -1,7 +1,7 @@
 {
   "source": "/home/user/qute-code-kit",
   "bundle": "minimal",
-  "installed": "2026-04-08T20:09:47Z",
+  "installed": "2026-04-08T20:12:44Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "general-rules.md", "src": "rules/general-rules.md"},
