@@ -58,6 +58,16 @@
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/on_task_complete.py"
           }
         ]
+      },
+      {
+        "matcher": "WebFetch|WebSearch|Bash|Read|mcp__",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/guard-screen.py",
+            "timeout": 8
+          }
+        ]
       }
     ],
     "Notification": [
