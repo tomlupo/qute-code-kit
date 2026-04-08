@@ -1,0 +1,12 @@
+{
+  "lakera": {
+    "enabled": true,
+    "description": "Screen tool outputs for prompt injection via Lakera Guard API",
+    "api_key_env": "LAKERA_GUARD_API_KEY"
+  },
+  "langfuse": {
+    "enabled": true,
+    "description": "Trace tool executions to Langfuse for observability and evaluation",
+    "api_key_env": "LANGFUSE_SECRET_KEY"
+  }
+}

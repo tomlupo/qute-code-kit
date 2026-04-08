@@ -25,6 +25,17 @@ LAKERA_API_URL = "https://api.lakera.ai/v2/guard"
 LAKERA_API_KEY = os.environ.get("LAKERA_GUARD_API_KEY", "")
 LOG_DIR = Path.home() / ".claude" / "permission-audit"
 LOG_FILE = LOG_DIR / "guard-detections.jsonl"
+GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
+
+
+def is_enabled() -> bool:
+    """Check if Lakera guard is enabled in guards.json."""
+    try:
+        with open(GUARDS_CONFIG) as f:
+            config = json.load(f)
+        return config.get("lakera", {}).get("enabled", True)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return True  # default on
 
 # Tools that return untrusted external content
 HIGH_RISK_TOOLS = {"WebFetch", "WebSearch"}
@@ -128,6 +139,10 @@ def log_detection(tool_name: str, tool_input: dict, guard_response: dict):
 
 
 def main():
+    if not is_enabled():
+        print("{}")
+        return
+
     try:
         input_data = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, EOFError):

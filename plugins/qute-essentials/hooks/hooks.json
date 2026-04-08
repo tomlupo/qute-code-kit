@@ -68,6 +68,16 @@
             "timeout": 8
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/langfuse-trace.py",
+            "timeout": 5,
+            "async": true
+          }
+        ]
       }
     ],
     "Notification": [
