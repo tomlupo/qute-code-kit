@@ -22,6 +22,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/malware-scan.py",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [

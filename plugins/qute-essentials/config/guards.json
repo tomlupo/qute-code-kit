@@ -12,5 +12,9 @@
   "destructive": {
     "enabled": true,
     "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE, etc.)"
+  },
+  "malware": {
+    "enabled": true,
+    "description": "Scan file writes for obfuscated code, crypto drainers, reverse shells, exfiltration"
   }
 }
