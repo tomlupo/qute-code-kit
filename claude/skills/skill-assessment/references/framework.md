@@ -113,6 +113,29 @@ Does the skill reference or compose with other skills, tools, or MCPs?
 
 ---
 
+## External Tools & References
+
+Tools that complement skill assessment or serve as exemplars for specific categories.
+
+### Ultimate Bug Scanner (UBS)
+
+**Repository**: https://github.com/Dicklesworthstone/ultimate_bug_scanner
+**Category relevance**: Code Quality & Review (6), Product Verification (2)
+
+Static analysis tool detecting 1000+ bug patterns across 9 languages (JS/TS, Python, C/C++, Rust, Go, Java, Ruby, Swift, C#). Designed as "The AI Coding Agent's Secret Weapon" — targets bugs that commonly slip through AI-assisted development.
+
+**Why it matters for skill assessment**:
+- Exemplar of a **Code Quality** tool that could be wrapped as a skill — meta-runner architecture, per-language modules, unified reporting
+- Outputs in TOON format (token-optimized, ~50% smaller than JSON) — purpose-built for LLM consumption, a pattern worth adopting in skills that produce structured output
+- Git-aware scanning (`--staged`, `--diff`) — shows how skills can be scoped to only changed code
+- Baseline comparison (`--comparison=<baseline.json>`) — demonstrates regression tracking, useful for skills that run repeatedly
+- Strictness profiles (`--profile=strict|loose`) — good pattern for skills that need different modes
+- `ubs doctor` self-diagnostic — exemplar for D7 (Setup & Configuration): detects broken deps, auto-repairs with `--fix`
+
+**Assessment integration**: When evaluating Code Quality skills, compare their coverage and sophistication against UBS patterns. A good code quality skill should at minimum support: scoped scanning (not whole repo), machine-readable output, and suppression of known issues.
+
+---
+
 ## Category Gap Assessment Guide
 
 When evaluating a skill universe, check coverage across all 9 categories. Common gaps in developer toolkits:
