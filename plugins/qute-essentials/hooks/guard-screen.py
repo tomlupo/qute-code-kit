@@ -30,6 +30,8 @@ GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 
 def is_enabled() -> bool:
     """Check if Lakera guard is enabled in guards.json."""
+    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
+        return False
     try:
         with open(GUARDS_CONFIG) as f:
             config = json.load(f)

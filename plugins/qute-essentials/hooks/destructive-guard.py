@@ -19,6 +19,9 @@ GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 
 
 def is_enabled() -> bool:
+    # CLAUDE_SKIP_GUARDS=1 disables all guards (env var override)
+    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
+        return False
     try:
         with open(GUARDS_CONFIG) as f:
             config = json.load(f)
