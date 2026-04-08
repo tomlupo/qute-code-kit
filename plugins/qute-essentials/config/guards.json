@@ -8,5 +8,9 @@
     "enabled": true,
     "description": "Trace tool executions to Langfuse for observability and evaluation",
     "api_key_env": "LANGFUSE_SECRET_KEY"
+  },
+  "destructive": {
+    "enabled": true,
+    "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE, etc.)"
   }
 }
