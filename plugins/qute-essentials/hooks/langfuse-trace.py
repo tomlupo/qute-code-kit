@@ -69,7 +69,33 @@ def main():
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
     tool_output = input_data.get("tool_output", {})
+
+    # Session identification
     session_id = input_data.get("session_id", input_data.get("conversation_id", ""))
+
+    # Project identification from cwd / workspace_roots
+    cwd = input_data.get("cwd", "")
+    workspace_roots = input_data.get("workspace_roots", [])
+    if not cwd and workspace_roots:
+        cwd = workspace_roots[0] if isinstance(workspace_roots, list) else ""
+    if not cwd:
+        cwd = os.environ.get("CLAUDE_PROJECT_ROOT", os.getcwd())
+
+    # Derive project name from cwd path
+    project_name = Path(cwd).name if cwd else "unknown"
+
+    # Detect source: dispatcher (tmux) vs interactive
+    source = "interactive"
+    tmux = os.environ.get("TMUX", "")
+    tmux_pane = os.environ.get("TMUX_PANE", "")
+    if tmux:
+        source = "dispatcher"
+
+    # Hostname for multi-machine identification
+    hostname = os.environ.get("HOSTNAME", "")
+    if not hostname:
+        import platform
+        hostname = platform.node().split(".")[0]
 
     if not tool_name:
         print("{}")
@@ -112,7 +138,17 @@ def main():
                 "exit_code": exit_code,
                 "output_length": len(output_text),
                 "session_id": session_id or "",
+                "project": project_name,
+                "cwd": cwd,
+                "source": source,
+                "hostname": hostname,
             },
+            tags=[
+                f"project:{project_name}",
+                f"source:{source}",
+                f"tool:{tool_name}",
+                f"host:{hostname}",
+            ],
         ) as span:
             span.update(output=output_text)
 
