@@ -6,9 +6,13 @@ Core notification module for ntfy integration.
 import json
 import os
 import platform
-import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
+
+# Ensure emoji/unicode prints correctly on Windows (cp1250/cp1252 consoles)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
 def get_default_topic() -> str:
@@ -61,30 +65,26 @@ def send_notification(
 
     url = f"{server}/{topic}"
 
-    # Build curl command
-    cmd = [
-        "curl",
-        "-s",
-        "-o",
-        "/dev/null",
-        "-w",
-        "%{http_code}",
-        "-d",
-        message,
-        "-H",
-        f"Title: {title}",
-        "-H",
-        f"Priority: {priority}",
-        "-H",
-        f"Tags: {','.join(tags)}",
+    # Use urllib instead of curl for cross-platform compatibility
+    from urllib.request import Request, urlopen
+    from urllib.error import URLError
+
+    payload = message.encode("utf-8")
+    req = Request(
         url,
-    ]
+        data=payload,
+        headers={
+            "Title": title,
+            "Priority": priority,
+            "Tags": ",".join(tags),
+        },
+        method="POST",
+    )
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        status_code = result.stdout.strip()
-        return status_code == "200"
-    except subprocess.TimeoutExpired:
+        with urlopen(req, timeout=10) as resp:
+            return resp.status == 200
+    except (URLError, TimeoutError):
         return False
     except Exception:
         return False

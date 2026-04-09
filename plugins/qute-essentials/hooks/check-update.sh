@@ -27,7 +27,7 @@ date +%s > "$CACHE_FILE"
 local_version=""
 for cache_dir in "$HOME/.claude/plugins/cache/qute-marketplace/qute-essentials"/*/; do
   if [[ -f "${cache_dir}plugin.json" ]]; then
-    local_version=$(python3 -c "import json; print(json.load(open('${cache_dir}plugin.json'))['version'])" 2>/dev/null || echo "")
+    local_version=$(python -c "import json; print(json.load(open('${cache_dir}plugin.json'))['version'])" 2>/dev/null || python3 -c "import json; print(json.load(open('${cache_dir}plugin.json'))['version'])" 2>/dev/null || echo "")
     break
   fi
 done
@@ -38,7 +38,7 @@ if [[ -z "$local_version" ]]; then
 fi
 
 # Fetch latest from git (quick, just the marketplace.json)
-remote_version=$(cd "$MARKETPLACE_DIR" 2>/dev/null && git fetch origin main --quiet 2>/dev/null && git show origin/main:.claude-plugin/marketplace.json 2>/dev/null | python3 -c "
+remote_version=$(cd "$MARKETPLACE_DIR" 2>/dev/null && git fetch origin main --quiet 2>/dev/null && git show origin/main:.claude-plugin/marketplace.json 2>/dev/null | python -c "
 import json, sys
 data = json.load(sys.stdin)
 for p in data.get('plugins', []):

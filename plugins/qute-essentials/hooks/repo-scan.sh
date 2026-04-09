@@ -18,7 +18,8 @@ if [ -z "$REPO_ROOT" ]; then
   exit 0
 fi
 
-REPO_ID=$(echo "$REPO_ROOT" | md5sum | cut -d' ' -f1)
+# Use python for hashing (md5sum not available on Windows/Git Bash)
+REPO_ID=$(python -c "import hashlib; print(hashlib.md5('$REPO_ROOT'.encode()).hexdigest())" 2>/dev/null || python -c "import hashlib; print(hashlib.md5('$REPO_ROOT'.encode()).hexdigest())" 2>/dev/null)
 
 # Check if we've seen this repo before
 if grep -q "^$REPO_ID " "$KNOWN_FILE" 2>/dev/null; then
@@ -39,7 +40,7 @@ fi
 
 # 2. Check for npm install scripts
 if [ -f "$REPO_ROOT/package.json" ]; then
-  SCRIPTS=$(python3 -c "
+  SCRIPTS=$(python -c "
 import json, sys
 try:
     d = json.load(open('$REPO_ROOT/package.json'))
@@ -77,6 +78,7 @@ else
 fi
 
 # Escape for JSON
-ESCAPED=$(echo -e "$MSG" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))")
+# Use printf instead of echo -e for cross-platform compat
+ESCAPED=$(printf '%b' "$MSG" | python -c "import json,sys; print(json.dumps(sys.stdin.read()))")
 
 echo "{\"additionalContext\":$ESCAPED}"

@@ -20,6 +20,10 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
+# Ensure emoji/unicode prints correctly on Windows (cp1250/cp1252 consoles)
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # Config
 LAKERA_API_URL = "https://api.lakera.ai/v2/guard"
 LAKERA_API_KEY = os.environ.get("LAKERA_GUARD_API_KEY", "")
@@ -41,6 +45,7 @@ def is_enabled() -> bool:
     except (FileNotFoundError, json.JSONDecodeError):
         return True  # default on
 
+
 # Tools that return untrusted external content
 HIGH_RISK_TOOLS = {"WebFetch", "WebSearch"}
 MEDIUM_RISK_TOOLS = {"Read", "Bash"}
@@ -51,10 +56,29 @@ MAX_CONTENT_LEN = 30000
 
 # Skip screening for these safe patterns (reduce API calls)
 SAFE_BASH_PREFIXES = (
-    "git ", "ls ", "find ", "wc ", "sort ", "head ", "tail ",
-    "cat ", "echo ", "test ", "stat ", "chmod ", "mkdir ",
-    "df ", "free ", "du ", "ps ", "date ", "pwd", "whoami",
-    "claude plugin", "tmux ", "systemctl ",
+    "git ",
+    "ls ",
+    "find ",
+    "wc ",
+    "sort ",
+    "head ",
+    "tail ",
+    "cat ",
+    "echo ",
+    "test ",
+    "stat ",
+    "chmod ",
+    "mkdir ",
+    "df ",
+    "free ",
+    "du ",
+    "ps ",
+    "date ",
+    "pwd",
+    "whoami",
+    "claude plugin",
+    "tmux ",
+    "systemctl ",
 )
 
 
@@ -82,6 +106,8 @@ def should_screen(tool_name: str, tool_input: dict) -> bool:
     if tool_name == "Read":
         # Screen files in inbox, raw, or tmp (likely external content)
         path = tool_input.get("file_path", "")
+        # Normalize path separators for cross-platform matching
+        path = path.replace("\\", "/")
         if any(d in path for d in ("/inbox/", "/raw/", "/tmp/", "/downloads/")):
             return True
         return False
@@ -94,12 +120,12 @@ def screen_content(content: str) -> dict:
     if len(content) > MAX_CONTENT_LEN:
         content = content[:MAX_CONTENT_LEN]
 
-    payload = json.dumps({
-        "messages": [
-            {"role": "user", "content": content}
-        ],
-        "breakdown": True,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "messages": [{"role": "user", "content": content}],
+            "breakdown": True,
+        }
+    ).encode("utf-8")
 
     req = Request(
         LAKERA_API_URL,
@@ -206,7 +232,9 @@ def main():
 
         # Also send ntfy alert
         try:
-            ntfy_payload = f"🛡️ Prompt injection detected in {tool_name}\nDetectors: {detector_str}"
+            ntfy_payload = (
+                f"🛡️ Prompt injection detected in {tool_name}\nDetectors: {detector_str}"
+            )
             if tool_name in ("WebFetch", "WebSearch"):
                 target = tool_input.get("url", tool_input.get("query", ""))
                 ntfy_payload += f"\nSource: {target[:100]}"
