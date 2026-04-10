@@ -1,0 +1,41 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+# Bumps version, updates CHANGELOG.md, and creates a git tag on every merge
+# to main based on Conventional Commits. Mirrors the behavior of `/ship`
+# when run locally.
+
+jobs:
+  ship:
+    # Skip the commits that /ship itself creates, to prevent an infinite loop.
+    if: "!startsWith(github.event.head_commit.message, 'bump:')"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout (full history for commitizen)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install commitizen
+        run: uv tool install commitizen
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version, changelog, and tag
+        run: cz bump --yes --changelog
+
+      - name: Push commit and tag
+        run: git push --follow-tags
