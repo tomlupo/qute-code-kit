@@ -1,0 +1,15 @@
+# This repo is a Claude Code plugin marketplace, not a Python package.
+# `pyproject.toml` exists only so `commitizen` (and by extension the
+# `/ship` command) can atomically bump the version across both the
+# marketplace manifest and each plugin's `plugin.json`.
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "1.5.0"
+version_files = [
+    ".claude-plugin/marketplace.json:version",
+    "plugins/qute-essentials/plugin.json:version",
+]
+update_changelog_on_bump = true
+tag_format = "v$version"
+major_version_zero = false

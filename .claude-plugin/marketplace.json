@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "qute-essentials",
-      "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme, wtf, gbu)",
-      "version": "1.3.0",
+      "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications), security guards (destructive, malware, secrets, lakera), universal skills (commits, worktrees, handoff, readme, wtf, gbu), /ship release automation, and /audit dependency scanning (Python, commitizen + pip-audit)",
+      "version": "1.5.0",
       "author": {
         "name": "twilc"
       },
