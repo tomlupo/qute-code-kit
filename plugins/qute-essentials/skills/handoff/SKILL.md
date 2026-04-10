@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Prepare a handoff document to continue work in a new session. Captures context, decisions, blockers, and environment state for seamless session transitions.
+description: Prepare a handoff document to continue work in a new session. Captures context, decisions, blockers, environment state, ADRs touched during the session, and a TASKS.md snapshot for seamless session transitions. Pairs with the `pickup` skill which reads the handoff on the receiving side, and with the `decision` skill which creates the ADRs that handoff auto-links.
 argument-hint: "[--push] [goal]"
 ---
 
@@ -17,27 +17,41 @@ When the user invokes `/handoff [goal]`:
    - Note current branch, working directory
    - Check for running background tasks or services relevant to the work
 
-2. **Analyze current conversation context**:
+2. **Detect ADRs touched this session**:
+   - Scan `docs/decisions/*.md` for files created or modified during the session
+   - Prefer git: `git status --short docs/decisions/` for new/modified, plus `git log --since="session-start" docs/decisions/` if session start is known
+   - For each ADR found, note: number, title, status (Accepted / Superseded by / Proposed), and whether it's new or an existing one whose status changed
+   - If the `decision` skill was invoked this session, those ADRs will appear here
+   - If no ADRs were touched, this section is omitted or says "none"
+
+3. **Snapshot TASKS.md** (if it exists at repo root):
+   - Read `TASKS.md` and extract the Now / In Progress / Next sections
+   - **Before capturing the snapshot**, check if any items in Now/In Progress look completed based on session work (e.g. their described changes appear in `git diff`). If so, prompt the user once: *"N items in Now/In Progress look completed this session. Update TASKS.md before handoff?"* — do not update TASKS.md automatically; let the user decide
+   - After the user either updates or declines, capture the final state of Now/Next into the handoff
+
+4. **Analyze current conversation context**:
    - What was accomplished in this session
-   - Important decisions made and their rationale
+   - Important decisions made and their rationale (link to ADR numbers from step 2 where applicable)
    - Any blockers, failures, or issues requiring user action
    - Unanswered questions or unresolved ambiguity
 
-3. **Generate a handoff document** with these sections:
+5. **Generate a handoff document** with these sections:
    - **Goal**: What the next session should accomplish (from arg, or inferred from conversation)
    - **Context Summary**: Brief summary of session work (NOT a transcript)
-   - **Key Decisions**: Choices made and why
+   - **ADRs touched this session**: New or superseded ADRs from step 2, with file paths and status changes. Omit the section if none.
+   - **Key Decisions**: Conversational decisions and rationale. Reference ADR numbers where a formal decision was recorded.
    - **Environment State**: Branch, directory, modified files, running services
+   - **TASKS.md state at handoff**: Snapshot of Now / In Progress / Next sections from step 3. Omit if TASKS.md doesn't exist.
    - **Modified Files**: Auto-detected from git + conversation context, with why each matters
    - **Blockers**: Things that must be resolved before continuing (separate from notes — these require action)
    - **Next Steps**: Ordered, specific, actionable items
    - **Notes**: Caveats, gotchas, things to watch out for
 
-4. **Save the handoff** to `.claude/handoffs/<YYYY-MM-DD>-<slug>.md`
+6. **Save the handoff** to `.claude/handoffs/<YYYY-MM-DD>-<slug>.md`
 
-5. **Display the handoff** for the user to review
+7. **Display the handoff** for the user to review
 
-6. **If `--push` flag was passed**, persist the handoff to git:
+8. **If `--push` flag was passed**, persist the handoff to git:
    - Stage only the handoff file: `git add .claude/handoffs/<file>.md` (do NOT stage other WIP)
    - Commit: `git commit -m "handoff: <goal-slug>"`
    - Push current branch: `git push -u origin HEAD`
@@ -63,9 +77,16 @@ When the user invokes `/handoff [goal]`:
 
 <2-5 sentences summarizing what happened this session>
 
+## ADRs touched this session
+
+(Omit section if none.)
+
+- **ADR-NNNN** `docs/decisions/NNNN-slug.md` — new, `Status: Accepted`
+- **ADR-MMMM** `docs/decisions/MMMM-slug.md` — status changed to `Superseded by ADR-NNNN`
+
 ## Key Decisions
 
-- **<Decision>**: <rationale>
+- **<Decision>**: <rationale> *(recorded as ADR-NNNN)*
 - **<Decision>**: <rationale>
 
 ## Environment State
@@ -74,6 +95,19 @@ When the user invokes `/handoff [goal]`:
 - **Branch**: <current git branch, or "not a git repo">
 - **Modified files**: <list from git diff, or "none">
 - **Running services**: <any relevant background processes>
+
+## TASKS.md state at handoff
+
+(Omit section if TASKS.md doesn't exist at repo root. Snapshot taken after
+any pre-handoff updates the user agreed to.)
+
+**Now / In Progress**:
+- [ ] <item>
+- [ ] <item>
+
+**Next**:
+- [ ] <item>
+- [ ] <item>
 
 ## Files to Load
 
@@ -101,10 +135,28 @@ Items that require user action before work can continue:
 
 ## Conventions
 
-- Keep the whole document under 80 lines — concise beats comprehensive
+- Keep the whole document under 100 lines (was 80 before ADR + TASKS.md sections) — concise beats comprehensive
 - Use imperative voice in Next Steps ("Install caddy", not "Caddy should be installed")
 - Blockers are things the USER must do; Next Steps are things CLAUDE will do
 - If the session had no meaningful progress, say so honestly — don't pad
+- **Do not duplicate rationale from ADRs**. If a decision was formally recorded via the `decision` skill, reference the ADR number in Key Decisions — don't copy its content. Rationale lives in the ADR, state lives in the handoff.
+- **Reference, don't snapshot, ADR content**. The handoff's "ADRs touched this session" section is a pointer list, not a copy of the ADR bodies.
+
+## Coherence with `decision` and `pickup`
+
+The `handoff` skill writes session state; the `pickup` skill reads it on the
+receiving side; the `decision` skill creates ADRs that both sides link to.
+Together they form a closed loop:
+
+```
+Session end:  /handoff  → writes handoff + links ADRs touched + snapshots TASKS.md
+Session start: /pickup  → reads handoff, verifies ADR statuses, diffs TASKS.md against current
+Mid-session:  /decision → creates/supersedes ADRs, which the next /handoff auto-links
+```
+
+When these three skills are used together, rationale lives in ADRs (immutable),
+state lives in handoffs (ephemeral), and task progress lives in TASKS.md
+(mutable). Each piece has one source of truth.
 
 ## Resuming from a Handoff
 
