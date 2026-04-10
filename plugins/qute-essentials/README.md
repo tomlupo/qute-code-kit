@@ -118,6 +118,8 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 |-------|-------------|
 | `/guard` | Toggle security guards on/off, check status |
 | `/commit` | Generate conventional commit messages |
+| `/ship` | Bump version, update CHANGELOG, create tag (Python, via commitizen) |
+| `/ship-setup` | One-time setup for `/ship` in a project |
 | `/worktrees` | Manage git worktrees for parallel development |
 | `/handoff` | Prepare session handoff documents |
 | `/readme` | Generate or update README files |
