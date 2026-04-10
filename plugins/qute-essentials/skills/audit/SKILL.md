@@ -1,6 +1,7 @@
 ---
-description: Scan current project for dependency vulnerabilities (pip-audit via uvx)
-allowed-tools: Bash(python:*)
+name: audit
+description: Scan the current Python project for dependency vulnerabilities via pip-audit (queries the OSV database for known CVEs). Use when the user asks to audit dependencies, check for vulnerabilities, scan for CVEs, or says "is this secure", "any known issues", "check security". Python-only in v1; webapps should use npm audit / yarn audit from the shell. Also runs automatically (non-blocking) after `uv add/remove/sync/lock` and `pip install` via the auto_audit.py PostToolUse hook.
+argument-hint: ""
 ---
 
 # /audit
@@ -31,6 +32,8 @@ upgrade the affected packages. Do NOT upgrade automatically.
 If the script errors with "no pyproject.toml" or "uv not on PATH", report
 the error verbatim and stop.
 
-This command also runs automatically (non-blocking, informational) after
+## Auto-run behaviour
+
+This skill also runs automatically (non-blocking, informational) after
 `uv add`, `uv remove`, `uv sync`, `uv lock`, and `pip install` via the
 `auto_audit.py` PostToolUse hook. Toggle off with `/guard audit off`.
