@@ -78,7 +78,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/track_edits.py"
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/doc_reminder.py"
           }
         ]
       },

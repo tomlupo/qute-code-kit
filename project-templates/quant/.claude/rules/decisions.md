@@ -3,59 +3,71 @@ paths:
   - "docs/decisions/**/*"
 ---
 
-# Decision Records
+# Decision Records — Edit-Time Policy
 
-Lightweight decision records (ADRs) for capturing significant choices — architectural, methodological, data, or research.
+You are editing a file in `docs/decisions/`. This rule covers policy for
+existing ADRs. For **creating new ADRs**, use the `decision` skill which
+owns the template and handles numbering, slug generation, and supersede
+mechanics.
 
-## When to Record a Decision
+## Immutability (most important)
 
-Record a decision when:
-- Choosing between competing libraries, frameworks, or tools
-- Defining data models, schemas, or API contracts
-- Picking an architectural pattern (monolith vs. microservice, sync vs. async, etc.)
-- Selecting a data source or processing approach (provider, cleaning method, frequency)
-- Choosing a statistical or modelling methodology (winsorization vs. trimming, rolling vs. expanding window)
-- Defining research protocol or evaluation criteria (backtest design, benchmark selection)
-- Making trade-offs with lasting consequences (performance vs. simplicity, buy vs. build, accuracy vs. interpretability)
-- Establishing conventions that the team must follow going forward
-- Deprecating or replacing an earlier decision
+Once an ADR has `Status: Accepted`, the following sections are **immutable**:
 
-Do NOT record routine choices (variable names, minor refactors, obvious defaults, one-off exploratory experiments).
+- Context
+- Options Considered
+- Decision
+- Consequences
 
-## Format
+**Only the Status field may be edited** on an accepted ADR (to mark it as
+Superseded or Deprecated). To change the substance of a decision, create a
+**new ADR** that supersedes the old one — do not edit the old ADR's content.
 
-File: `docs/decisions/NNN-short-title.md` (zero-padded three-digit sequence)
+## Status transitions
 
-```markdown
-# ADR-NNN: Short Title
+- `Proposed` → `Accepted` (when finalised)
+- `Accepted` → `Superseded by ADR-NNNN` (when replaced — link to successor)
+- `Accepted` → `Deprecated` (when no longer valid but not replaced)
 
-**Status:** Proposed | Accepted | Deprecated | Superseded by ADR-XXX
-**Date:** YYYY-MM-DD
+## Sequential numbering
 
-## Context
+ADR filenames use zero-padded 4-digit prefixes: `0001-title.md`, `0002-title.md`, ….
+Check existing `docs/decisions/` for the highest number before creating a new
+one. The `decision` skill does this automatically.
 
-What problem or question prompted this decision? Keep it brief — 2-5 sentences.
+## One decision per ADR
 
-## Options Considered
+If a change bundles multiple independent decisions, split them into separate
+ADRs.
 
-1. **Option A** — one-line summary
-2. **Option B** — one-line summary
-3. **Option C** — one-line summary (if applicable)
+## Link from code
 
-## Decision
+When a decision directly affects implementation, add a comment near the
+relevant code: `# See ADR-NNNN`. This creates a two-way trail from code to
+rationale.
 
-State the choice and the core reason. 1-3 sentences.
+## Creating new ADRs
 
-## Consequences
+Do not hand-write new ADRs. Use `/decision "short title"` — it handles
+numbering, template, and supersede protocol correctly. For supersede:
+`/decision "new title" --supersedes NNNN`.
 
-- (+) Positive outcome
-- (-) Trade-off or risk accepted
-```
+## When to record a decision
 
-## Rules
+Record when:
+- Competing libraries / frameworks / tools
+- Data models, schemas, API contracts
+- Architectural patterns with lasting consequences
+- Statistical / methodological choices
+- Research protocol / evaluation criteria
+- Team conventions going forward
+- Deprecating an earlier decision
 
-- **Immutable once Accepted** — never edit the Context/Options/Decision sections of an accepted ADR. To reverse or change a decision, create a new ADR that supersedes it and update the old one's status.
-- **Sequential numbering** — check `docs/decisions/` for the next available number before creating.
-- **One decision per record** — if a choice bundles multiple independent decisions, split them.
-- **Link from code** — when a decision directly affects implementation, add a brief comment pointing to it (e.g., `# See ADR-012`).
-- **Keep it short** — a good ADR is under 50 lines. If you need more, the decision may need splitting.
+Do **not** record routine choices (variable names, minor refactors, one-off
+experiments, reversible tactical choices).
+
+## Format reference
+
+See `decision` skill (in `qute-essentials` plugin) for the canonical ADR
+template. This rule deliberately does not duplicate the template — single
+source of truth lives in the skill.
