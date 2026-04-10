@@ -33,6 +33,30 @@ Three security layers that run on every tool call, each toggleable via `/guard`:
                      └─────────┘
 ```
 
+### Secrets Guard (PreToolUse)
+
+Blocks `Write`/`Edit`/`NotebookEdit` on files that leak secrets or target credential files.
+
+**Content scan** — well-known patterns from gitleaks rules:
+- AWS access keys (`AKIA…`) and secret keys
+- GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `github_pat_…`)
+- Slack, Google, Stripe live, Anthropic, OpenAI API keys
+- Private key PEM blocks (`-----BEGIN … PRIVATE KEY-----`)
+- JWTs, Azure connection strings
+- Generic `password = "…"` / `api_key = "…"` assignments with high-entropy values
+
+**Filename block** — hard-blocks by basename:
+- `.env`, `.env.*` (except `.env.example` / `.env.template` / `.env.sample`)
+- `*.pem`, `*.key`, `id_rsa*`, `id_ed25519*`, `id_ecdsa*`
+- `.netrc`, `.pgpass`
+- `credentials.json`, `client_secret*.json`, `service-account*.json`
+- `database.ini`
+
+**Override mechanisms** (require explicit user confirmation):
+1. One-shot: `touch ~/.claude/.secret-scan-override` then retry the write (file is consumed on use)
+2. Session: `/guard secrets off` (re-enable with `/guard secrets on`)
+3. CI / trusted: `CLAUDE_SKIP_GUARDS=1` or `CLAUDE_GUARD_SECRETS=0`
+
 ### Destructive Guard (PreToolUse)
 
 Blocks dangerous commands before they execute. Context-aware: won't block `grep "rm -rf"` or dry-run flags.
@@ -120,6 +144,7 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 | `/commit` | Generate conventional commit messages |
 | `/ship` | Bump version, update CHANGELOG, create tag (Python, via commitizen) |
 | `/ship-setup` | One-time setup for `/ship` in a project |
+| `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
 | `/worktrees` | Manage git worktrees for parallel development |
 | `/handoff` | Prepare session handoff documents |
 | `/readme` | Generate or update README files |

@@ -41,6 +41,16 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/secrets-guard.py",
+            "timeout": 3
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -87,6 +97,16 @@
           {
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/on_task_complete.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/auto_audit.py",
+            "timeout": 180
           }
         ]
       },
