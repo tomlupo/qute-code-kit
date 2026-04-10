@@ -16,5 +16,13 @@
   "malware": {
     "enabled": true,
     "description": "Scan file writes for obfuscated code, crypto drainers, reverse shells, exfiltration"
+  },
+  "secrets": {
+    "enabled": true,
+    "description": "Block Write/Edit that leaks secrets (API keys, private keys, tokens) or targets credential files (.env, *.pem, id_rsa, database.ini)"
+  },
+  "audit": {
+    "enabled": true,
+    "description": "Auto-run pip-audit after uv add/sync/lock/pip install — reports dependency CVEs (informational, non-blocking)"
   }
 }
