@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: Prepare a handoff document to continue work in a new session. Captures context, decisions, blockers, and environment state for seamless session transitions.
-argument-hint: "[goal]"
+argument-hint: "[--push] [goal]"
 ---
 
 # /handoff
@@ -37,9 +37,18 @@ When the user invokes `/handoff [goal]`:
 
 5. **Display the handoff** for the user to review
 
+6. **If `--push` flag was passed**, persist the handoff to git:
+   - Stage only the handoff file: `git add .claude/handoffs/<file>.md` (do NOT stage other WIP)
+   - Commit: `git commit -m "handoff: <goal-slug>"`
+   - Push current branch: `git push -u origin HEAD`
+   - If push fails due to network, retry with exponential backoff (2s, 4s, 8s, 16s)
+   - Report the resulting commit SHA to the user — this is the anchor for drift detection on resume
+   - The handoff commits onto the CURRENT branch (alongside the WIP it describes), not a dedicated `handoff/*` branch
+
 ## Arguments
 
 - `[goal]` - (Optional) What the next session should accomplish. If omitted, infer from conversation context.
+- `--push` - (Optional flag) After saving, commit the handoff file to the current branch and push. Only the handoff doc is committed — any other WIP stays unstaged.
 
 ## Output Format
 
@@ -104,3 +113,27 @@ In a new session:
 ```
 Load the handoff from .claude/handoffs/<filename>.md and continue
 ```
+
+When resuming, **check for drift** — files listed in the handoff may have changed since it was written, invalidating the planned approach:
+
+1. **Read the handoff doc** and extract its "Files to Load", "Modified files", and "Next Steps" sections.
+
+2. **Find the commit that introduced the handoff** (only if it was pushed — i.e. the file is tracked in git):
+   ```bash
+   HANDOFF_SHA=$(git log --diff-filter=A --format=%H -- .claude/handoffs/<file>.md | tail -1)
+   ```
+   `--diff-filter=A` narrows to the commit that *added* the file, so later edits to the doc don't shift the anchor. `tail -1` picks the oldest match if there are multiple.
+
+3. **List files changed since the handoff**:
+   ```bash
+   git diff --name-only "$HANDOFF_SHA"..HEAD
+   ```
+   Also include unstaged changes: `git diff --name-only HEAD`.
+
+4. **Cross-reference** the changed files against the handoff's "Files to Load" and "Modified files" lists. For each overlap:
+   - Show a short diff: `git diff "$HANDOFF_SHA"..HEAD -- <file>`
+   - Flag the affected "Next Steps" items — their assumptions may be stale.
+
+5. **Tell the user before proceeding**: "N files referenced by this handoff have changed since it was written: [list]. Review before continuing?" If nothing drifted, say "No drift — handoff is current" and proceed.
+
+6. If the handoff was never pushed (no git history for the file), skip drift detection and proceed with Next Steps as written.
