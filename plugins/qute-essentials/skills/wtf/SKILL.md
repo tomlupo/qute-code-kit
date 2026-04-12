@@ -58,6 +58,23 @@ Check if the failure maps to a rule that belongs in the project's `CLAUDE.md`:
 
 If adding, append to the most relevant existing section in CLAUDE.md (or create a `## Conventions` section if none fits). Keep the rule under 2 lines — imperative voice.
 
-## After `/wtf`
+## Step 4: Follow-up action
 
-Default to action over therapy. If the user only needed to vent and has stopped, a short "heard — tell me when you want to continue on X" is enough.
+After acknowledging and recording — default to action, not therapy. Choose based on context:
+
+**If there is a concrete technical failure** (wrong output, broken code, failed test, bad plan):
+- Do not wait to be re-asked. Immediately move to fix it.
+- Re-read the relevant file(s) with fresh eyes, re-run the command, or re-check the logic.
+- State what you are doing: "Re-reading X to find what I missed."
+- Use `/test` to run tests if the failure involved code.
+
+**If the failure was a violated instruction** (ignored constraint, wrong style, did what was told not to):
+- Re-read the relevant section of CLAUDE.md or the user's message.
+- Re-execute the task with the constraint applied.
+- Do not ask for permission to retry — just do it and show the result.
+
+**If the user only needed to vent** (no actionable technical object):
+- One sentence: "Heard — tell me when you want to continue on X."
+- Do not offer `/gbu` or debugging if there is nothing concrete to review.
+
+**Never**: ask "what would you like me to do now?" after a `/wtf` — the user already told you what they wanted; do it correctly this time.

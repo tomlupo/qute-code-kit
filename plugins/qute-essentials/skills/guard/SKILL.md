@@ -6,20 +6,39 @@ argument-hint: "[status | <lakera|langfuse|secrets|audit|destructive|malware|all
 
 # /guard
 
-Manage the Lakera Guard (prompt injection screening) and Langfuse (tracing /
-evaluation) hooks. View current status or toggle guards on/off.
+Manage qute-essentials security guards. View current status or toggle any
+guard on/off.
+
+## Guards
+
+| Name | What it blocks | Needs API key |
+|---|---|---|
+| `lakera` | Prompt injection in tool outputs (via Lakera Guard API) | Yes — `LAKERA_API_KEY` |
+| `langfuse` | Tracing/evaluation (Langfuse) | Yes — `LANGFUSE_SECRET_KEY` |
+| `secrets` | Writes that leak API keys, tokens, or credential files | No |
+| `audit` | Auto-runs pip-audit after package installs (informational) | No |
+| `destructive` | Dangerous shell commands (rm -rf, git reset --hard, DROP TABLE) | No |
+| `malware` | File writes containing obfuscated code, crypto drainers, reverse shells | No |
 
 ## Usage
 
 ```
-/guard                       # show current status (same as /guard status)
-/guard status                # show current status
-/guard lakera on             # enable Lakera Guard
-/guard lakera off            # disable Lakera Guard
-/guard langfuse on           # enable Langfuse tracing
-/guard langfuse off          # disable Langfuse tracing
-/guard all on                # enable both
-/guard all off               # disable both
+/guard                         # show current status
+/guard status                  # show current status
+/guard lakera on               # enable Lakera Guard
+/guard lakera off              # disable Lakera Guard
+/guard langfuse on             # enable Langfuse tracing
+/guard langfuse off            # disable Langfuse tracing
+/guard secrets on              # enable secrets guard
+/guard secrets off             # disable secrets guard (session override)
+/guard audit on                # enable dep-audit hook
+/guard audit off               # disable dep-audit hook
+/guard destructive on          # enable destructive-command guard
+/guard destructive off         # disable destructive-command guard
+/guard malware on              # enable malware-scan hook
+/guard malware off             # disable malware-scan hook
+/guard all on                  # enable all guards
+/guard all off                 # disable all guards
 ```
 
 ## Task
@@ -30,35 +49,32 @@ Run the helper script with the user's arguments:
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/guard_toggle.py <args>
 ```
 
-Pass through the user's arguments verbatim. The script handles all the
-logic: locating the config file, reading and updating state, and printing a
-status table.
+Pass through the user's arguments verbatim. The script handles config
+resolution, state mutation, and printing the status table.
 
 ## Output
-
-The script prints a status table like:
 
 ```
 Guards config: /path/to/guards.json
 
-Guard           Enabled    API key         Description
---------------- ---------- --------------- ------------------------------
-Lakera Guard    yes        set             Prompt injection screening
-Langfuse        no         missing (LANGFUSE_SECRET_KEY)  Tracing / evaluation
+Guard              Enabled    API key         Description
+------------------ ---------- --------------- ------------------------------
+Lakera Guard       yes        set             Prompt injection screening
+Langfuse           no         missing (LANGFUSE_SECRET_KEY) Tracing / evaluation
+Secrets Guard      yes        n/a             Block credential leaks
+Audit Guard        yes        n/a             Auto pip-audit after installs
+Destructive Guard  yes        n/a             Block dangerous shell commands
+Malware Guard      yes        n/a             Scan writes for malicious code
 ```
 
-**For toggle commands**, the script updates the config file and then prints
-the new status table. Report the change to the user in one sentence and
-confirm whether the relevant API key is configured — if it's missing, the
-guard is effectively off even if the config says "yes".
+**For toggle commands**, report the change in one sentence. For API-key guards
+(lakera, langfuse), note if the key is missing — the guard is effectively off
+even when enabled.
 
-**For status queries**, just present the table.
-
-Changes take effect immediately — hooks read the config on each invocation,
-so no session restart is needed.
+Changes take effect immediately — hooks read the config on each invocation.
 
 ## Related
 
-- `/config` — manages notification and other qute-essentials plugin settings
+- `/config` — manages notification settings
 - `scripts/guard_toggle.py` — the helper script this skill invokes
-- Hooks affected: `guard-screen.py` (Lakera), `langfuse-trace.py` (Langfuse)
+- Hooks: `guard-screen.py` (lakera), `langfuse-trace.py` (langfuse), `secrets-guard.py` (secrets), `auto_audit.py` (audit), `destructive-guard.py` (destructive), `malware-scan.py` (malware)
