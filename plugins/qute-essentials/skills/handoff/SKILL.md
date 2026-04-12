@@ -19,7 +19,7 @@ When the user invokes `/handoff [goal]`:
 
 2. **Detect ADRs touched this session**:
    - Scan `docs/decisions/*.md` for files created or modified during the session
-   - Prefer git: `git status --short docs/decisions/` for new/modified, plus `git log --since="session-start" docs/decisions/` if session start is known
+   - Use git: `git status --short docs/decisions/` to find new or modified ADR files
    - For each ADR found, note: number, title, status (Accepted / Superseded by / Proposed), and whether it's new or an existing one whose status changed
    - If the `decision` skill was invoked this session, those ADRs will appear here
    - If no ADRs were touched, this section is omitted or says "none"
