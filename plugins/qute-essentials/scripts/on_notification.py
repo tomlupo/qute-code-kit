@@ -32,9 +32,10 @@ def main():
     if len(message) > 200:
         message = message[:197] + "..."
 
+    hostname = platform.node().split(".")[0]
     send_notification(
         message,
-        title="Claude Code",
+        title=f"Claude Code [{hostname}]",
         priority="default",
         tags=["robot", "speech_balloon"],
     )

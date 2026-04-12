@@ -10,7 +10,7 @@
     {
       "name": "qute-essentials",
       "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications), security guards (destructive, malware, secrets, lakera), universal skills (commits, worktrees, handoff, readme, wtf, gbu), /ship release automation, and /audit dependency scanning (Python, commitizen + pip-audit)",
-      "version": "1.5.0",
+      "version": "1.5.1",
       "author": {
         "name": "twilc"
       },
