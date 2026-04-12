@@ -58,3 +58,11 @@ End with exactly one of:
 - Ordered fix list (if Bad/Ugly items are clear and independently actionable)
 - Minimal patch plan (if changes are interconnected)
 - One clarifying question (if the most important issue is ambiguous)
+
+## Gotchas
+
+- **Default target is the preceding assistant output** — if you want to review a specific file, name it explicitly: `/gbu path/to/file.py`; without an argument Claude reviews the last thing it said, not the user's code
+- **Ugly ≠ backlog filler** — resist adding Ugly items for things that are unlikely to matter; only list real future costs (scale, production, maintainability)
+- **Hallucinated APIs go in Bad, not Ugly** — they fail now, not later
+- **Don't duplicate** — if something appears in Bad, don't echo it in Ugly as a future risk; split only when intent was right but execution was wrong
+- **LLM output reviews** — treat "confident but unverified" claims (e.g., made-up function names, wrong library versions) as Bad must-fix, not stylistic issues

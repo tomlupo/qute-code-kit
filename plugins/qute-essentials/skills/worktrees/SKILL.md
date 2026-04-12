@@ -80,3 +80,12 @@ git worktree remove .worktrees/<branch-name>
 - Each worktree maintains its own working directory but shares the same git repository
 - Worktrees enable true parallel development without the need for stashing or branch switching
 - After creating and switching to a worktree, inform the user of the new working directory path
+
+## Gotchas
+
+- **`.worktrees/` must be in `.gitignore` before creating it** — if it isn't ignored, `git status` will show all worktree contents as untracked files, polluting the repo status
+- **Two worktrees cannot be on the same branch simultaneously** — git will refuse with "already checked out"; use a new branch name for each worktree
+- **`git worktree remove` does not delete the branch** — after removing a worktree, delete the branch separately: `git branch -d <branch-name>` (or `-D` to force)
+- **Database migrations conflict**: if both worktrees run a dev server backed by the same database, migrations from one branch can corrupt the other's schema — use separate databases or stop one before migrating
+- **Venv not shared**: each worktree needs its own `.venv`; running `uv sync` in the worktree creates one but takes time on large dependency trees
+- **Removing a worktree with uncommitted changes**: `git worktree remove` will fail — stash, commit, or discard changes first

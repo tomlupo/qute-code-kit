@@ -73,6 +73,14 @@ even when enabled.
 
 Changes take effect immediately — hooks read the config on each invocation.
 
+## Gotchas
+
+- **API-key guards are effectively OFF even when "enabled"** if the key is missing — `lakera` and `langfuse` guards do nothing without `LAKERA_API_KEY` and `LANGFUSE_SECRET_KEY` respectively; the status table shows "missing" in the API key column
+- **Guard state is session-persistent** — changes via `/guard` take effect immediately and persist across sessions (written to `guards.json`); there is no automatic reset
+- **`CLAUDE_SKIP_GUARDS=1` bypasses ALL guards** regardless of `guards.json` config — never set this env var permanently in `.env` or shell profile
+- **`destructive` guard may false-positive** on legitimate cleanup commands like `rm -rf dist/` or `git reset --hard` on a clean feature branch — temporarily disable with `/guard destructive off`, then re-enable
+- **`secrets` guard may false-positive** on test fixtures containing fake API key patterns — add `# noqa: secrets` or temporarily disable for the specific write operation
+
 ## Related
 
 - `/config` — manages notification settings

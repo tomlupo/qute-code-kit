@@ -12,8 +12,8 @@ pyproject/webdev-uv.toml
 
 # Skills
 gist-report
-gist-transcript
 ui-ux-pro-max
+code-quality
 
 # MCP Servers
 mcp:vercel

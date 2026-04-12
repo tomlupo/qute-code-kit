@@ -31,6 +31,36 @@ Report which steps ran and which were skipped. Then tell the user:
 
 **Do not** stage or commit anything automatically — let the user review the diff first.
 
+## What the script produces
+
+After running, the project will have:
+
+```
+pyproject.toml        ← [tool.commitizen] block added (or merged)
+CHANGELOG.md          ← Keep-a-Changelog template (if new)
+.github/workflows/
+  release.yml         ← Auto-release on push to main (if new)
+```
+
+The `[tool.commitizen]` block in `pyproject.toml` looks like:
+```toml
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "pep621"
+update_changelog_on_bump = true
+```
+
+## Gotchas
+
+- **`[tool.commitizen]` will be overwritten** on re-run — review the diff before committing if you have customized it
+- **`uv` must be on PATH** — the script adds commitizen via `uv add --dev`; if uv is not installed, the script will error
+- **CHANGELOG.md is only created if missing** — if it already exists (even empty), it is not touched
+- **After setup, write at least one Conventional Commit before running `/ship`** — `/ship` needs commit history to parse; running it immediately after setup with no commits produces "nothing to release"
+- **`.github/workflows/release.yml` is CI-optional** — if you don't use GitHub Actions, you can delete it and run `/ship` manually from the CLI
+
 ## Related
 
 - `/ship` — the release skill that this sets up for
+- `generating-commit-messages` skill — write commits that `/ship` can parse

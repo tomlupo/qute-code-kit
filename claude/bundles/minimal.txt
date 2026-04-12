@@ -15,3 +15,4 @@ root/AGENTS.md
 
 # Skills
 skill-assessment
+debug-session

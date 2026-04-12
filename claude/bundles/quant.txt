@@ -25,8 +25,8 @@ investment-research-dashboard
 llm-external-review
 analizy-pl-data
 gist-report
-gist-transcript
 image-generator
+code-quality
 
 # MCP Servers
 mcp:firecrawl

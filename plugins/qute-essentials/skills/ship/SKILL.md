@@ -29,6 +29,14 @@ Report:
 
 **Do not** stage, commit, push, or modify anything beyond what the script does itself. The script already produces a `bump:` commit and tag.
 
+## Gotchas
+
+- **No Conventional Commits since last tag** → script exits with "nothing to release"; you need at least one `feat:`, `fix:`, or `perf:` commit since the last tag — plain messages like "update stuff" produce no bump
+- **`BREAKING CHANGE:` must be in the commit footer** (not the subject) to trigger a major bump — alternatively, append `!` after the type: `feat!: remove old API`
+- **Last tag doesn't match `pyproject.toml` version** → script may compute unexpected bumps; verify with `git tag --list | sort -V | tail -5` before running
+- **Untracked or uncommitted files** don't affect the version bump but appear in git noise — commit or stash first for a clean release
+- **Re-running /ship** on the same commit history re-creates the bump commit; if the tag already exists, git will error — only run `/ship` once per release
+
 ## Related
 
 - `/ship-setup` — one-time setup required before first `/ship` in a project

@@ -102,3 +102,11 @@ Notifications themselves are sent by the `notify.py` helper script and
 triggered by PostToolUse / Notification hooks — they are **not** manually
 invoked. This skill only manages the configuration values, not notification
 delivery.
+
+## Gotchas
+
+- **ntfy.sh is public** — anyone who knows your topic string can subscribe and read all notifications; use a hard-to-guess topic or a self-hosted server for sensitive projects
+- **ntfy.sh free-tier rate limit** is 250 messages/day — for projects with frequent builds, set `min_duration_seconds` high (e.g., 60) or switch to a self-hosted ntfy instance
+- **Changing `topic` only affects future notifications** — past notifications remain on the old topic; subscribers to the old topic stop receiving updates immediately
+- **The config file does not exist until first run or manual creation** — if `/config` shows an error, the file may not have been created yet; `/config --set topic=my-topic` will create it
+- **Guards (lakera, langfuse) are NOT managed here** — use `/guard` for those; `/config` is for notification settings only

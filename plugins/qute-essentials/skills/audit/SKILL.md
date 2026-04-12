@@ -37,3 +37,11 @@ the error verbatim and stop.
 This skill also runs automatically (non-blocking, informational) after
 `uv add`, `uv remove`, `uv sync`, `uv lock`, and `pip install` via the
 `auto_audit.py` PostToolUse hook. Toggle off with `/guard audit off`.
+
+## Gotchas
+
+- **Low-severity CVEs (CVSS < 4.0)** are often safe to ignore if the vulnerable code path is never exercised — don't upgrade reflexively; check the CVE description first
+- **Lock file vs. venv drift**: `pip-audit` scans the resolved lock file; if `.venv` is out of sync with `pyproject.toml`, results may be stale — run `uv sync` before auditing
+- **Transitive dependency upgrades**: fixing a CVE by upgrading package A may break package B's version constraint — always run tests after any upgrade
+- **False positives**: some CVEs affect only specific build configurations or platforms — verify the CVE applies to your usage before acting
+- **No pyproject.toml**: the script exits with an error rather than scanning global packages — the skill is project-scoped by design
