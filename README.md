@@ -126,6 +126,12 @@ claude plugin install qute-essentials@qute-marketplace
 | gist-transcript | `/gist-transcript` |
 | excalidraw | `/excalidraw` |
 
+### Meta / Toolkit
+
+| Skill | Invocation |
+|-------|------------|
+| skill-assessment | `/skill-assessment [skill-name \| all]` |
+
 ### Standalone (not in bundles)
 
 | Skill | Notes |
