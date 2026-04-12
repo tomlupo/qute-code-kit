@@ -6,9 +6,11 @@
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
-| /handoff | `handoff` skill (qute-essentials plugin) | Create structured handoff document |
-| `claude -c` | Built-in | Continue last session |
-| TASKS.md | Convention (work-organization rule) | Track what's Now/Next/Later/Done |
+| `/handoff` | qute-essentials | Create structured handoff at session end |
+| `/pickup` | qute-essentials | Load latest handoff at session start, audit ADR health |
+| `/decision` | qute-essentials | Record ADRs — handoff auto-links to ones touched this session |
+| `claude -c` | Built-in | Quick continue (last session, no structured context) |
+| TASKS.md | work-organization rule | Track Now/Next/Later/Done across sessions |
 
 ## When to Use
 
@@ -42,16 +44,24 @@ This creates `.claude/handoffs/YYYY-MM-DD-slug.md` with:
 
 ### Starting a new session
 
-**From handoff:**
+**Structured resume (recommended):**
+
+```
+/pickup
+```
+
+Loads the latest handoff, verifies referenced ADRs are still Accepted (not superseded), summarises TASKS.md Now/Next, and flags stale handoffs. Read-only — nothing is modified.
+
+**Quick continue:**
+
+```bash
+claude -c   # resumes last conversation, no handoff processing
+```
+
+**Manual:**
 
 ```
 Read .claude/handoffs/2026-03-09-api-endpoints.md and continue
-```
-
-**From TASKS.md:**
-
-```
-Read TASKS.md and pick up the next item from Now
 ```
 
 ### Tracking work across sessions
@@ -78,7 +88,12 @@ Move items between sections as priorities change. Keep Now to 1-3 items.
 
 ## Tips
 
-- `/handoff` is better than `claude -c` when you've made decisions that need preserving
-- `claude -c` is better for "I just need to keep going where I left off"
+- `/pickup` → `/handoff` is the full structured loop — use it for multi-day work
+- `claude -c` is better for "I just need to keep going right now"
+- When a significant design choice is made mid-session, call `/decision` immediately — `/handoff` will auto-link it
 - Update TASKS.md at natural breakpoints, not after every change
 - For ideas that need detail, create `docs/ideas/YYYY-MM-DD-slug.md` and link from Later
+
+## See also
+
+- `workflow-qute.md` — full dev session lifecycle using qute-essentials end-to-end

@@ -170,14 +170,32 @@ claude plugin install qute-essentials@qute-marketplace
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| [Playbooks](docs/playbooks/) | `docs/playbooks/` | Step-by-step workflows |
+| [workflow-qute](docs/playbooks/workflow-qute.md) | `docs/playbooks/` | Full dev session lifecycle with qute-essentials |
+| [workflow-gstack](docs/playbooks/workflow-gstack.md) | `docs/playbooks/` | Release workflow using gstack `/ship` |
+| [Playbooks](docs/playbooks/) | `docs/playbooks/` | All step-by-step workflows |
 | [Cheatsheets](docs/cheatsheets/) | `docs/cheatsheets/` | Quick reference lookups |
 | [Prompts](docs/prompts/) | `docs/prompts/` | Copy-paste into Claude |
 | [Resources](docs/resources.md) | `docs/resources.md` | External tools and links |
 
-## Worth Having
+## Companion Plugins
 
-- [gstack](https://github.com/garrytan/gstack) — virtual engineering team for Claude Code: 23 specialized roles (CEO, designer, QA lead, security officer, etc.) as slash-command skills for running a full product development sprint
+**[gstack](https://github.com/garrytan/gstack)** — virtual engineering team for Claude Code. 23 specialized roles (CEO, designer, QA lead, security officer, etc.) as slash-command skills. Pairs well with qute-essentials: guards and hooks run silently while gstack agents do the work.
+
+Key gstack skills:
+
+| Skill | Purpose |
+|-------|---------|
+| `/ship` | Full release workflow: test triage, coverage audit, version bump, CHANGELOG, PR |
+| `/review` | Multi-specialist parallel code review |
+| `/plan` | Break a feature into agent-executable tasks |
+| `/dispatcher` | Route tasks to background agents |
+
+```bash
+# Install
+claude plugin install gstack@claude-plugins-official  # or clone to ~/.claude/skills/gstack/
+```
+
+See `docs/playbooks/workflow-gstack.md` for the ship workflow.
 
 ## Kit Management
 

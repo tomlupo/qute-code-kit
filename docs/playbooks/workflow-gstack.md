@@ -1,6 +1,8 @@
-# Ship Workflow Playbook
+# Gstack Ship Workflow
 
-How to use `/ship` for automated versioning, changelogs, and PRs. Covers project setup, the ship flow, and per-project conventions.
+How to use gstack's `/ship` for automated versioning, changelogs, and PRs. Covers project setup, the ship flow, and per-project conventions.
+
+> **Note:** This covers [gstack](https://github.com/garrytan/gstack)'s `/ship` — a full-featured release workflow with test triage, coverage audit, and PR creation. For simple Python releases without gstack, use qute-essentials `/ship-setup` + `/ship` instead (see `workflow-qute.md`).
 
 ## Prerequisites
 
