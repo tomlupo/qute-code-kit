@@ -50,9 +50,9 @@ Proceed with development tasks in the worktree. This environment is completely i
 
 All standard git operations (commit, push, pull, etc.) work normally within the worktree.
 
-**Notes:**
-- If this project runs services (web apps, docker-compose, etc.), see [apps.md](apps.md) for port allocation and service startup.
-- If this project has large data directories (quant, ML, data science), see [quant.md](quant.md) for symlinking data, venv setup, and experiment tracking.
+**Project-type notes:**
+- **Web apps / services** — if this project runs services (docker-compose, dev servers, database containers), check for port collisions with the main worktree before starting services in the new one. Allocate non-overlapping ports or stop the main worktree's services first.
+- **Quant / ML / data science** — if this project has large `data/` or `models/` directories, consider symlinking them from the main worktree rather than copying, and set up a separate `.venv` per worktree to avoid dependency conflicts across branches.
 
 ### 5. List Active Worktrees (Optional)
 
@@ -72,7 +72,7 @@ When you're done with a worktree, you can remove it:
 git worktree remove .worktrees/<branch-name>
 ```
 
-**Note:** Don't automatically remove worktrees. Leave that decision to the user. If the worktree is running services (see [apps.md](apps.md)), make sure to stop those services first before removing the worktree.
+**Note:** Don't automatically remove worktrees. Leave that decision to the user. If the worktree is running services (dev servers, docker-compose, databases), make sure to stop those services first before removing the worktree.
 
 ## Important Notes
 

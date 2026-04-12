@@ -1,42 +1,64 @@
 ---
-name: guard-toggle
-description: Toggle Lakera Guard (prompt injection screening) and Langfuse (tracing/eval) on or off. Use when asked to enable/disable guards, check guard status, or manage security hooks.
-argument-hint: "[status|lakera on|lakera off|langfuse on|langfuse off|all on|all off]"
+name: guard
+description: Toggle Lakera Guard (prompt injection screening) and Langfuse (tracing/evaluation) on or off, or show current status. Use when the user asks to enable/disable guards, check guard status, manage security hooks, turn on prompt injection screening, or configure tracing. Also use for phrases like "guards on", "guards off", "is lakera enabled", "turn off langfuse".
+argument-hint: "[status | <lakera|langfuse|all> <on|off>]"
 ---
 
-# /guard — Toggle Security Guards
+# /guard
 
-Manage the Lakera Guard and Langfuse hooks.
+Manage the Lakera Guard (prompt injection screening) and Langfuse (tracing /
+evaluation) hooks. View current status or toggle guards on/off.
 
 ## Usage
 
-- `/guard` or `/guard status` — show current status
-- `/guard lakera on` or `/guard lakera off` — toggle Lakera prompt injection screening
-- `/guard langfuse on` or `/guard langfuse off` — toggle Langfuse tracing
-- `/guard all on` or `/guard all off` — toggle both
-
-## Instructions
-
-Read the guards config file and apply the requested change:
-
-```bash
-cat ~/.claude/plugins/cache/qute-marketplace/qute-essentials/1.1.2/config/guards.json
+```
+/guard                       # show current status (same as /guard status)
+/guard status                # show current status
+/guard lakera on             # enable Lakera Guard
+/guard lakera off            # disable Lakera Guard
+/guard langfuse on           # enable Langfuse tracing
+/guard langfuse off          # disable Langfuse tracing
+/guard all on                # enable both
+/guard all off               # disable both
 ```
 
-**For status:** Show a table with each guard's name, enabled/disabled state, and whether its API key is configured (check the env var).
+## Task
 
-**For toggle:** Use python3 to update the JSON file:
+Run the helper script with the user's arguments:
 
 ```bash
-python3 -c "
-import json
-config = json.load(open('$HOME/.claude/plugins/cache/qute-marketplace/qute-essentials/1.1.2/config/guards.json'))
-config['GUARD_NAME']['enabled'] = BOOL_VALUE
-json.dump(config, open('$HOME/.claude/plugins/cache/qute-marketplace/qute-essentials/1.1.2/config/guards.json', 'w'), indent=2)
-print('Done')
-"
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/guard_toggle.py <args>
 ```
 
-Replace GUARD_NAME and BOOL_VALUE with the actual values.
+Pass through the user's arguments verbatim. The script handles all the
+logic: locating the config file, reading and updating state, and printing a
+status table.
 
-After toggling, show the updated status table. Changes take effect immediately (hooks check the config on each invocation).
+## Output
+
+The script prints a status table like:
+
+```
+Guards config: /path/to/guards.json
+
+Guard           Enabled    API key         Description
+--------------- ---------- --------------- ------------------------------
+Lakera Guard    yes        set             Prompt injection screening
+Langfuse        no         missing (LANGFUSE_SECRET_KEY)  Tracing / evaluation
+```
+
+**For toggle commands**, the script updates the config file and then prints
+the new status table. Report the change to the user in one sentence and
+confirm whether the relevant API key is configured — if it's missing, the
+guard is effectively off even if the config says "yes".
+
+**For status queries**, just present the table.
+
+Changes take effect immediately — hooks read the config on each invocation,
+so no session restart is needed.
+
+## Related
+
+- `/config` — manages notification and other qute-essentials plugin settings
+- `scripts/guard_toggle.py` — the helper script this skill invokes
+- Hooks affected: `guard-screen.py` (Lakera), `langfuse-trace.py` (Langfuse)
