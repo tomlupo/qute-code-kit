@@ -140,3 +140,6 @@ coverage.xml
 # Local clones
 external/
 repos/
+
+# Git worktrees
+.worktrees/
