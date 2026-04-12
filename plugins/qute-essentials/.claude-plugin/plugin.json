@@ -1,6 +1,6 @@
 {
   "name": "qute-essentials",
-  "description": "Essential hooks (ruff, doc-enforcer, skill-eval, notifications) and universal skills (commits, worktrees, handoff, readme, wtf, gbu)",
+  "description": "Essential hooks (ruff, doc-reminder, skill-eval, notifications) + 6 security guards (destructive, malware, secrets, audit, lakera, langfuse) + universal skills: commits, worktrees, handoff, pickup, decision, readme, guard, config, ship, ship-setup, audit, test, gbu, wtf",
   "author": {
     "name": "twilc"
   }
