@@ -4,33 +4,35 @@ Essential hooks, guards, and skills for Claude Code. Provides prompt injection s
 
 ## Guard System
 
-Three security layers that run on every tool call, each toggleable via `/guard`:
+Six security guards — toggleable via `/guard`. Three run PreToolUse (block before execution), three run PostToolUse (scan after):
 
 ```
-                     ┌─────────────────────────┐
-                     │   Discord / Interactive  │
-                     └────────────┬────────────┘
-                                  │
-                     ┌────────────▼────────────┐
-                     │  Per-project permissions │  which tools the agent CAN use
-                     │  (settings.local.json)   │
-                     └────────────┬────────────┘
-                                  │
-               ┌──────────────────┼──────────────────┐
-               │                  │                  │
-    ┌──────────▼─────────┐ ┌─────▼──────┐ ┌─────────▼────────┐
-    │ Destructive Guard  │ │  Lakera    │ │    Langfuse      │
-    │ PreToolUse         │ │  PostTool  │ │    PostTool      │
-    │ BLOCKS before exec │ │  WARNS on  │ │    TRACES for    │
-    │ rm -rf, git reset  │ │  injection │ │    observability  │
-    └────────────────────┘ └────────────┘ └──────────────────┘
-               │                  │                  │
-               └──────────┬──────┴──────────────────┘
-                          │
-                     ┌────▼────┐
-                     │  ntfy   │  alerts to phone
-                     │  push   │
-                     └─────────┘
+                     ┌──────────────────────────────┐
+                     │   Tool call (any tool)        │
+                     └──────────────┬───────────────┘
+                                    │
+          ┌─────────── PreToolUse ──┼──────────────┐
+          │                         │              │
+ ┌────────▼──────────┐  ┌───────────▼──────┐  ┌───▼──────────────┐
+ │ Destructive Guard │  │  Secrets Guard   │  │  Malware Guard   │
+ │ blocks rm -rf,    │  │  blocks writes   │  │  blocks obfusc.  │
+ │ git reset --hard  │  │  with API keys   │  │  code / drainers │
+ └───────────────────┘  └──────────────────┘  └──────────────────┘
+                                    │
+                                 executes
+                                    │
+          ┌─────────── PostToolUse ─┼──────────────┐
+          │                         │              │
+ ┌────────▼──────────┐  ┌───────────▼──────┐  ┌───▼──────────────┐
+ │   Lakera Guard    │  │ Langfuse Tracing  │  │   Audit Guard    │
+ │  prompt injection │  │  observability   │  │  pip-audit after │
+ │  screening (API)  │  │  tracing (API)   │  │  pkg installs    │
+ └───────────────────┘  └──────────────────┘  └──────────────────┘
+                                    │
+                               ┌────▼────┐
+                               │  ntfy   │  alerts to phone
+                               │  push   │
+                               └─────────┘
 ```
 
 ### Secrets Guard (PreToolUse)
@@ -105,11 +107,14 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 ## Toggle Guards
 
 ```
-/guard                  # show status of all guards
-/guard lakera off       # disable Lakera screening
-/guard destructive off  # disable destructive command blocking
-/guard langfuse off     # disable Langfuse tracing
-/guard all on           # re-enable everything
+/guard                      # show status of all guards
+/guard lakera off           # disable Lakera screening
+/guard langfuse off         # disable Langfuse tracing
+/guard secrets off          # disable secrets guard (session override)
+/guard destructive off      # disable destructive command blocking
+/guard malware off          # disable malware scan
+/guard audit off            # disable auto pip-audit
+/guard all on               # re-enable everything
 ```
 
 Config stored in `config/guards.json`. Changes take effect immediately.
@@ -121,7 +126,7 @@ Config stored in `config/guards.json`. Changes take effect immediately.
 | `check-update.sh` | SessionStart | Daily version check against GitHub |
 | `forced_eval.sh` | UserPromptSubmit | Skill evaluation on every prompt |
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with ruff |
-| `track_edits.py` | PostToolUse (Edit/Write) | Track file modifications |
+| `doc_reminder.py` | PostToolUse (Edit/Write) | ADR-aware reminder when editing decision-related files |
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Activity logging |
 | `on_task_complete.py` | PostToolUse (Bash) | ntfy notification for long-running commands |
 | `on_notification.py` | Notification | ntfy push when Claude is waiting for input |
@@ -140,16 +145,20 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 
 | Skill | Description |
 |-------|-------------|
-| `/guard` | Toggle security guards on/off, check status |
+| `/guard` | Toggle any of the 6 security guards on/off, check status |
+| `/config` | View or update plugin configuration (notifications) |
 | `/commit` | Generate conventional commit messages |
+| `/decision` | Record architecture decisions as ADRs with auto-numbering |
+| `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
+| `/pickup` | Resume work from a previous handoff |
+| `/ship-setup` | One-time setup for `/ship` in a project (commitizen + CHANGELOG) |
 | `/ship` | Bump version, update CHANGELOG, create tag (Python, via commitizen) |
-| `/ship-setup` | One-time setup for `/ship` in a project |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
+| `/test` | Run test suite, interpret failures, propose fixes |
 | `/worktrees` | Manage git worktrees for parallel development |
-| `/handoff` | Prepare session handoff documents |
 | `/readme` | Generate or update README files |
-| `/wtf` | Quick debugging helper |
-| `/gbu` | Good/bad/ugly code review |
+| `/gbu` | Good/bad/ugly structured code or design review |
+| `/wtf` | Acknowledge failure, record feedback memory, immediately retry |
 
 ## Setup
 

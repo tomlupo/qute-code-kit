@@ -66,8 +66,9 @@ project-templates/      Generated reference outputs
 
 | Type | Components |
 |------|------------|
-| Hooks | forced-eval, ruff-formatter, doc-enforcer, skill-use-logger, notifications |
-| Skills | generating-commit-messages, worktrees, handoff, readme |
+| Hooks | forced-eval, ruff-formatter, doc-reminder, skill-use-logger, notifications |
+| Guards | destructive, malware, secrets, audit, lakera, langfuse |
+| Skills | commits, worktrees, handoff, pickup, decision, readme, guard, config, ship, ship-setup, audit, test, gbu, wtf |
 
 ```bash
 claude plugin install qute-essentials@qute-marketplace
@@ -81,8 +82,18 @@ claude plugin install qute-essentials@qute-marketplace
 |-------|------------|-------|
 | generating-commit-messages | automatic | Conventional commits |
 | worktrees | `/worktrees` | Git worktree management |
+| handoff | `/handoff` | Session-end: captures context, ADRs, TASKS |
+| pickup | `/pickup` | Session-start: loads handoff, audits ADR health |
+| decision | `/decision [--supersedes NNNN] <title>` | Record ADRs with auto-numbering |
 | readme | `/readme` | README generation (forked context) |
-| handoff | `/handoff` | Session transition documents |
+| guard | `/guard [<name> <on\|off>]` | Toggle any of 6 security guards |
+| config | `/config [--set key=value]` | Plugin notification config |
+| ship-setup | `/ship-setup` | One-time commitizen + CHANGELOG setup |
+| ship | `/ship` | Bump version, tag, update CHANGELOG |
+| audit | `/audit` | Dependency CVE scan (pip-audit) |
+| test | `/test [filter]` | Run test suite, interpret failures |
+| gbu | `/gbu` | Good/Bad/Ugly structured review |
+| wtf | `/wtf` | Acknowledge failure, retry immediately |
 
 ### Research & Data (quant bundle)
 
