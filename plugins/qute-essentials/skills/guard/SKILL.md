@@ -1,7 +1,7 @@
 ---
 name: guard
-description: Toggle Lakera Guard (prompt injection screening) and Langfuse (tracing/evaluation) on or off, or show current status. Use when the user asks to enable/disable guards, check guard status, manage security hooks, turn on prompt injection screening, or configure tracing. Also use for phrases like "guards on", "guards off", "is lakera enabled", "turn off langfuse".
-argument-hint: "[status | <lakera|langfuse|all> <on|off>]"
+description: Toggle any qute-essentials security guard on or off, or show current status. Guards include lakera (prompt injection), langfuse (tracing), secrets (credential leak prevention), audit (dep CVE scanning), destructive (dangerous command blocking), malware (write scanning). Use when the user asks to enable/disable guards, check guard status, manage security hooks, or uses phrases like "guards on", "guards off", "disable secrets guard", "turn off langfuse", "is lakera enabled".
+argument-hint: "[status | <lakera|langfuse|secrets|audit|destructive|malware|all> <on|off>]"
 ---
 
 # /guard
