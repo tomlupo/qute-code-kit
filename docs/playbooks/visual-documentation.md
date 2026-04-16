@@ -9,6 +9,7 @@
 | visual-explainer | `claude-plugins-official` plugin | Convert terminal output to styled HTML |
 | gist-report | `gist-report` skill | Share reports via GitHub gist |
 | image-generator | `image-generator` skill | Generate diagrams and visuals |
+| architecture-diagram | `architecture-diagram` skill | Dark-themed HTML+SVG system architecture diagrams |
 | playground | `claude-plugins-official` plugin | Build interactive explorers |
 
 ## When to Use
@@ -84,7 +85,50 @@ Ingestion → Processing → Storage → API → Dashboard
 Use --style technical-diagram, dark background
 ```
 
-### D. Share via gist
+### D. System diagrams with architecture-diagram
+
+Model-invocable skill (Cocoon AI, MIT) that produces a single self-contained
+`.html` file with inline SVG, semantic color-coding (cyan frontends, emerald
+backends, violet databases, amber cloud, rose security, orange message buses),
+JetBrains Mono typography, and a dark `#020617` theme. Copies a starter template
+from `assets/template.html` and customizes viewBox, components, arrows, legend,
+and summary cards.
+
+Trigger phrases that route here: *"architecture diagram"*, *"infrastructure
+diagram"*, *"cloud architecture"*, *"network topology"*, *"security diagram"*.
+
+**Example usages:**
+
+```
+Use the architecture-diagram skill to diagram a React + FastAPI + Postgres app
+behind CloudFront, with Auth0 OAuth for login and S3 for asset storage.
+Save as docs/architecture/web-app.html.
+```
+
+```
+Create an AWS serverless architecture diagram: API Gateway → Lambda (Python) →
+DynamoDB, with SQS for async jobs, EventBridge for cron, and Cognito for auth.
+Show the us-west-2 region boundary and a security group around the API layer.
+```
+
+```
+Diagram our microservices topology: 4 Go services behind an NGINX ingress on
+Kubernetes, Kafka event bus between order-service and inventory-service,
+Postgres per service, Redis cache, Prometheus + Grafana for observability.
+```
+
+```
+Read src/ and infer the component graph, then render it with the
+architecture-diagram skill — one box per top-level package, arrows for imports,
+a violet box for the shared datastore, and a summary card listing entry points.
+```
+
+Compared with `image-generator` (rasterized PNGs) and `visual-explainer`
+(Mermaid / Chart.js), `architecture-diagram` is the right pick when you want
+editable SVG in a single HTML file that renders identically on any machine —
+good for README embeds, PR artifacts, or stakeholder handoffs.
+
+### E. Share via gist
 
 Any of the above can be shared:
 
@@ -102,6 +146,14 @@ Creates a shareable GitHub gist URL. Works for HTML reports, Markdown summaries,
 2. /visual-explainer → Mermaid architecture diagram
 3. /gist-report → shareable URL
 4. Send to team Slack
+```
+
+### Polished architecture HTML for a design review
+```
+1. Describe components + flows (or let Claude infer from the repo)
+2. architecture-diagram skill → docs/architecture/<project>.html
+3. Open locally to verify spacing / legend placement
+4. /gist-report → paste URL into the review doc
 ```
 
 ### Test failure dashboard
@@ -125,3 +177,6 @@ Creates a shareable GitHub gist URL. Works for HTML reports, Markdown summaries,
 - Playground is better for interactive exploration; visual-explainer for static reports
 - For recurring reports, save the playground HTML and regenerate data only
 - Combine with `/handoff` to note which visualizations need updating
+- Reach for `architecture-diagram` over Mermaid when you need precise layout
+  control, named security groups / region boundaries, or a branded dark theme
+  you can commit into the repo

@@ -13,6 +13,7 @@ pyproject/webdev-uv.toml
 # Skills
 gist-report
 ui-ux-pro-max
+architecture-diagram
 code-quality
 
 # MCP Servers

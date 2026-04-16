@@ -111,6 +111,7 @@ claude plugin install qute-essentials@qute-marketplace
 | python-patterns | model-invocable |
 | image-generator | `/image-generator` |
 | llm-external-review | `/llm-external-review` |
+| architecture-diagram | model-invocable |
 | code-quality | `/code-quality [path] [--quick\|--deep]` |
 
 ### Web Development (webdev bundle)
@@ -118,6 +119,7 @@ claude plugin install qute-essentials@qute-marketplace
 | Skill | Invocation |
 |-------|------------|
 | ui-ux-pro-max | `/ui-ux-pro-max` |
+| architecture-diagram | model-invocable |
 | code-quality | `/code-quality [path] [--quick\|--deep]` |
 
 ### Output
@@ -126,6 +128,7 @@ claude plugin install qute-essentials@qute-marketplace
 |-------|------------|
 | gist-report | `/gist-report` (includes transcript upload) |
 | excalidraw | `/excalidraw` |
+| architecture-diagram | model-invocable (dark-themed HTML + SVG architecture diagrams; quant + webdev) |
 
 ### Meta / Toolkit
 
