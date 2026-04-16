@@ -1,0 +1,17 @@
+#!/bin/sh
+# Portable Python hook runner — finds the best Python available.
+# Usage: run-hook script.py [args...]
+# Try order: uv run python, python3, python, py -3
+
+if command -v uv >/dev/null 2>&1; then
+  exec uv run python "$@"
+elif command -v python3 >/dev/null 2>&1; then
+  exec python3 "$@"
+elif command -v python >/dev/null 2>&1; then
+  exec python "$@"
+elif command -v py >/dev/null 2>&1; then
+  exec py -3 "$@"
+else
+  echo '{"error":"No Python found. Install python3 or uv."}' >&2
+  exit 1
+fi
