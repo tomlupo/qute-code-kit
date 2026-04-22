@@ -68,7 +68,7 @@ project-templates/      Generated reference outputs
 |------|------------|
 | Hooks | forced-eval, ruff-formatter, doc-reminder, skill-use-logger, notifications |
 | Guards | destructive, malware, secrets, audit, lakera, langfuse |
-| Skills | commits, worktrees, handoff, pickup, decision, readme, guard, config, ship, ship-setup, audit, test, gbu, wtf |
+| Skills | commits, worktrees, handoff, pickup, checkpoint, decision, readme, guard, config, ship, ship-setup, audit, test, gbu, wtf |
 
 ```bash
 claude plugin install qute-essentials@qute-marketplace
@@ -84,6 +84,7 @@ claude plugin install qute-essentials@qute-marketplace
 | worktrees | `/worktrees` | Git worktree management |
 | handoff | `/handoff` | Session-end: captures context, ADRs, TASKS |
 | pickup | `/pickup` | Session-start: loads handoff, audits ADR health |
+| checkpoint | `/checkpoint [goal]` | Atomic handoff → `/clear` → pickup for mid-thread context resets |
 | decision | `/decision [--supersedes NNNN] <title>` | Record ADRs with auto-numbering |
 | readme | `/readme` | README generation (forked context) |
 | guard | `/guard [<name> <on\|off>]` | Toggle any of 6 security guards |
