@@ -33,7 +33,7 @@ Run with the user's filter if `$ARGUMENTS` was provided (e.g. `/test test_pricin
 
 **pytest:**
 ```bash
-python -m pytest $ARGUMENTS -x --tb=short -q 2>&1 | tail -60
+python3 -m pytest $ARGUMENTS -x --tb=short -q 2>&1 | tail -60
 ```
 
 **jest / npm test:**

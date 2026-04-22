@@ -18,7 +18,7 @@ shell.
 Run exactly this, then summarize the output:
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/audit.py
+${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/audit.py
 ```
 
 Report:

@@ -17,7 +17,7 @@ Python-only in v1. Webapps: use `gstack ship` from the shell instead.
 Run exactly one command, then report the outcome:
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/ship.py
+${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/ship.py
 ```
 
 Report:

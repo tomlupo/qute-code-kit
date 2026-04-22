@@ -22,7 +22,7 @@ Each step is skipped if the artifact is already in place.
 Run exactly one command, then report what the script did:
 
 ```bash
-python ${CLAUDE_PLUGIN_ROOT}/scripts/ship_setup.py
+${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/ship_setup.py
 ```
 
 Report which steps ran and which were skipped. Then tell the user:
