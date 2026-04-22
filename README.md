@@ -84,7 +84,7 @@ claude plugin install qute-essentials@qute-marketplace
 | worktrees | `/worktrees` | Git worktree management |
 | handoff | `/handoff` | Session-end: captures context, ADRs, TASKS |
 | pickup | `/pickup` | Session-start: loads handoff, audits ADR health |
-| checkpoint | `/checkpoint [goal]` | Atomic handoff → `/clear` → pickup for mid-thread context resets |
+| checkpoint | `/checkpoint [resume-task]` | Atomic handoff → `/clear` → pickup → auto-resume on `$ARGUMENTS` (default: "continue current/next task") |
 | decision | `/decision [--supersedes NNNN] <title>` | Record ADRs with auto-numbering |
 | readme | `/readme` | README generation (forked context) |
 | guard | `/guard [<name> <on\|off>]` | Toggle any of 6 security guards |

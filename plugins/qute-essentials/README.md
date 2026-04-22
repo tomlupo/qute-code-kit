@@ -151,7 +151,7 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
 | `/pickup` | Resume work from a previous handoff |
-| `/checkpoint` | Atomic handoff → `/clear` → pickup to reset context without losing the work thread |
+| `/checkpoint` | Atomic handoff → `/clear` → pickup → auto-resume (defaults to "continue current/next task") |
 | `/ship-setup` | One-time setup for `/ship` in a project (commitizen + CHANGELOG) |
 | `/ship` | Bump version, update CHANGELOG, create tag (Python, via commitizen) |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
