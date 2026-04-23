@@ -48,6 +48,10 @@ Do NOT invoke for:
 
 4. **Run gates** (from `subsystems.{slug}.gates`):
    - `spec_locked` — grep the spec file for `LOCKED YYYY-MM-DD` markers. Must have at least one LOCKED section dated within the last 60 days.
+   - `spec_frontmatter_valid` — spec file must begin with YAML frontmatter containing required fields: `methodology`, `version`, `date_locked`, `status`, `src_paths`. Missing or malformed → fail with specific message.
+   - `spec_version_matches_tag` — parse `version` from frontmatter; must equal the `--version` argument (or auto-bumped version). Mismatch → offer to auto-bump spec frontmatter, then retry.
+   - `spec_date_current` — `date_locked` must be within `spec_date_max_age_days` (from config, default 90) of today. Stale → fail and suggest either re-locking (updating date) or running a fresh validation pass.
+   - `src_paths_match_config` — `src_paths` in spec frontmatter must be a subset of `subsystems.{slug}.src_paths` in promote.config.yaml. Mismatch → warn + list the diff.
    - `backtest_required` — either a metrics table in `git log` messages of this branch, OR an MLflow run ID referenced in an EXPERIMENTS.md entry OR the PR description.
    - `status_updated` — if `status_file` configured, check that its mtime is more recent than the newest commit on this branch touching `src_paths`. If stale → prompt user to update STATUS.md now.
    - `experiments_entry` — if `experiments_file` configured, check that it contains an entry dated within the last 30 days referencing this promotion.
@@ -66,18 +70,25 @@ Do NOT invoke for:
    - If any gate fails hard: stop and report.
    - If any gate needs confirmation: prompt user.
 
-6. **Fill PR template**:
+6. **Auto-update spec frontmatter if needed** (with user confirmation):
+   - If `version` in frontmatter differs from `--version` argument, offer to bump it
+   - If `date_locked` is older than today AND the spec file has uncommitted edits, offer to update `date_locked` to today
+   - If `status` is DRAFT, offer to flip to LOCKED
+   - Any auto-update → show user the proposed diff; write only on confirm
+
+7. **Fill PR template**:
    - Read `.github/pull_request_template/promotion.md`
    - Fill in: subsystem, new/previous versions, spec refs, backtest metrics, breaking changes section
    - Include a link to the MLflow run or backtest output dir
+   - Link to the frontmatter-declared `src_paths` so reviewers can diff code vs spec
 
-7. **Open PR** (unless `--dry-run`):
+8. **Open PR** (unless `--dry-run`):
    - Target branch: `dev` (per config `integration_branch`)
    - Title: `promote({slug}): vX.Y.Z — {short-description-from-conversation}`
    - Body: filled PR template
    - Post-merge actions listed at bottom
 
-8. **Record the intent**:
+9. **Record the intent**:
    - Append to the subsystem's `EXPERIMENTS.md`:
      ```markdown
      ## YYYY-MM-DD — Promotion PR opened: {slug} vX.Y.Z
@@ -87,7 +98,7 @@ Do NOT invoke for:
      ```
    - Do NOT apply the tag yet — tagging happens after merge to main.
 
-9. **Remind the user of post-merge actions**:
+10. **Remind the user of post-merge actions**:
    ```
    After this PR merges to dev, and dev → main PR lands:
    1. git tag -a prod-{slug}-vX.Y.Z-YYYYMMDD <main-merge-commit> -m "..."
