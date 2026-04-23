@@ -29,16 +29,28 @@ When the user invokes `/handoff [goal]`:
    - **Before capturing the snapshot**, check if any items in Now/In Progress look completed based on session work (e.g. their described changes appear in `git diff`). If so, prompt the user once: *"N items in Now/In Progress look completed this session. Update TASKS.md before handoff?"* — do not update TASKS.md automatically; let the user decide
    - After the user either updates or declines, capture the final state of Now/Next into the handoff
 
-4. **Analyze current conversation context**:
+4. **Detect production-code edits on a research branch** (discipline check — opt-in):
+   - If the current branch name matches `research/*` OR the repo has `.claude/promote.config.yaml`:
+     - Run `git diff --name-only dev...HEAD` (or `main...HEAD` if no dev) to list changed files vs the integration branch.
+     - Identify production paths: `src/`, `pipelines/`, `config/` — or, if `promote.config.yaml` exists, the union of `src_paths` across subsystems.
+     - Also include uncommitted changes: `git diff --name-only HEAD` + `git ls-files --others --exclude-standard`.
+     - If any production files were touched on a research branch, flag it in the handoff under a `⚠️ Production code edits on research branch` section and include:
+       - list of files
+       - reminder that these must be cherry-picked to a `feat/{subsystem}-{slug}` branch off `dev` before promotion
+       - reference to `.claude/rules/research-workflow.md` if present
+   - If not a research branch (or the repo has no promote.config.yaml and isn't on a research/* branch), skip silently.
+
+5. **Analyze current conversation context**:
    - What was accomplished in this session
    - Important decisions made and their rationale (link to ADR numbers from step 2 where applicable)
    - Any blockers, failures, or issues requiring user action
    - Unanswered questions or unresolved ambiguity
 
-5. **Generate a handoff document** with these sections:
+6. **Generate a handoff document** with these sections:
    - **Goal**: What the next session should accomplish (from arg, or inferred from conversation)
    - **Context Summary**: Brief summary of session work (NOT a transcript)
    - **ADRs touched this session**: New or superseded ADRs from step 2, with file paths and status changes. Omit the section if none.
+   - **⚠️ Production code edits on research branch**: From step 4 (only if production files were touched on a research branch). Omit if not applicable.
    - **Key Decisions**: Conversational decisions and rationale. Reference ADR numbers where a formal decision was recorded.
    - **Environment State**: Branch, directory, modified files, running services
    - **TASKS.md state at handoff**: Snapshot of Now / In Progress / Next sections from step 3. Omit if TASKS.md doesn't exist.
@@ -47,11 +59,11 @@ When the user invokes `/handoff [goal]`:
    - **Next Steps**: Ordered, specific, actionable items
    - **Notes**: Caveats, gotchas, things to watch out for
 
-6. **Save the handoff** to `.claude/handoffs/<YYYY-MM-DD>-<slug>.md`
+7. **Save the handoff** to `.claude/handoffs/<YYYY-MM-DD>-<slug>.md`
 
-7. **Display the handoff** for the user to review
+8. **Display the handoff** for the user to review
 
-8. **If `--push` flag was passed**, persist the handoff to git:
+9. **If `--push` flag was passed**, persist the handoff to git:
    - Stage only the handoff file: `git add .claude/handoffs/<file>.md` (do NOT stage other WIP)
    - Commit: `git commit -m "handoff: <goal-slug>"`
    - Push current branch: `git push -u origin HEAD`
