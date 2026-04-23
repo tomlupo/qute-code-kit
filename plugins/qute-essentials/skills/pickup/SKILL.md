@@ -59,16 +59,22 @@ Do NOT invoke for:
    - Report the top 3-5 active items
    - Note any items flagged as blocked or needing attention
 
-6. **List archive candidates**:
+6. **Load STATUS.md files (if any exist)**:
+   - Find `STATUS.md` files under `research/*/` (or any path configured in `.claude/promote.config.yaml` under `subsystems.*.status_file`)
+   - For each: read "In Production" section and print the current prod version + last tag
+   - Check freshness: compare `STATUS.md` mtime against the last commit touching any `src_paths` file declared for that subsystem (from `promote.config.yaml`). If STATUS.md is older, flag as `⚠️ STATUS.md may be stale — production code changed since last update`
+   - If no STATUS.md or promote.config.yaml exists, skip silently
+
+7. **List archive candidates**:
    - Handoffs in `.claude/handoffs/` (non-archive) that are **not** the latest and **not** referenced as predecessors of the latest
    - These are candidates for moving to `.claude/handoffs/archive/` to keep the active folder tidy
    - Do not move anything — just list
 
-7. **Flag pending ADRs**:
+8. **Flag pending ADRs**:
    - Grep `docs/decisions/*.md` for `Status: Proposed`
    - These are decisions in-flight that might need finalising before work resumes
 
-8. **Print a compact work-state report** (see Output Format below)
+9. **Print a compact work-state report** (see Output Format below)
 
 ## Output Format
 
@@ -90,6 +96,9 @@ Do NOT invoke for:
 ### TASKS.md
 - **Now**: <top 3 active items>
 - **Next**: <top 3 queued items>
+
+### Production state (from STATUS.md files, if any)
+- **{subsystem}**: `prod-{subsystem}-vX.Y.Z-YYYYMMDD` (or `⚠️ STATUS.md stale` if flagged)
 
 ### Housekeeping
 - **Archive candidates**: <list of handoffs not referenced by the latest chain, or "none">
