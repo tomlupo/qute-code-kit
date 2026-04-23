@@ -1,7 +1,7 @@
 {
   "source": "/home/user/qute-code-kit",
   "bundle": "quant",
-  "installed": "2026-04-08T20:12:44Z",
+  "installed": "2026-04-16T19:43:01Z",
   "mode": "copy",
   "components": [
     {"type": "rule", "name": "general-rules.md", "src": "rules/general-rules.md"},
@@ -11,6 +11,8 @@
     {"type": "rule", "name": "decisions.md", "src": "rules/decisions.md"},
     {"type": "root", "name": "CLAUDE.md", "src": "root/CLAUDE.md"},
     {"type": "root", "name": "AGENTS.md", "src": "root/AGENTS.md"},
+    {"type": "skill", "name": "skill-assessment", "src": "skill-assessment"},
+    {"type": "skill", "name": "debug-session", "src": "debug-session"},
     {"type": "settings", "name": "project-quant.json", "src": "settings/project-quant.json"},
     {"type": "pyproject", "name": "quant-uv.toml", "src": "pyproject/quant-uv.toml"},
     {"type": "rule", "name": "python-rules.md", "src": "rules/python-rules.md"},
@@ -28,8 +30,9 @@
     {"type": "skill", "name": "llm-external-review", "src": "llm-external-review"},
     {"type": "skill", "name": "analizy-pl-data", "src": "analizy-pl-data"},
     {"type": "skill", "name": "gist-report", "src": "gist-report"},
-    {"type": "skill", "name": "gist-transcript", "src": "gist-transcript"},
     {"type": "skill", "name": "image-generator", "src": "image-generator"},
+    {"type": "skill", "name": "architecture-diagram", "src": "architecture-diagram"},
+    {"type": "skill", "name": "code-quality", "src": "code-quality"},
     {"type": "mcp", "name": "firecrawl", "src": "mcp:firecrawl"},
     {"type": "mcp", "name": "postgres", "src": "mcp:postgres"}
   ]

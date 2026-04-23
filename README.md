@@ -111,6 +111,7 @@ claude plugin install qute-essentials@qute-marketplace
 | python-patterns | model-invocable |
 | image-generator | `/image-generator` |
 | llm-external-review | `/llm-external-review` |
+| architecture-diagram | model-invocable |
 | code-quality | `/code-quality [path] [--quick\|--deep]` |
 
 ### Web Development (webdev bundle)
@@ -118,6 +119,7 @@ claude plugin install qute-essentials@qute-marketplace
 | Skill | Invocation |
 |-------|------------|
 | ui-ux-pro-max | `/ui-ux-pro-max` |
+| architecture-diagram | model-invocable |
 | code-quality | `/code-quality [path] [--quick\|--deep]` |
 
 ### Output
@@ -126,6 +128,7 @@ claude plugin install qute-essentials@qute-marketplace
 |-------|------------|
 | gist-report | `/gist-report` (includes transcript upload) |
 | excalidraw | `/excalidraw` |
+| architecture-diagram | model-invocable (dark-themed HTML + SVG architecture diagrams; quant + webdev) |
 
 ### Meta / Toolkit
 
@@ -181,6 +184,7 @@ claude plugin install qute-essentials@qute-marketplace
 |------|----------|---------|
 | [workflow-qute](docs/playbooks/workflow-qute.md) | `docs/playbooks/` | Full dev session lifecycle with qute-essentials |
 | [workflow-gstack](docs/playbooks/workflow-gstack.md) | `docs/playbooks/` | Release workflow using gstack `/ship` |
+| [impeccable-workflow](docs/playbooks/impeccable-workflow.md) | `docs/playbooks/` | Design polish + anti-pattern detection via Impeccable v2.1 |
 | [Playbooks](docs/playbooks/) | `docs/playbooks/` | All step-by-step workflows |
 | [Cheatsheets](docs/cheatsheets/) | `docs/cheatsheets/` | Quick reference lookups |
 | [Prompts](docs/prompts/) | `docs/prompts/` | Copy-paste into Claude |
@@ -205,6 +209,28 @@ claude plugin install gstack@claude-plugins-official  # or clone to ~/.claude/sk
 ```
 
 See `docs/playbooks/workflow-gstack.md` for the ship workflow.
+
+**[Impeccable](https://impeccable.style/)** (v2.1, Apache 2.0) — design skill set for AI harnesses. 18 slash commands teach Claude a concrete design vocabulary; a 25-rule deterministic detection engine catches the usual AI-generated tells (gradient text, Inter everywhere, low-contrast, nested cards). Run `/impeccable teach` once per project to pin brand/fonts/palette in `.impeccable.md`.
+
+Key Impeccable commands:
+
+| Command | Purpose |
+|---------|---------|
+| `/polish` | Default "make this better" pass — typography, spacing, color, hierarchy |
+| `/audit` | Run the 25-rule detection engine and report findings with fixes |
+| `/typeset` | Pure typography pass — type scale, line-height, font pairings |
+| `/layout` | Restructure page or component layout |
+| `/harden` | Accessibility + robustness (contrast, focus states, keyboard) |
+| `/overdrive` | Aggressive redesign when `/polish` is too timid |
+
+```bash
+# Install (pick one)
+/plugin marketplace add pbakaus/impeccable        # in Claude Code
+npx skills add pbakaus/impeccable                 # auto-detects harness
+npm i -g impeccable                               # CI / pre-commit scanner only
+```
+
+See `docs/playbooks/impeccable-workflow.md` for install, setup, and flows.
 
 ## Kit Management
 

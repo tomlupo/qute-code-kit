@@ -26,6 +26,7 @@ llm-external-review
 analizy-pl-data
 gist-report
 image-generator
+architecture-diagram
 code-quality
 
 # MCP Servers
