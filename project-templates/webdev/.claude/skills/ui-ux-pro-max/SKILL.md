@@ -12,7 +12,7 @@ argument-hint: "[design request or review target]"
 
 # UI/UX Pro Max — Design Intelligence
 
-Comprehensive design guide for web and mobile applications. Based on [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill).
+Comprehensive design guide for web and mobile applications. Based on [nextlevelbuilder/ui-ux-pro-max-skill](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) and the anti-slop guardrails from [impeccable.style](https://impeccable.style) ([pbakaus/impeccable](https://github.com/pbakaus/impeccable)).
 
 ## When to Apply
 
@@ -32,6 +32,85 @@ Use when the task involves **UI structure, visual design decisions, interaction 
 - Pure backend logic, API/database design, DevOps, non-visual scripts
 
 **Decision criteria**: If the task changes how a feature **looks, feels, moves, or is interacted with**, use this skill.
+
+## Setup: PRODUCT.md + DESIGN.md
+
+Before generating or refactoring UI, load (or write) two project docs — no design work happens without them:
+
+- **PRODUCT.md** — audience, brand personality, anti-references, aesthetic direction
+- **DESIGN.md** — color tokens, type scale, spacing scale, motion defaults, component rules
+
+If either is missing, interview the user for the minimum set (audience + 3 adjectives + 2 anti-references) and write it before touching components. If the project already has running UI, reverse-engineer DESIGN.md from the code before editing.
+
+## Register: Brand vs Product
+
+Classify every screen before applying rules. The defaults change by register.
+
+| Register | Examples | Dominant goals | Leans toward |
+|----------|----------|----------------|--------------|
+| Brand | Landing pages, marketing, docs home | Persuasion, emotion, memorability | Larger type, asymmetric layouts, bolder color, richer motion |
+| Product | App UI, dashboards, admin, settings | Task completion, scanability, density | Restrained color, tabular figures, minimal motion, system controls |
+
+Mismatched register is itself an anti-pattern (marketing flourishes inside a dashboard, or a flat product shell on a landing hero).
+
+## Anti-Slop Guardrails
+
+Generic LLM output has a recognizable fingerprint. Refuse these patterns by default — only use them with an explicit, documented reason.
+
+### Absolute bans (no exceptions)
+
+- **Side-stripe borders** on cards/sections (the 2–4px accent bar on the left edge)
+- **Gradient text** for body, headings, or CTAs
+- **Decorative glassmorphism** — blur is for scrim/dismissal, not ornament
+- **Hero-metric template** — "big number + label + trend arrow" grids used as a landing pattern
+- **Identical card grids** — N uniform cards as the entire page composition
+
+### AI-slop fingerprints (replace on sight)
+
+- **Inter / Arial / system-ui everywhere** — pick a distinctive pairing; reserve system-ui for product chrome only
+- **Purple/indigo gradient backgrounds** as the default hero
+- **Gray text on colored backgrounds** — fails contrast, looks cheap
+- **Pure `#000` / `#fff` / neutral `#888`** — always tint neutrals (cool/warm) toward the brand hue
+- **Cards nested in cards** — pick one container layer; use spacing and dividers inside it
+- **Bounce / elastic easing** on UI transitions — dated; use exponential or spring
+- **Dark glows** around cards/buttons to fake depth
+- **Emoji as icons** in navigation, chrome, or data
+- **Skipped heading levels** (`h1` → `h3`) to get a size
+- **Cramped padding** (<12px on touch surfaces) or **excessive line length** (>75ch body)
+
+## Color: OKLCH + Tinted Neutrals
+
+- Author colors in **OKLCH** (or convert to it mentally). It separates perceptual lightness from chroma so scales stay even.
+- **Reduce chroma at lightness extremes** (L > 0.9 or L < 0.15) — otherwise colors muddy or clip.
+- **Tint the neutral ramp** toward the brand hue (e.g. cool grays for a blue brand, warm grays for an orange brand). Pure neutral `hsl(0 0% x)` is a slop tell.
+- **Dark mode ≠ inverted light mode.** Lift surfaces by lightness, desaturate accents, raise border chroma slightly.
+- **4.5:1 / 3:1 contrast** is the floor, not the target.
+
+### Color strategy (pick one per surface)
+
+| Strategy | Description | Good for |
+|----------|-------------|----------|
+| Restrained | Neutral canvas, one accent for primary action only | Dashboards, tools, admin |
+| Committed | One brand hue used confidently across surfaces + one neutral | Most product UIs |
+| Full palette | 3–5 intentional hues with defined roles | Data-viz, editorial, marketing |
+| Drenched | Single hue saturates the whole surface; neutrals are tinted variants | Bold landing, brand moments |
+
+Document the chosen strategy in DESIGN.md. Mixing strategies within one surface is an anti-pattern.
+
+## Typography Defaults
+
+- **Type scale ratio ≥ 1.25** between adjacent hierarchy levels. Smaller ratios read as noise.
+- **Body 16–18px** web / **17pt** iOS / **16sp** Android; line-height 1.5–1.75; measure 60–75ch.
+- **Pair personalities, not weights** — a geometric display with a humanist text, or a serif display with a grotesque text. Same-family super-families are safe but forgettable.
+- Use **OpenType features** (tabular figures for data, small caps for labels, proper fractions) rather than faking them.
+
+## Motion Defaults
+
+- **Exponential / cubic-out easing** for entering, **cubic-in** for exiting. No linear, no bounce, no elastic on UI.
+- **Never animate layout properties** (`width`, `height`, `top`, `left`, `margin`). Animate `transform` and `opacity` only; use FLIP for size changes.
+- **Exit 60–70% of enter duration.** Total budget 150–300ms for micro, ≤400ms for transitions.
+- **Respect `prefers-reduced-motion`** — replace motion with instant state change or opacity-only.
+- **Interruptible** — user input cancels in-progress animation; never block input for motion.
 
 ## Rule Categories by Priority
 
@@ -258,21 +337,24 @@ When designing a new project or page, follow this workflow:
 
 ### Step 1: Analyze Requirements
 
-Extract from user request:
+Extract from user request (and PRODUCT.md if present):
+- **Register**: Brand or Product (see Register table above)
 - **Product type**: Entertainment, Tool, Productivity, E-commerce, SaaS, Portfolio, etc.
 - **Target audience**: Age group, usage context (commute, leisure, work)
 - **Style keywords**: playful, vibrant, minimal, dark mode, content-first, immersive, etc.
+- **Anti-references**: What the product should *not* look like
 - **Stack**: React, Next.js, Vue, Svelte, React Native, Flutter, Tailwind, etc.
 
-### Step 2: Generate Design System
+### Step 2: Generate Design System (writes DESIGN.md)
 
 Recommend a complete design system covering:
-1. **Pattern** — Page structure and layout approach matching product type
-2. **Style** — Visual style (glassmorphism, minimalism, brutalism, neumorphism, etc.)
-3. **Colors** — Palette aligned with product type and industry
-4. **Typography** — Font pairings (heading + body) from Google Fonts
-5. **Effects** — Shadows, blur, radius, animations matching the chosen style
-6. **Anti-patterns** — What to avoid for this specific product type
+1. **Pattern** — Page structure and layout approach matching register + product type
+2. **Style** — Visual style (minimalism, editorial, brutalism, etc.) — avoid default glassmorphism
+3. **Color strategy** — Restrained / Committed / Full palette / Drenched (pick one)
+4. **Colors** — OKLCH tokens with tinted neutrals, chroma reduced at lightness extremes
+5. **Typography** — Font pairing (distinctive display + readable text), scale ratio ≥ 1.25
+6. **Effects** — Shadows, radius, motion tokens (exponential easing) matching the chosen style
+7. **Anti-patterns** — Anti-slop guardrails + product-specific avoidances
 
 ### Step 3: Apply Rules by Priority
 
@@ -319,12 +401,27 @@ Work through the priority table (§1–§10), focusing on:
 
 ## Pre-Delivery Checklist
 
+### Anti-Slop Audit
+- [ ] No side-stripe accent borders on cards/sections
+- [ ] No gradient text (headings, body, or CTAs)
+- [ ] No decorative glassmorphism (blur only for dismissal/scrim)
+- [ ] No "hero-metric" or uniform-card-grid page compositions
+- [ ] No purple/indigo gradient default heroes
+- [ ] No Inter / Arial / system-ui as display face unless explicitly chosen
+- [ ] No cards nested in cards
+- [ ] No bounce/elastic easing on UI transitions
+- [ ] Neutrals are tinted, not pure `#000`/`#fff`/`#888`
+- [ ] Register (brand vs product) is correct for the screen
+
 ### Visual Quality
 - [ ] No emojis used as icons (use SVG instead)
 - [ ] All icons from a consistent icon family and style
 - [ ] Official brand assets with correct proportions
 - [ ] Pressed-state visuals do not shift layout bounds
 - [ ] Semantic theme tokens used consistently
+- [ ] Color strategy (Restrained / Committed / Full / Drenched) documented in DESIGN.md
+- [ ] Chroma reduced at lightness extremes (L > 0.9, L < 0.15)
+- [ ] Type scale ratio ≥ 1.25 between hierarchy levels
 
 ### Interaction
 - [ ] All tappable elements provide clear pressed feedback
@@ -332,6 +429,9 @@ Work through the priority table (§1–§10), focusing on:
 - [ ] Micro-interaction timing 150–300ms with native-feeling easing
 - [ ] Disabled states visually clear and non-interactive
 - [ ] Screen reader focus order matches visual order
+- [ ] Only `transform`/`opacity` are animated (no layout properties)
+- [ ] Exit animations run at 60–70% of enter duration
+- [ ] `prefers-reduced-motion` path tested
 
 ### Light/Dark Mode
 - [ ] Primary text contrast ≥4.5:1 in both modes
