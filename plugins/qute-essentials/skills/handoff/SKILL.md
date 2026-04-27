@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: Prepare a handoff document to continue work in a new session. Captures context, decisions, blockers, environment state, ADRs touched during the session, and a TASKS.md snapshot for seamless session transitions. Pairs with the `pickup` skill which reads the handoff on the receiving side, and with the `decision` skill which creates the ADRs that handoff auto-links.
-argument-hint: "[--push] [goal]"
+argument-hint: "[--no-commit] [--push] [goal]"
 ---
 
 # /handoff
@@ -81,18 +81,24 @@ When the user invokes `/handoff [goal]`:
 
 9. **Display the handoff** for the user to review
 
-10. **If `--push` flag was passed**, persist the handoff to git:
+10. **Commit the handoff (default behavior)**: persist the handoff to git on the current branch so `/pickup` can use the introducing commit as a drift-detection anchor.
    - Stage only the handoff file: `git add .claude/handoffs/<file>.md` (do NOT stage other WIP)
    - Commit: `git commit -m "handoff: <goal-slug>"`
-   - Push current branch: `git push -u origin HEAD`
-   - If push fails due to network, retry with exponential backoff (2s, 4s, 8s, 16s)
-   - Report the resulting commit SHA to the user — this is the anchor for drift detection on resume
    - The handoff commits onto the CURRENT branch (alongside the WIP it describes), not a dedicated `handoff/*` branch
+   - Report the resulting commit SHA to the user — this is the anchor for drift detection on resume
+   - Skip this step if `--no-commit` was passed (e.g. session may be discarded; user wants the doc on disk only)
+   - Skip silently if the repo is not a git repository
+
+11. **Push to remote (opt-in via `--push`)**: when `--push` was passed, push the current branch after the commit:
+   - `git push -u origin HEAD`
+   - If push fails due to network, retry with exponential backoff (2s, 4s, 8s, 16s)
+   - Without `--push`, the commit lives only locally — push later on your normal cadence
 
 ## Arguments
 
 - `[goal]` - (Optional) What the next session should accomplish. If omitted, infer from conversation context.
-- `--push` - (Optional flag) After saving, commit the handoff file to the current branch and push. Only the handoff doc is committed — any other WIP stays unstaged.
+- `--no-commit` - (Optional flag) Write the handoff doc to disk only; don't commit. Use when the session may be discarded or you don't want a handoff commit on the branch yet.
+- `--push` - (Optional flag) Push the handoff commit to remote (`git push -u origin HEAD`) after committing. Implies committing — has no effect with `--no-commit`.
 
 ## Output Format
 
@@ -200,11 +206,11 @@ When resuming, **check for drift** — files listed in the handoff may have chan
 
 1. **Read the handoff doc** and extract its "Files to Load", "Modified files", and "Next Steps" sections.
 
-2. **Find the commit that introduced the handoff** (only if it was pushed — i.e. the file is tracked in git):
+2. **Find the commit that introduced the handoff** (handoffs are committed by default since v1.10.0; older handoffs and `--no-commit` runs may be untracked):
    ```bash
    HANDOFF_SHA=$(git log --diff-filter=A --format=%H -- .claude/handoffs/<file>.md | tail -1)
    ```
-   `--diff-filter=A` narrows to the commit that *added* the file, so later edits to the doc don't shift the anchor. `tail -1` picks the oldest match if there are multiple.
+   `--diff-filter=A` narrows to the commit that *added* the file, so later edits to the doc don't shift the anchor. `tail -1` picks the oldest match if there are multiple. If empty, the handoff was written with `--no-commit` or predates v1.10.0 — fall through to step 6.
 
 3. **List files changed since the handoff**:
    ```bash
@@ -218,4 +224,4 @@ When resuming, **check for drift** — files listed in the handoff may have chan
 
 5. **Tell the user before proceeding**: "N files referenced by this handoff have changed since it was written: [list]. Review before continuing?" If nothing drifted, say "No drift — handoff is current" and proceed.
 
-6. If the handoff was never pushed (no git history for the file), skip drift detection and proceed with Next Steps as written.
+6. If the handoff has no git history (untracked — written with `--no-commit` or pre-v1.10.0), skip drift detection and proceed with Next Steps as written.
