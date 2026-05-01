@@ -1,3 +1,16 @@
+## v1.12.0 (2026-05-01)
+
+### Feat
+
+- **qute-essentials**: /ship auto-wipes TASKS.md::Completed sections after
+  cz bump succeeds. Work just shipped, the canonical record is in CHANGELOG.md;
+  a follow-up `chore(tasks): wipe Completed after vX.Y.Z` commit lands on the
+  same branch as the bump. Skipped silently if TASKS.md is missing.
+- **qute-essentials**: /pickup auto-syncs local main to origin/main at the
+  start of the audit (best-effort `git fetch origin main && git update-ref`).
+  Prevents stale-local-main false alarms in `git tag --merged main` queries
+  (the "orphan tag" misdiagnosis pattern). Skips silently on offline / no-remote.
+
 ## v1.11.0 (2026-05-01)
 
 ### Feat
