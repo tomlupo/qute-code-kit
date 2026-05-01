@@ -1,80 +1,70 @@
 ---
 name: pickup
-description: Resume work from a previous session by loading the latest handoff and auditing its health. Use when the user is resuming or picking up work — triggers include phrases like "continue from", "pick up where we left off", "resume", "what's the state", "where were we", "load the handoff"; or when the user references a .claude/handoffs/*.md file by name; or when the user asks about current work state, stale handoffs, or pending ADRs. Reads the latest active handoff, verifies referenced ADRs are still Accepted (not Superseded), summarises TASKS.md Now/Next, lists handoffs that look like archive candidates, and flags ADRs stuck in Proposed status. Read-only — does not modify any files. Pairs with the /handoff skill which writes handoffs at session end.
+description: Resume work from a previous session. Loads the latest handoff, audits ADR statuses + file drift since the handoff was written, summarises TASKS.md Now/Next, reads root STATUS.md, and surfaces a one-block inventory check (worktree count, Now-cap, STATUS.md freshness). Use when the user says "continue", "pick up", "resume", "where were we", "what's the state", or names a handoff file. Read-only — does not modify files. Pairs with /handoff which writes the handoff at session end.
 argument-hint: "[handoff-filename-or-path]"
 ---
 
 # /pickup
 
-Resume work from a previous session. Loads the latest active handoff, audits its health (ADR references, referenced files, TASKS.md state), and reports a compact work-state summary so you can continue with full context and no surprises.
+Resume work from a previous session. Loads the latest active handoff, audits its health (ADRs, drift, TASKS.md, root STATUS.md, inventory), and reports a compact work-state summary so you can continue with full context and no surprises.
 
-Pairs with `/handoff`: `/handoff` writes a handoff at session end, `/pickup` reads and audits it at session start.
+Pairs with `/handoff`: `/handoff` writes a handoff at session end, `/pickup` reads + audits at session start.
 
 ## When to use
 
-Invoke this skill when:
-- The user is resuming work from a previous session
-- The user says phrases like "continue from", "pick up", "resume", "where were we", "what's the state"
-- The user references a handoff filename (e.g. "load 2026-04-10-treatment-c...")
-- The user asks about pending ADRs, stale handoffs, or current TASKS.md status
-- The agent needs to orient at session start on an existing work thread
+- User is resuming work — "continue from", "pick up", "resume", "where were we", "what's the state"
+- User references a handoff filename
+- User asks about pending ADRs, stale handoffs, TASKS.md state, current versions
 
 Do NOT invoke for:
 - Brand new work with no prior context
-- One-off questions unrelated to a current work thread
+- One-off questions
 
 ## Arguments
 
-- `[handoff-filename-or-path]` — (optional) specific handoff to load. If omitted, picks the newest active handoff (non-archived, no ⚠️ superseded banner).
+- `[handoff-filename-or-path]` (optional) — specific handoff to load. If omitted, picks the newest non-archived handoff under `.claude/handoffs/`.
 
 ## Behavior
 
-1. **Find the handoff to load**:
-   - If an argument was passed, resolve it to a file in `.claude/handoffs/`
-   - Otherwise, list `.claude/handoffs/*.md` (excluding anything in `archive/` subdirectory), sort by mtime, pick the newest
-   - If none exist, report "No active handoffs found" and stop
+1. **Find the handoff:**
+   - With argument: resolve to file in `.claude/handoffs/`.
+   - Otherwise: list `.claude/handoffs/*.md` (skip `archive/`), sort by mtime, pick newest.
+   - If none: report "No active handoffs found" and continue with the rest of the audit (handoff is one of several signals, not the only one).
 
 2. **Read the handoff** and extract:
    - Goal, Context Summary, Next Steps, Files to Load, Blockers
-   - Any `ADR-NNNN` references (grep pattern `ADR-\d{4}`)
-   - Any referenced file paths (from "Files to Load" section and inline `file_path` mentions)
-   - Any reference to a predecessor handoff (to trace the chain)
+   - `ADR-NNNN` references (regex `ADR-\d{4}`)
+   - File paths from "Files to Load" and inline `path/to/file` mentions
+   - Predecessor handoff link (to trace the chain)
 
-3. **Verify ADR references are current**:
-   - For each `ADR-NNNN` mentioned, locate `docs/decisions/NNNN-*.md`
-   - Read its `## Status` section
-   - If `Superseded by ADR-MMMM`: warn that the handoff references a stale decision and point at the successor
-   - If `Deprecated`: warn
-   - If `Proposed`: note that the decision hasn't been finalised yet
-   - If the ADR file doesn't exist at all: warn
+3. **Verify ADR references:**
+   - For each `ADR-NNNN`, locate `docs/decisions/NNNN-*.md`, read its `## Status` section.
+   - Flag: `Superseded by ADR-MMMM` (point at successor), `Deprecated`, `Proposed` (not finalised), or missing file.
 
-4. **Check drift on referenced files** (only if handoff was pushed to git):
-   - Extract `HANDOFF_SHA` via `git log --diff-filter=A --format=%H -- .claude/handoffs/<file>.md | tail -1`
-   - Run `git diff --name-only "$HANDOFF_SHA"..HEAD`
-   - Cross-reference against the handoff's "Files to Load" list
-   - Flag any overlap as potential drift — the next-step assumptions may be stale
+4. **Drift check on referenced files** (only if handoff is committed):
+   - `HANDOFF_SHA=$(git log --diff-filter=A --format=%H -- .claude/handoffs/<file>.md | tail -1)`
+   - `git diff --name-only "$HANDOFF_SHA"..HEAD` + `git diff --name-only HEAD` (uncommitted)
+   - Cross-reference against the handoff's "Files to Load" / "Modified files".
+   - For overlap, flag the affected Next Steps as potentially stale.
+   - If `HANDOFF_SHA` is empty (handoff is untracked), skip silently.
 
-5. **Summarise TASKS.md** (if it exists at repo root):
-   - Extract Now / In Progress / Next / Backlog sections
-   - Report the top 3-5 active items
-   - Note any items flagged as blocked or needing attention
+5. **Summarise root TASKS.md** (if it exists):
+   - Extract Now / Next sections, top 3-5 each.
+   - Flag if `Now` exceeds the soft cap of 3 items (per `general-rules.md`).
 
-6. **Load STATUS.md files (if any exist)**:
-   - Find `STATUS.md` files under `research/*/` (or any path configured in `.claude/promote.config.yaml` under `subsystems.*.status_file`)
-   - For each: read "In Production" section and print the current prod version + last tag
-   - Check freshness: compare `STATUS.md` mtime against the last commit touching any `src_paths` file declared for that subsystem (from `promote.config.yaml`). If STATUS.md is older, flag as `⚠️ STATUS.md may be stale — production code changed since last update`
-   - If no STATUS.md or promote.config.yaml exists, skip silently
+6. **Read root STATUS.md** (single source — no per-subsystem STATUS.md):
+   - If present, echo the `## Notes` section (cap ~15 lines).
+   - Freshness: STATUS.md mtime vs newest tag mtime. If `mtime(STATUS.md) < mtime(newest tag)`, flag `⚠️ STATUS.md older than latest tag — dashboard may be stale`.
+   - If missing, skip silently.
 
-7. **List archive candidates**:
-   - Handoffs in `.claude/handoffs/` (non-archive) that are **not** the latest and **not** referenced as predecessors of the latest
-   - These are candidates for moving to `.claude/handoffs/archive/` to keep the active folder tidy
-   - Do not move anything — just list
+7. **Inventory check** (one block, light — these are the bounded stores `git-workflow.md` says to police):
+   - **Format violations:** run `${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/validate_tasks.py`. Surface any output as warnings (TASKS.md section drift, Now-cap, half-frontmatter dispatchable plans). Read-only — never block the audit on this.
+   - **Worktrees:** `git worktree list` count. Hard cap 3 (per `git-workflow.md`); warn if ≥3, flag if >3.
+   - **Handoffs (active):** count `.claude/handoffs/*.md` (excluding `archive/`); list as archive candidates anything that's not the latest and not in the predecessor chain.
+   - **Pending ADRs:** grep `docs/decisions/*.md` for `Status: Proposed`; list count + paths.
+   - **Stale spec frontmatter:** any LOCKED spec under `research/*/docs/*.md` whose `date_locked` is older than its declared `spec_date_max_age_days` (default 90) — count + list. Skip silently if no specs.
 
-8. **Flag pending ADRs**:
-   - Grep `docs/decisions/*.md` for `Status: Proposed`
-   - These are decisions in-flight that might need finalising before work resumes
-
-9. **Print a compact work-state report** (see Output Format below)
+8. **Print compact report** (see Output Format).
 
 ## Output Format
 
@@ -87,33 +77,38 @@ Do NOT invoke for:
 
 ### Referenced ADRs
 - ✅ ADR-NNNN: <title> — Accepted
-- ⚠️  ADR-MMMM: <title> — **Superseded by ADR-PPPP** — review the successor before proceeding
-- ❓ ADR-QQQQ: <title> — Proposed (not yet finalised)
+- ⚠️  ADR-MMMM: <title> — **Superseded by ADR-PPPP**
+- ❓ ADR-QQQQ: <title> — Proposed
 
 ### Drift check
-<"No drift — handoff is current" OR list of changed files and affected next-steps>
+<"No drift — handoff is current" OR list of changed files mapping to affected Next Steps>
 
 ### TASKS.md
-- **Now**: <top 3 active items>
-- **Next**: <top 3 queued items>
+- **Now** (3): <items>      [or "⚠️ Now has 5 items — over soft cap"]
+- **Next**: <items>
 
-### Production state (from STATUS.md files, if any)
-- **{subsystem}**: `prod-{subsystem}-vX.Y.Z-YYYYMMDD` (or `⚠️ STATUS.md stale` if flagged)
+### STATUS.md (root)
+<echo of ## Notes block, ≤15 lines>
+[or "⚠️ STATUS.md older than latest tag (taa-v5.1.0 tagged 2026-04-30) — may be stale"]
 
-### Housekeeping
-- **Archive candidates**: <list of handoffs not referenced by the latest chain, or "none">
-- **Pending ADRs** (Status: Proposed): <list with paths, or "none">
+### Inventory
+- Worktrees: 2 / 3
+- Pending ADRs (Proposed): 0
+- Stale specs (date_locked > 90d): 0
+- Archive candidates: <list of handoffs not in predecessor chain, or "none">
 
 ### Ready to continue
-<short summary: "X next steps, Y blockers to resolve first, Z ADRs to review before proceeding">
+<short summary: "X next steps, Y blockers, Z things to review first">
 ```
 
 ## Conventions
 
-- **Read-only** — never move files, update ADRs, or modify the handoff. This skill is a diagnostic only.
-- **Compact output** — aim for under 40 lines in the report. Detail lives in the handoff itself.
-- **Actionable warnings** — if a referenced ADR is superseded, name the successor and point at the file path. Don't just say "stale".
-- **Fail-soft** — if `git` isn't available, skip drift check and note that. If `TASKS.md` doesn't exist, skip that section. If no handoff exists, report cleanly and stop.
+- **Read-only** — never writes. Audits are diagnostic; the user (or `/handoff`) does any cleanup.
+- **Compact** — under 40 lines. Detail lives in the handoff itself.
+- **Actionable warnings** — name the thing (file, ADR successor, count over cap), don't just say "stale".
+- **Fail-soft** — missing STATUS.md / TASKS.md / handoff / git → skip the relevant block, never abort the whole report.
+- **Fast** — single git tag query + single mtime comparison + handoff read. No repo-wide diff. Sub-2s.
+- **No config-file reads** — the skill discovers subsystems from filesystem + tags, not from any `.claude/promote.config.yaml`.
 
 ## Example
 
@@ -121,4 +116,10 @@ Do NOT invoke for:
 /pickup
 ```
 
-Loads the newest handoff (e.g. `.claude/handoffs/2026-04-10-treatment-c-methodology-and-step-a.md`), checks ADR-0004 is still Accepted, verifies that the files it references haven't drifted since the handoff was written, summarises TASKS.md Now/Next, and prints the report so the agent can continue with full context.
+Loads newest handoff, verifies ADRs, drift-checks Files to Load, summarises TASKS.md Now/Next, echoes root STATUS.md Notes, runs inventory check (worktrees, ADRs, archive candidates), prints the report. Under 2 seconds.
+
+## See also
+
+- `/handoff` — writes the handoff `/pickup` reads
+- `/status` — quick "what's where" without the full audit
+- `/decision` — creates the ADRs both sides link to
