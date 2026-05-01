@@ -26,6 +26,11 @@ Do NOT invoke for:
 
 ## Behavior
 
+0. **Sync local main** (best-effort, before any tag-reachability query):
+   - `git fetch origin main --quiet 2>/dev/null && git update-ref refs/heads/main origin/main 2>/dev/null` — fast-forwards local `main` to `origin/main`.
+   - Why: most projects work on `dev` and never check out `main`, so local `main` silently goes stale. `git tag --merged main` then lies about prod state — the same false alarm that produced "orphan tag" diagnoses. Fetching first makes the audit honest.
+   - Skip silently on offline/no-remote/non-git. Never block the audit.
+
 1. **Find the handoff:**
    - With argument: resolve to file in `.claude/handoffs/`.
    - Otherwise: list `.claude/handoffs/*.md` (skip `archive/`), sort by mtime, pick newest.

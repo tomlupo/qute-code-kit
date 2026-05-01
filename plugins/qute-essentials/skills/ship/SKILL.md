@@ -53,6 +53,10 @@ universal paths (skill-generated artifacts that should not reach main):
 Projects may add extras in `.claude/forbidden-paths.txt` (one path per
 line; blank lines and `# comments` allowed).
 
+### TASKS.md::Completed wipe (auto)
+
+After cz bump succeeds, the script removes any `## Completed (…)` sections from `TASKS.md` (work just shipped, the canonical record is now `CHANGELOG.md`) and creates a follow-up commit `chore(tasks): wipe Completed after vX.Y.Z`. The bump commit + tag stay untouched. Skipped silently if `TASKS.md` is missing.
+
 ### First-time setup (auto)
 
 If `pyproject.toml` has no `[tool.commitizen]` block, the script runs the

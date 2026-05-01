@@ -93,8 +93,72 @@ def ship_python(root: Path, pyproject: Path) -> int:
     except subprocess.CalledProcessError as exc:
         return fail(f"commitizen bump failed with exit code {exc.returncode}")
 
+    # 4. Wipe TASKS.md::Completed sections — work just shipped, content now in CHANGELOG.md.
+    wipe_tasks_completed(root, pyproject)
+
     info("done. Review the bump commit and tag, then `git push --follow-tags` when ready.")
     return 0
+
+
+def wipe_tasks_completed(root: Path, pyproject: Path) -> None:
+    """Remove `## Completed (...)` sections from TASKS.md after a successful bump.
+
+    Once `/ship` cuts a release, the work captured in those sections lives
+    canonically in CHANGELOG.md (auto-maintained by commitizen). Keeping
+    duplicates in TASKS.md just lets it accumulate as historical noise.
+
+    Best-effort: silently skips if TASKS.md is missing or the file isn't
+    git-tracked. Creates a separate `chore(tasks): wipe Completed after
+    vX.Y.Z` commit so the bump commit + tag stay untouched.
+    """
+    tasks = root / "TASKS.md"
+    if not tasks.exists():
+        return
+
+    content = tasks.read_text(encoding="utf-8")
+    # Match each `## Completed (…)` block from its heading up to (but not
+    # including) the next top-level `## ` heading or a `---` horizontal rule.
+    pattern = re.compile(
+        r"^## Completed\b[^\n]*\n.*?(?=^## |^---\s*$|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    new_content, n = pattern.subn("", content)
+    if n == 0:
+        return  # nothing to wipe
+
+    # Collapse any leftover triple-blank-line gaps from the removal.
+    new_content = re.sub(r"\n{3,}", "\n\n", new_content)
+    tasks.write_text(new_content, encoding="utf-8")
+
+    # Pull new version from pyproject for the commit message.
+    version = _read_pyproject_version(pyproject) or "release"
+    try:
+        subprocess.run(["git", "add", "TASKS.md"], cwd=root, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", f"chore(tasks): wipe Completed after v{version}"],
+            cwd=root,
+            check=True,
+        )
+        info(f"wiped {n} Completed section(s) from TASKS.md")
+    except subprocess.CalledProcessError:
+        info("TASKS.md sweep skipped (git add/commit failed — check working tree)")
+
+
+def _read_pyproject_version(pyproject: Path) -> str | None:
+    try:
+        content = pyproject.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    # Match the [tool.commitizen] block specifically, not [project].
+    cz_block = re.search(
+        r"\[tool\.commitizen\][^\[]*",
+        content,
+        re.DOTALL,
+    )
+    if not cz_block:
+        return None
+    m = re.search(r'^version\s*=\s*"([^"]+)"', cz_block.group(0), re.MULTILINE)
+    return m.group(1) if m else None
 
 
 def check_forbidden_paths(root: Path) -> int:
