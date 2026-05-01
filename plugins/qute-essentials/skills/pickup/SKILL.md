@@ -61,6 +61,12 @@ Do NOT invoke for:
    - **Format violations:** run `${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/validate_tasks.py`. Surface any output as warnings (TASKS.md section drift, Now-cap, half-frontmatter dispatchable plans). Read-only — never block the audit on this.
    - **Worktrees:** `git worktree list` count. Hard cap 3 (per `git-workflow.md`); warn if ≥3, flag if >3.
    - **Handoffs (active):** count `.claude/handoffs/*.md` (excluding `archive/`); list as archive candidates anything that's not the latest and not in the predecessor chain.
+   - **Stale branches:** for each local ref under `refs/heads/feat/*` and `refs/heads/research/*` (excluding the current branch and any default base like `dev`/`main`):
+     - Ahead/behind base: `git rev-list --left-right --count {base}...{branch}` (base = `dev` by default; fall back to `main` if no `dev`).
+     - Last commit date: `git log -1 --format=%cI {branch}`.
+     - List as `{branch} — {n} ahead, {m} behind, last YYYY-MM-DD ({Nd}d ago)`.
+     - **Flag** any branch where last-commit > 14d ago OR behind > 20 commits — these are drift candidates per `.claude/rules/git-workflow.md`'s "short-lived" rule for feat/research branches. The presence of unmerged work that's drifted from the base is the failure mode this surfaces (a parked branch with a LOCKED methodology that never landed because a release went out without it).
+     - Skip silently if no such branches exist.
    - **Pending ADRs:** grep `docs/decisions/*.md` for `Status: Proposed`; list count + paths.
    - **Stale spec frontmatter:** any LOCKED spec under `research/*/docs/*.md` whose `date_locked` is older than its declared `spec_date_max_age_days` (default 90) — count + list. Skip silently if no specs.
 
@@ -93,6 +99,7 @@ Do NOT invoke for:
 
 ### Inventory
 - Worktrees: 2 / 3
+- Stale branches: <list of feat/* + research/* with unique commits + ahead/behind + age, or "none">
 - Pending ADRs (Proposed): 0
 - Stale specs (date_locked > 90d): 0
 - Archive candidates: <list of handoffs not in predecessor chain, or "none">

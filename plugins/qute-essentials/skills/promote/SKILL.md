@@ -64,7 +64,31 @@ Do NOT invoke for:
 - If on any other branch: stop with `Current branch '{cur}' is not feat/{alias}-* or research/{alias}-*. Switch to one before promoting.`
 - If on `main` / `dev`: hard-stop.
 
-### 5. Run gates
+### 5. Scan related branches (preflight)
+
+Before running gates, surface any other local branches matching the same subsystem that have unique commits not on the merge target. Prevents the case where a subsystem ship goes out while related work sits orphaned on a parked branch — the failure mode is a LOCKED methodology landing on a feat branch and getting left behind when a sibling release ships.
+
+Build the prefix set: start with `{alias}` and `{subsystem-name}` from the resolved Subsystems row; then scan the row's prose (the table cell text) for backticked tokens after phrases like `Historical alias was`, `formerly`, `was`, `aka` — those are alternate prefixes the skill should also include. Example: a row that says ``"Historical alias was `fundsel`"`` adds `fundsel` to the prefix set.
+
+For each ref of shape `feat/{prefix}-*` or `research/{prefix}-*` for any prefix in the set (excluding the current branch):
+
+- `git rev-list --count {target-branch}..{branch}` — count unique commits not on target.
+- `git log -1 --format=%cI {branch}` — last commit date.
+- If unique-count > 0: list as `{branch} — {n} commits ahead, last {date} ({Nd}d ago)`.
+
+If any are found, surface in the report:
+
+```
+⚠️  Related branches with unmerged work share the '{alias}' alias:
+  - feat/{alias}-{slug-a} — 3 commits ahead, last YYYY-MM-DD (Nd)
+  - research/{alias}-{slug-b} — 8 commits ahead, last YYYY-MM-DD (Md)
+
+These will NOT be in {alias}-v{X.Y.Z}. Continue, or abort to consolidate first?
+```
+
+This is a **soft warning** — does not block. The user decides whether to abort and consolidate, or proceed and accept the orphan. Skip silently if none found.
+
+### 6. Run gates
 
 Read the spec frontmatter `gates:` block (skipped when `--no-gates`). For each true-valued key, run the corresponding check:
 
@@ -83,7 +107,7 @@ Read the spec frontmatter `gates:` block (skipped when `--no-gates`). For each t
 
 Unknown gate keys → fail with `Unknown gate '{key}' in spec frontmatter. Either implement it in /promote or remove from spec.`
 
-### 6. Report and ask
+### 7. Report and ask
 
 ```
 ## /promote {alias} — {alias}-v{X.Y.Z}
@@ -106,7 +130,7 @@ Stop. Fix the failing gates and re-run, or pass --no-gates to override.
 If any gate fails (and not `--no-gates`): stop and report.
 If any gate produces a soft warning: prompt the user to continue or fix.
 
-### 7. Merge and tag (unless `--dry-run`)
+### 8. Merge and tag (unless `--dry-run`)
 
 After the user confirms (or `--dry-run` skips this):
 
@@ -119,7 +143,7 @@ After the user confirms (or `--dry-run` skips this):
    - Push the tag: `git push origin '{alias}-v{X.Y.Z}'`
 4. With `--no-tag`: skip step 3 entirely.
 
-### 8. Post-promotion housekeeping (the skill performs this)
+### 9. Post-promotion housekeeping (the skill performs this)
 
 - Append to `research/{subsystem}/EXPERIMENTS.md`:
   ```markdown
@@ -140,6 +164,9 @@ After the user confirms (or `--dry-run` skips this):
 **Spec**: research/{subsystem}/docs/{file} (v{X.Y}, LOCKED {date})
 **Previous tag**: {alias}-v{prev}    **Proposed**: {alias}-v{new}
 **Branch**: {current} → {target}
+
+### Related branches
+<list of feat/research branches sharing the alias with unique commits, or "none — no orphan work for this alias">
 
 ### Gate results
 ✅/⚠️/❌ <gate>: <detail>
