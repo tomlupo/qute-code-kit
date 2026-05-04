@@ -105,10 +105,16 @@ if [ -d .claude/handoffs ]; then
       n>=2 { exit }
     ' "$f")
     [ "$task" = "__exploratory__" ] && continue
+    fname=$(basename "$f")
+    # Disqualify orphan if: no task field; or task slug appears in TASKS.md;
+    # or filename is cited from any TASKS.md → handoff: line.
+    cited=0
+    grep -qE "(### .*$task|task:[ ]*$task)" TASKS.md 2>/dev/null && cited=1
+    grep -qF "$fname" TASKS.md 2>/dev/null && cited=1
     if [ -z "$task" ]; then
-      orphans+=("$(basename "$f") (no task: field)")
-    elif ! grep -qE "(### .*$task|task:[ ]*$task)" TASKS.md 2>/dev/null; then
-      # Check status: concluded/abandoned — those are expected to lack a TASKS.md row.
+      orphans+=("$fname (no task: field)")
+    elif [ "$cited" = "0" ]; then
+      # Status: concluded/abandoned are expected to lack a TASKS.md row.
       status=$(awk '
         /^---$/{n++; next}
         n==1 && /^status:/{ sub(/^status:[ ]*/, ""); gsub(/[" ]/, ""); print; exit }
@@ -116,7 +122,7 @@ if [ -d .claude/handoffs ]; then
       ' "$f")
       case "$status" in
         concluded|abandoned) ;;
-        *) orphans+=("$(basename "$f") (task: $task — not in TASKS.md, status: ${status:-unset})") ;;
+        *) orphans+=("$fname (task: $task — no link in TASKS.md, status: ${status:-unset})") ;;
       esac
     fi
   done
