@@ -1,3 +1,21 @@
+## v1.15.0 (2026-05-09)
+
+### BREAKING
+
+- **qute-essentials**: removed the `/promote` skill. Per-subsystem
+  promotion ceremony with spec-frontmatter `gates:`, `LOCKED` enforcement,
+  and `{alias}-vX.Y.Z` annotated tags is retired in favor of a single
+  release namespace (`vX.Y.Z` set by `/ship` on `main`). Going from
+  `feat/*` or `research/*` to `dev` is now a plain `gh pr create --base
+  dev` (or `commit-commands:commit-push-pr`) — no ceremony, no gates,
+  no per-subsystem tags. Methodology version tracking moves to the spec
+  doc's frontmatter `version:` field, bumped in the same `feat/*` PR
+  that lands the change. Projects that relied on `/promote` should
+  update their `.claude/rules/git-workflow.md` and `methodology.md` to
+  the single-namespace model. Historical `{alias}-vX.Y.Z` and
+  `prod-{alias}-vX.Y.Z-YYYYMMDD` tags are preserved for archaeology;
+  no new tags added in those namespaces.
+
 ## v1.14.0 (2026-05-09)
 
 ### Feat
