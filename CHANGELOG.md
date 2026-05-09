@@ -1,3 +1,17 @@
+## v1.19.0 (2026-05-09)
+
+### Feat
+
+- **qute-essentials**: `/status` adds TASKS.md::Now row-size lint. Walks
+  each `### Title` block under `## Now` (skipping blank lines) and flags
+  entries with 5+ lines as candidates for promotion to
+  `docs/tasks/{slug}.md`. Backs the row-size discipline added to
+  `work-organization.md::Row-size discipline`: pointer-shape Now rows are
+  header + `→ plan:` + `→ handoff:` + `Latest:` (4 lines); inline rows
+  are 1-3 lines for small tasks without a plan. ## Next and ## Later are
+  exempt — bullet-cluster entries (multiple short bullets under one
+  cluster header) are legitimate buffer-queue organization.
+
 ## v1.18.0 (2026-05-09)
 
 ### BREAKING

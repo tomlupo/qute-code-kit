@@ -246,3 +246,39 @@ if [ "${#orphans[@]}" -gt 0 ]; then
   printf '  %s\n' "${orphans[@]}" | sort -u
   echo
 fi
+
+# ---- TASKS.md row-size lint (Now only) ----------------------------------
+# Flag ### entries within ## Now that exceed 5 lines (header + 4 body).
+# Per work-organization.md::Row-size discipline: pointer-shape Now rows are
+# header + → plan: + → handoff: + Latest: = 4 lines. >5 total in Now =
+# signal to promote to docs/tasks/{slug}.md. Next/Later are buffer queues
+# where bullet-cluster entries are legitimate; those are not linted.
+oversized=()
+for entry in "${WORKTREES[@]}"; do
+  wt="${entry%%$'\t'*}"
+  branch_full="${entry#*$'\t'}"
+  branch_short="${branch_full#refs/heads/}"
+  [ -f "$wt/TASKS.md" ] || continue
+  while read -r line; do
+    [ -n "$line" ] && oversized+=("$line on $branch_short")
+  done < <(awk '
+    function flush() {
+      if (current && lines >= 5) {
+        title = current; sub(/^### /, "", title)
+        print title " (" lines " lines)"
+      }
+    }
+    /^## Now/ { in_section=1; current=""; lines=0; next }
+    /^## / { flush(); current=""; in_section=0; next }
+    in_section && /^### / { flush(); current=$0; lines=1; next }
+    in_section && current && /^[ \t]*$/ { next }   # skip blanks
+    in_section && current { lines++ }
+    END { flush() }
+  ' "$wt/TASKS.md")
+done
+
+if [ "${#oversized[@]}" -gt 0 ]; then
+  echo "TASKS.md::Now row-size violations (≥5 lines — promote to docs/tasks/{slug}.md):"
+  printf '  %s\n' "${oversized[@]}" | sort -u
+  echo
+fi

@@ -1,6 +1,6 @@
 ---
 name: status
-description: Cross-branch lifecycle dashboard. Walks `git worktree list` to surface in-flight handoffs + Now items from every active branch, plus latest release tag, per-subsystem last change, and orphan-handoff warnings. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what's live", "what's everyone working on", or names a subsystem.
+description: Cross-branch lifecycle dashboard. Walks `git worktree list` to surface in-flight handoffs + Now items from every active branch, plus latest release tag, per-subsystem last change, orphan-handoff warnings, and TASKS.md::Now row-size lint. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what's live", "what's everyone working on", or names a subsystem.
 argument-hint: "[alias]"
 ---
 
@@ -83,7 +83,13 @@ Orphan handoffs:
   2026-05-04-some-handoff.md on feat/foo (task: foo — no plan, status: in-progress)
 ```
 
-Sections that are empty (no orphans, no Now items, no subsystems registry) are silently dropped.
+Sections that are empty (no orphans, no Now items, no subsystems registry, no row-size violations) are silently dropped.
+
+## TASKS.md row-size lint
+
+Per `work-organization.md::Row-size discipline`, ## Now entries should be terse — pointer-shape (header + → plan: + → handoff: + Latest: = 4 lines) when the task has a plan file, or 1-3 inline lines for small tasks without a plan. The lint walks each `### Title` block under ## Now (skipping blank lines) and flags entries with 5+ lines as candidates for promotion to `docs/tasks/{slug}.md`.
+
+Lint applies to ## Now only. ## Next and ## Later are buffer queues where bullet-cluster entries (multiple short bullets under one `### Cluster name`) are legitimate organization, not drift.
 
 ## Notes on the cross-branch scan
 
