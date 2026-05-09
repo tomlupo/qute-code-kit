@@ -28,10 +28,7 @@ MARKETPLACE_JSON = MARKETPLACE_ROOT / ".claude-plugin" / "marketplace.json"
 # Marketplace metadata
 MARKETPLACE_NAME = "qute-marketplace"
 MARKETPLACE_DESCRIPTION = "Personal Claude Code plugin marketplace"
-MARKETPLACE_OWNER = {
-    "name": "twilc",
-    "email": "twilc@users.noreply.github.com"
-}
+MARKETPLACE_OWNER = {"name": "twilc", "email": "twilc@users.noreply.github.com"}
 
 
 def load_old_manifest(plugin_dir: Path) -> dict[str, Any] | None:
@@ -54,7 +51,9 @@ def load_old_manifest(plugin_dir: Path) -> dict[str, Any] | None:
     return None
 
 
-def convert_hooks_format(old_hooks_path: Path, new_hooks_path: Path, plugin_name: str) -> bool:
+def convert_hooks_format(
+    old_hooks_path: Path, new_hooks_path: Path, plugin_name: str
+) -> bool:
     """
     Convert old hook format to official Claude Code format.
 
@@ -113,10 +112,7 @@ def convert_hooks_format(old_hooks_path: Path, new_hooks_path: Path, plugin_name
 
         new_hooks[matcher].append({"hooks": inner_hooks})
 
-    new_data = {
-        "description": f"Hooks for {plugin_name} plugin",
-        "hooks": new_hooks
-    }
+    new_data = {"description": f"Hooks for {plugin_name} plugin", "hooks": new_hooks}
 
     new_hooks_path.parent.mkdir(parents=True, exist_ok=True)
     with open(new_hooks_path, "w") as f:
@@ -137,8 +133,9 @@ def create_plugin_manifest(plugin_dir: Path, old_manifest: dict) -> dict:
 
     plugin_manifest = {
         "name": old_manifest.get("name", plugin_dir.name),
+        "version": old_manifest.get("version", "1.0.0"),
         "description": old_manifest.get("description", f"{plugin_dir.name} plugin"),
-        "author": author
+        "author": author,
     }
 
     manifest_path = claude_plugin_dir / "plugin.json"
@@ -160,12 +157,12 @@ def process_plugin(plugin_dir: Path, prefix: str) -> dict | None:
 
     old_manifest = load_old_manifest(plugin_dir)
     if not old_manifest:
-        print(f"     ⚠ No plugin.json found, skipping")
+        print("     ⚠ No plugin.json found, skipping")
         return None
 
     # Create new plugin manifest
     plugin_manifest = create_plugin_manifest(plugin_dir, old_manifest)
-    print(f"     ✓ Created .claude-plugin/plugin.json")
+    print("     ✓ Created .claude-plugin/plugin.json")
 
     # Convert hooks if present
     hooks_file = old_manifest.get("hooks")
@@ -173,7 +170,7 @@ def process_plugin(plugin_dir: Path, prefix: str) -> dict | None:
         old_hooks_path = plugin_dir / hooks_file
         new_hooks_path = plugin_dir / "hooks" / "hooks.json"
         if convert_hooks_format(old_hooks_path, new_hooks_path, plugin_dir.name):
-            print(f"     ✓ Converted hooks format")
+            print("     ✓ Converted hooks format")
 
     # Validate rules if present
     for rule_path in old_manifest.get("rules", []):
@@ -190,7 +187,7 @@ def process_plugin(plugin_dir: Path, prefix: str) -> dict | None:
         "version": old_manifest.get("version", "1.0.0"),
         "author": plugin_manifest["author"],
         "source": f"./{prefix}/{plugin_dir.name}",
-        "category": old_manifest.get("category", "utility")
+        "category": old_manifest.get("category", "utility"),
     }
 
     return marketplace_entry
@@ -238,7 +235,9 @@ def scan_plugins(base_dir: Path, prefix: str) -> list[dict]:
                     entry_data = mkt_plugins[0].copy()
                     entry_data["source"] = f"./{prefix}/{plugin_dir.name}"
                     plugins.append(entry_data)
-                    print(f"  📦 Synthesized from marketplace.json: {entry_data.get('name')}")
+                    print(
+                        f"  📦 Synthesized from marketplace.json: {entry_data.get('name')}"
+                    )
             continue
 
         entry = process_plugin(plugin_dir, prefix)
@@ -268,7 +267,7 @@ def build_marketplace():
         "name": MARKETPLACE_NAME,
         "description": MARKETPLACE_DESCRIPTION,
         "owner": MARKETPLACE_OWNER,
-        "plugins": all_plugins
+        "plugins": all_plugins,
     }
 
     # Write marketplace.json
@@ -278,15 +277,15 @@ def build_marketplace():
     print(f"\n✅ Written: {MARKETPLACE_JSON}")
 
     # Summary
-    print(f"\n📊 Summary:")
+    print("\n📊 Summary:")
     print(f"   Plugins: {len(all_plugins)}")
     for p in all_plugins:
         print(f"     - {p['name']}")
 
-    print(f"\n🎉 Build complete!")
-    print(f"\nTo register this marketplace:")
+    print("\n🎉 Build complete!")
+    print("\nTo register this marketplace:")
     print(f"   claude plugin marketplace add {MARKETPLACE_ROOT}")
-    print(f"\nTo install a plugin:")
+    print("\nTo install a plugin:")
     print(f"   claude plugin install <plugin-name>@{MARKETPLACE_NAME}")
 
 

@@ -1,6 +1,10 @@
 ---
 name: handoff
-description: End-of-session writer. Diffs the session, identifies the TASKS.md row, writes a structured handoff with task: frontmatter, updates the TASKS.md row in the same commit, lands on dev. Use when user says "handoff", "save state", "wrap up", "session end".
+description: >-
+  End-of-session writer. Diffs the session, identifies the TASKS.md row,
+  writes a structured handoff with mandatory `task:` frontmatter, updates
+  the TASKS.md row in the same commit, lands on dev. Use when user says
+  "handoff", "save state", "wrap up", "session end".
 argument-hint: "[alias-or-slug]"
 ---
 
