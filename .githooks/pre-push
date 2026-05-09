@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# pre-push hook: refuse to push commits that bump a plugin's version unless
+# they were produced by scripts/release-plugin.sh (i.e. shaped as a
+# `chore(release):` commit and carrying a matching `vX.Y.Z` annotated tag).
+#
+# This catches the failure mode where a feature commit also bumps
+# plugins/*/plugin.json::version inline — the version moves forward but no
+# tag is created, so Claude Code's update resolver (which keys off tags)
+# stays stuck at the previous release.
+#
+# Bypass:  git push --no-verify   (use only when you know what you're doing)
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+[ -f ".claude-plugin/marketplace.json" ] || exit 0   # not a marketplace repo
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "pre-push: jq not installed; skipping plugin release-shape check" >&2
+  exit 0
+fi
+
+zero="0000000000000000000000000000000000000000"
+violations=0
+
+# stdin lines: <local-ref> <local-sha> <remote-ref> <remote-sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Skip deletes.
+  [ "$local_sha" = "$zero" ] && continue
+
+  # Determine the range of new commits being pushed.
+  if [ "$remote_sha" = "$zero" ]; then
+    # New branch — list commits not already reachable from any other ref.
+    range_args=("$local_sha" "--not" "--branches" "--remotes" "--tags")
+  else
+    range_args=("${remote_sha}..${local_sha}")
+  fi
+
+  # Iterate commits in the push range.
+  while IFS= read -r commit; do
+    [ -z "$commit" ] && continue
+
+    # Did this commit change the version field of any plugins/*/plugin.json?
+    bumped_plugins=()
+    while IFS= read -r f; do
+      [ -z "$f" ] && continue
+      # Only the source manifest plugins/<name>/plugin.json — not the derived
+      # plugins/<name>/.claude-plugin/plugin.json or anything deeper.
+      [[ "$f" =~ ^plugins/[^/]+/plugin\.json$ ]] || continue
+      # Compare the version field before vs after.
+      old_v="$(git show "${commit}^:${f}" 2>/dev/null | jq -r .version 2>/dev/null || echo "")"
+      new_v="$(git show "${commit}:${f}"   2>/dev/null | jq -r .version 2>/dev/null || echo "")"
+      if [ -n "$new_v" ] && [ "$old_v" != "$new_v" ]; then
+        plugin_name="${f#plugins/}"
+        plugin_name="${plugin_name%/plugin.json}"
+        bumped_plugins+=("${plugin_name}=${new_v}")
+      fi
+    done < <(git diff-tree --no-commit-id --name-only -r "$commit")
+
+    [ ${#bumped_plugins[@]} -eq 0 ] && continue
+
+    # Version was bumped. Verify release-shape: chore(release): + vX.Y.Z tag.
+    subject="$(git log -1 --pretty=%s "$commit")"
+    for entry in "${bumped_plugins[@]}"; do
+      plugin="${entry%%=*}"
+      version="${entry#*=}"
+      tag="v${version}"
+
+      shape_ok=0
+      tag_ok=0
+
+      [[ "$subject" =~ ^chore\(release\):\ bump\ ${plugin}\ to\ v${version}$ ]] && shape_ok=1
+      if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+        tag_commit="$(git rev-list -n 1 "refs/tags/${tag}" 2>/dev/null || true)"
+        [ "$tag_commit" = "$commit" ] && tag_ok=1
+      fi
+
+      if [ "$shape_ok" -eq 0 ] || [ "$tag_ok" -eq 0 ]; then
+        short="$(git rev-parse --short "$commit")"
+        echo "pre-push: commit ${short} bumps ${plugin} → ${version} but is not a proper release:" >&2
+        echo "  subject: ${subject}" >&2
+        [ "$shape_ok" -eq 0 ] && echo "  ✗ subject must be: chore(release): bump ${plugin} to v${version}" >&2
+        [ "$tag_ok"   -eq 0 ] && echo "  ✗ no annotated tag '${tag}' pointing at ${short}" >&2
+        violations=$((violations+1))
+      fi
+    done
+  done < <(git rev-list --reverse "${range_args[@]}")
+done
+
+if [ "$violations" -gt 0 ]; then
+  cat >&2 <<EOF
+
+A version bump must go through:
+  scripts/release-plugin.sh <plugin> <patch|minor|major|X.Y.Z>
+
+…which produces a 'chore(release): bump <plugin> to vX.Y.Z' commit and an
+annotated 'vX.Y.Z' tag in lockstep. Claude Code's plugin update resolver
+keys off git tags — without the tag, your release is invisible to users.
+
+Push the tags too:  git push --follow-tags
+
+To bypass intentionally:  git push --no-verify
+EOF
+  exit 1
+fi
+
+exit 0
