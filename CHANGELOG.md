@@ -1,3 +1,39 @@
+## v1.18.0 (2026-05-09)
+
+### BREAKING
+
+- **qute-essentials**: lifecycle skills move to the **drift-on-branches**
+  model. Handoffs and TASKS.md edits now live on whichever branch the
+  work happened on (formerly: dev-only state with cross-tree commit
+  ceremony from worktrees). They reach dev via PR merge. `/status`
+  walks `git worktree list` to surface in-flight state from every
+  active branch — no longer assumes dev is canonical.
+  - `/handoff` step 6 simplified: `git add + commit + push` on the
+    current branch, no cross-tree dance, no print-commands ceremony.
+    Pre-flight check refuses if there are unstaged edits to handoff
+    or TASKS.md paths from outside the skill's own writes.
+  - `/status` rewritten to walk the worktree umbrella. Each worktree's
+    latest handoff (with `status:` and first `next[0].action`) and
+    TASKS.md::Now appear in the dashboard, grouped by branch. Orphan
+    detection cross-references against the union of `docs/tasks/*.md`
+    slugs across all worktrees, not just dev.
+  - `/pickup` simplified to a thin wrapper: run /status, smart-pick
+    latest in-progress handoff (or filter by explicit slug), load plan
+    + handoff (capped at 2 files / 2000 tokens), brief in 150 words.
+  - **Migration impact for projects using DR-010-style "TASKS.md is
+    dev-only" pre-commit hooks:** drop the hook (or relax it) to allow
+    TASKS.md edits on feat/* and research/* branches. Document the
+    drift model in your project's work-organization rule.
+  - **Filename collision risk:** two branches handing off on the same
+    day with the same task slug produce identical filenames. Rare in
+    solo work; resolve add/add conflict manually at PR if it happens.
+
+### Refactor
+
+- **qute-essentials**: `/status` smoke-tested at <200ms wall time on a
+  ~2-worktree project (frontmatter parsing via awk, no per-handoff
+  git operations).
+
 ## v1.17.2 (2026-05-09)
 
 ### Feat

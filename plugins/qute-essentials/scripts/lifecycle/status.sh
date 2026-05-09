@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
 # /status — pure-bash lifecycle dashboard. Target: <500ms wall time.
 #
+# Drift-on-branches model: handoffs and TASKS.md updates live on whichever
+# branch the work was on. /status walks `git worktree list` to surface
+# in-flight state from every active branch, plus subsystem changes since
+# the last release.
+#
 # Reads:
 #   $CLAUDE_PROJECT_DIR/CLAUDE.md   (Subsystems table — alias + production paths)
-#   git tag --list 'v*'             (latest release, single namespace)
+#   git tag --list 'v*'             (latest release; single namespace)
 #   git log --first-parent -- ...   (last change per subsystem path)
-#   git worktree list               (active worktrees)
-#   TASKS.md                        (Now items)
-#   .claude/handoffs/*.md           (orphan handoff check)
+#   git worktree list               (active worktrees of this repo)
+#   each worktree's .claude/handoffs/*.md  (latest handoff per worktree, frontmatter parsed)
+#   each worktree's TASKS.md::Now   (active queue per branch)
+#   each worktree's docs/tasks/*.md (plan-file frontmatter, optional)
 #
 # Writes: stdout only. No LLM, no file mutations.
 #
 # Args:
-#   $1 (optional)  — alias filter; if given, restrict to that subsystem only
-set -euo pipefail
+#   $1 (optional)  — alias filter; if given, restrict subsystems to that one.
+set -uo pipefail
 
 cd "${CLAUDE_PROJECT_DIR:-$PWD}"
 filter="${1:-}"
 
 # ---- Subsystems registry ------------------------------------------------
 # Parse alias + production paths from CLAUDE.md::Subsystems table.
-# Each entry: <alias>\t<comma-separated paths or empty>
 # Column 3 is parsed for backticked path tokens containing '/'. Rows whose
-# column 3 starts with '(' (e.g. "(research-only — ...)") are treated as
-# having no production paths.
+# column 3 starts with '(' are treated as having no production paths.
 mapfile -t SUBSYSTEMS < <(
   awk '
     BEGIN { OFS="\t" }
@@ -47,7 +51,6 @@ mapfile -t SUBSYSTEMS < <(
   ' CLAUDE.md 2>/dev/null
 )
 
-# Apply filter if given.
 if [ -n "$filter" ]; then
   filtered=()
   for entry in "${SUBSYSTEMS[@]}"; do
@@ -56,6 +59,36 @@ if [ -n "$filter" ]; then
   done
   SUBSYSTEMS=("${filtered[@]}")
 fi
+
+# ---- Frontmatter parsing helpers ----------------------------------------
+# Extract a top-level scalar from YAML frontmatter (first --- block).
+# Usage: yaml_get <file> <key>
+yaml_get() {
+  awk -v key="$1" '
+    /^---$/{n++; next}
+    n==1 && $0 ~ "^"key":" {
+      sub("^"key":[ ]*", "");
+      gsub(/[" ]/, "");
+      print; exit
+    }
+    n>=2 { exit }
+  ' "$2" 2>/dev/null
+}
+
+# Extract first action: from a `next:` list block in frontmatter.
+yaml_first_next_action() {
+  awk '
+    /^---$/{n++; next}
+    n==1 && /^next:/{ in_next=1; next }
+    n==1 && in_next && /^[a-zA-Z_]+:/ && !/^[ \t]/{ in_next=0 }
+    n==1 && in_next && /action:/{
+      sub(/.*action:[ ]*"?/, "");
+      sub(/"$/, "");
+      print; exit
+    }
+    n>=2 { exit }
+  ' "$1" 2>/dev/null
+}
 
 # ---- Header -------------------------------------------------------------
 project=$(basename "$PWD")
@@ -66,7 +99,7 @@ dirty=""
 
 echo "$project @ $branch$dirty  ·  $last"
 
-# Latest release + commits ahead on dev (single namespace, vX.Y.Z)
+# Latest release + commits ahead on dev
 release=$(git tag --list 'v*' 2>/dev/null | sort -V | tail -1)
 if [ -n "$release" ]; then
   release_date=$(git log -1 --format='%cs' "$release" 2>/dev/null)
@@ -88,7 +121,6 @@ if [ "${#SUBSYSTEMS[@]}" -gt 0 ]; then
     if [ -z "$paths" ]; then
       last_change="(research-only)"
     else
-      # shellcheck disable=SC2206
       IFS=',' read -ra path_arr <<< "$paths"
       last_change=$(git log --first-parent -1 --format='%cs %h %s' -- "${path_arr[@]}" 2>/dev/null | cut -c -50)
       [ -z "$last_change" ] && last_change="(no commits on these paths)"
@@ -101,71 +133,116 @@ if [ "${#SUBSYSTEMS[@]}" -gt 0 ]; then
   echo
 fi
 
-# ---- Worktrees ----------------------------------------------------------
-wt_count=$(git worktree list 2>/dev/null | wc -l)
-echo "Worktrees ($wt_count):"
-git worktree list 2>/dev/null | awk '
-  {
-    path=$1; rest=$0;
-    sub(/^[^ ]+ +[^ ]+ +/, "", rest);
-    n=split(path, p, "/"); name=p[n];
-    printf "  %-30s %s\n", name, rest
-  }'
-echo
+# ---- Worktree dashboard --------------------------------------------------
+# For each worktree: branch, latest handoff (with status + next), Now items
+# from that worktree's TASKS.md.
+mapfile -t WORKTREES < <(
+  git worktree list --porcelain 2>/dev/null | awk '
+    /^worktree /{wt=$2}
+    /^branch /{print wt "\t" $2}
+  '
+)
 
-# ---- TASKS.md::Now ------------------------------------------------------
-if [ -f TASKS.md ]; then
-  now=$(awk '
-    /^## Now/{flag=1; next}
-    /^## /{flag=0}
-    flag && /^### /{ sub(/^### /, ""); print "  " $0 }
-  ' TASKS.md)
-  if [ -n "$now" ]; then
-    echo "Now (TASKS.md):"
-    echo "$now"
+if [ "${#WORKTREES[@]}" -gt 0 ]; then
+  echo "Active worktrees:"
+  for entry in "${WORKTREES[@]}"; do
+    wt="${entry%%$'\t'*}"
+    branch_full="${entry#*$'\t'}"
+    branch_short="${branch_full#refs/heads/}"
+    wt_name=$(basename "$wt")
+    printf '  %-30s [%s]\n' "$wt_name" "$branch_short"
+
+    # Latest handoff in this worktree (by mtime)
+    if [ -d "$wt/.claude/handoffs" ]; then
+      latest=$(ls -t "$wt"/.claude/handoffs/*.md 2>/dev/null | head -1)
+      if [ -n "$latest" ] && [ -f "$latest" ]; then
+        fname=$(basename "$latest")
+        st=$(yaml_get status "$latest")
+        nxt=$(yaml_first_next_action "$latest")
+        line="    handoff: $fname"
+        [ -n "$st" ] && line="$line · $st"
+        [ -n "$nxt" ] && line="$line · next: $nxt"
+        echo "$line"
+      fi
+    fi
+  done
+  echo
+fi
+
+# ---- TASKS.md::Now per worktree -----------------------------------------
+# Each worktree may have its own Now (drift-on-branches). Show all.
+if [ "${#WORKTREES[@]}" -gt 0 ]; then
+  any_now=0
+  buf=""
+  for entry in "${WORKTREES[@]}"; do
+    wt="${entry%%$'\t'*}"
+    branch_full="${entry#*$'\t'}"
+    branch_short="${branch_full#refs/heads/}"
+    if [ -f "$wt/TASKS.md" ]; then
+      now=$(awk '
+        /^## Now/{flag=1; next}
+        /^## /{flag=0}
+        flag && /^### /{ sub(/^### /, ""); print "    " $0 }
+      ' "$wt/TASKS.md")
+      if [ -n "$now" ]; then
+        buf+="  on $branch_short:"$'\n'"$now"$'\n'
+        any_now=1
+      fi
+    fi
+  done
+  if [ "$any_now" = "1" ]; then
+    echo "Now (per branch):"
+    printf '%s' "$buf"
     echo
   fi
 fi
 
 # ---- Orphan handoffs ----------------------------------------------------
-if [ -d .claude/handoffs ]; then
-  cutoff=$(date -d '30 days ago' +%s 2>/dev/null || echo 0)
-  orphans=()
-  for f in .claude/handoffs/*.md; do
+# Across all worktrees: handoff has task: that doesn't match any
+# docs/tasks/{slug}.md and isn't __exploratory__.
+mapfile -t ALL_PLANS < <(
+  for entry in "${WORKTREES[@]}"; do
+    wt="${entry%%$'\t'*}"
+    [ -d "$wt/docs/tasks" ] || continue
+    for f in "$wt"/docs/tasks/*.md; do
+      [ -f "$f" ] || continue
+      basename "$f" .md
+    done
+  done | sort -u
+)
+
+orphans=()
+cutoff=$(date -d '30 days ago' +%s 2>/dev/null || echo 0)
+for entry in "${WORKTREES[@]}"; do
+  wt="${entry%%$'\t'*}"
+  branch_full="${entry#*$'\t'}"
+  branch_short="${branch_full#refs/heads/}"
+  [ -d "$wt/.claude/handoffs" ] || continue
+  for f in "$wt"/.claude/handoffs/*.md; do
     [ -f "$f" ] || continue
     mtime=$(stat -c %Y "$f" 2>/dev/null || echo 0)
     [ "$mtime" -lt "$cutoff" ] && continue
-    # Extract task: from first frontmatter block.
-    task=$(awk '
-      /^---$/{n++; next}
-      n==1 && /^task:/{ sub(/^task:[ ]*/, ""); gsub(/[" ]/, ""); print; exit }
-      n>=2 { exit }
-    ' "$f")
+    task=$(yaml_get task "$f")
     [ "$task" = "__exploratory__" ] && continue
-    fname=$(basename "$f")
-    # Disqualify orphan if: no task field; or task slug appears in TASKS.md;
-    # or filename is cited from any TASKS.md → handoff: line.
-    cited=0
-    grep -qE "(### .*$task|task:[ ]*$task)" TASKS.md 2>/dev/null && cited=1
-    grep -qF "$fname" TASKS.md 2>/dev/null && cited=1
-    if [ -z "$task" ]; then
-      orphans+=("$fname (no task: field)")
-    elif [ "$cited" = "0" ]; then
-      # Status: concluded/abandoned are expected to lack a TASKS.md row.
-      status=$(awk '
-        /^---$/{n++; next}
-        n==1 && /^status:/{ sub(/^status:[ ]*/, ""); gsub(/[" ]/, ""); print; exit }
-        n>=2 { exit }
-      ' "$f")
-      case "$status" in
+    [ -z "$task" ] && { orphans+=("$(basename "$f") on $branch_short (no task: field)"); continue; }
+    # Match against any known plan slug
+    matched=0
+    for plan in "${ALL_PLANS[@]}"; do
+      [ "$task" = "$plan" ] && { matched=1; break; }
+    done
+    if [ "$matched" = "0" ]; then
+      st=$(yaml_get status "$f")
+      case "$st" in
         concluded|abandoned) ;;
-        *) orphans+=("$fname (task: $task — no link in TASKS.md, status: ${status:-unset})") ;;
+        *) orphans+=("$(basename "$f") on $branch_short (task: $task — no plan, status: ${st:-unset})") ;;
       esac
     fi
   done
-  if [ "${#orphans[@]}" -gt 0 ]; then
-    echo "Orphan handoffs (no TASKS.md link):"
-    printf '  %s\n' "${orphans[@]}"
-    echo
-  fi
+done
+
+if [ "${#orphans[@]}" -gt 0 ]; then
+  # de-dupe (handoffs visible in multiple worktrees if same branch is checked out — shouldn't happen, but defend)
+  echo "Orphan handoffs:"
+  printf '  %s\n' "${orphans[@]}" | sort -u
+  echo
 fi

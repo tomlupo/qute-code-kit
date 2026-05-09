@@ -1,6 +1,6 @@
 {
   "name": "qute-essentials",
-  "version": "1.17.2",
+  "version": "1.18.0",
   "description": "Essential hooks (ruff, doc-reminder, notifications) + 6 security guards (destructive, malware, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, config, ship, audit, test, gbu, wtf, status",
   "author": {
     "name": "twilc"
