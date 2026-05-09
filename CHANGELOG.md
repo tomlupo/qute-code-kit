@@ -1,3 +1,22 @@
+## v1.14.0 (2026-05-09)
+
+### Feat
+
+- **qute-essentials**: /worktrees skill becomes config-driven via
+  `.claude/worktree.json` (`base_path`, `branch_pattern`, `default_type`,
+  `shared_dirs`, `copy_files`, `venv_setup`, `base_branch`) plus optional
+  `.claude/post-worktree.sh` hook for project-specific custom setup.
+  Projects with shared `data/`/`models/` dirs, custom venv layout, or
+  out-of-repo worktree conventions (quant/ML monorepos) no longer need
+  bespoke worktree-creation instructions in their own rules — the skill
+  reads project config and applies symlinks, file copies, and uv/pip
+  venv setup automatically. Worktree slug is intended to match the
+  project's task-slug convention (`docs/tasks/{slug}.md`), so one
+  identifier threads through branch / worktree dir / venv / Stop hook /
+  handoff frontmatter. Backwards-compatible: projects without
+  `worktree.json` get the prior in-repo `.worktrees/<branch>` default
+  behavior.
+
 ## v1.12.0 (2026-05-01)
 
 ### Feat
