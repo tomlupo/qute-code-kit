@@ -124,7 +124,6 @@ Config stored in `config/guards.json`. Changes take effect immediately.
 | Hook | Event | Purpose |
 |------|-------|---------|
 | `check-update.sh` | SessionStart | Daily version check against GitHub |
-| `forced_eval.sh` | UserPromptSubmit | Skill evaluation on every prompt |
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with ruff |
 | `doc_reminder.py` | PostToolUse (Edit/Write) | ADR-aware reminder when editing decision-related files |
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Activity logging |
