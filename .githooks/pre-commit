@@ -48,4 +48,31 @@ intentionally:  git commit --no-verify
 EOF
   exit 1
 fi
+
+# Native manifest validation — catches malformed plugin.json, broken skill
+# frontmatter, bad hooks/commands wiring. Free safety net via the official
+# CLI; we don't have to maintain our own JSON-schema checks.
+if command -v claude >/dev/null 2>&1; then
+  validation_failed=0
+  while IFS= read -r entry; do
+    name="${entry%%$'\t'*}"
+    plugin_dir="plugins/${name}"
+    [ -d "$plugin_dir" ] || continue
+    if ! claude plugin validate "$plugin_dir" >/tmp/claude-validate.$$ 2>&1; then
+      echo "pre-commit: claude plugin validate failed for $plugin_dir:" >&2
+      cat /tmp/claude-validate.$$ >&2
+      validation_failed=1
+    fi
+    rm -f /tmp/claude-validate.$$
+  done < <(jq -r '.plugins[] | "\(.name)\t\(.version)"' "$marketplace_json")
+
+  if [ "$validation_failed" -ne 0 ]; then
+    cat >&2 <<EOF
+
+Bypass with:  git commit --no-verify
+EOF
+    exit 1
+  fi
+fi
+
 exit 0

@@ -79,6 +79,22 @@ automatically.
 does itself. The script already produces the `chore(release): bump …`
 commit and the `vX.Y.Z` tag. Caller pushes:  `git push --follow-tags`.
 
+### After the release: end-user upgrade path
+
+Once the tag is pushed, end-users (including you on other clones / on
+core / lab) update their installed plugin via the official CLI:
+
+```bash
+claude plugin update <plugin-name>@<marketplace-name>
+# e.g. claude plugin update qute-essentials@qute-marketplace
+```
+
+The CLI fetches the marketplace clone, sees the new version, and
+installs it into `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`.
+A running session then needs `/reload-plugins` (or a full restart) to
+apply. Mention this in the report you give the user after a successful
+release — closes the loop on "shipped → installed".
+
 ## Task — Python mode
 
 Run exactly one command, then report the outcome:
