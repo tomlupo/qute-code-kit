@@ -1,3 +1,60 @@
+## v1.16.0 (2026-05-09)
+
+### BREAKING
+
+- **qute-essentials**: removed the `forced_eval` UserPromptSubmit hook
+  (the "MANDATORY: TOOL ACTIVATION SEQUENCE" wall injected on every
+  prompt). Modern Claude models pick up skills from the system prompt
+  without a forced YES/NO evaluation pass — the per-turn token cost no
+  longer pays for itself. `forced_eval.py` and `forced_eval.sh` remain
+  on disk for opt-in revival; only the hook entry is removed from
+  `hooks/hooks.json`.
+- **qute-essentials**: `langfuse` guard now defaults to
+  `enabled: false`. Tracing is still useful for headless / scheduled /
+  agentic-cron runs where you can't observe live, but ~2.7s per
+  PostToolUse is too costly for interactive sessions. Re-enable per
+  session with `/guard langfuse on` or per process with
+  `CLAUDE_GUARD_LANGFUSE=1`.
+
+### Feat
+
+- **qute-essentials**: plugin-aware release tooling for marketplace
+  monorepos. New `scripts/release-plugin.sh` bumps
+  `plugins/<name>/plugin.json` and regenerates
+  `.claude-plugin/marketplace.json` atomically (no more drift between
+  source-of-truth and catalog), prepends a CHANGELOG entry from
+  Conventional Commits since the last `vX.Y.Z` tag, commits, and tags.
+  New `.githooks/pre-commit` blocks any future commit that would
+  introduce drift between the two version sources. Activate per-clone
+  with `git config core.hooksPath .githooks`.
+- **qute-essentials**: `/ship` learns plugin-mode dispatch — when the
+  current repo has `.claude-plugin/marketplace.json` it routes to
+  `scripts/release-plugin.sh` instead of the pyproject/commitizen path.
+  Python projects continue through the existing flow unchanged.
+- **qute-essentials/wtf**: `/wtf` adds a hookify-rule tier as the third
+  guardrail layer (after feedback memory and CLAUDE.md). When a
+  frustration maps to a pattern-catchable failure (specific tool +
+  input regex, low false-positive rate, high-cost recurrence), `/wtf`
+  now also offers a hookify rule alongside the memory and CLAUDE.md
+  recording. Behavior failures that aren't regex-matchable stop at
+  memory to avoid rule-thicket noise.
+
+### Refactor
+
+- **qute-essentials**: tighten lifecycle skills under the
+  single-namespace model. `/handoff` body synthesis is terser (Summary
+  2-4 sentences max + Next steps required; Decisions/Risks now
+  optional, "skip when work was straightforward"); diff is `git diff
+  --stat HEAD~5` instead of full diff. `/pickup` context cap halved (4
+  files / 3000 tokens → 2 files / 2000 tokens) with explicit "reading
+  more is the speed trap" guidance. `/status` reports `Latest release:
+  vX.Y.Z` + commits ahead on `dev`, replacing per-subsystem
+  `{alias}-vX.Y.Z` tag queries with `git log --first-parent` against
+  production paths from `CLAUDE.md::Subsystems` column 3 (rows whose
+  column 3 starts with `(` are reported as `(research-only)`). `/ship`
+  documents Plugin / Python mode dispatch explicitly; the prior
+  `/ship-setup` skill is now visibly folded in.
+
 ## v1.15.0 (2026-05-09)
 
 ### BREAKING

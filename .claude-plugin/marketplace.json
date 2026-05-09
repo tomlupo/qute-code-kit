@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "qute-essentials",
-      "description": "Essential hooks (ruff, doc-reminder, skill-eval, notifications) + 6 security guards (destructive, malware, secrets, audit, lakera, langfuse) + universal skills: commits, worktrees, handoff, pickup, decision, readme, guard, config, ship, audit, test, gbu, wtf, status",
-      "version": "1.15.0",
+      "description": "Essential hooks (ruff, doc-reminder, notifications) + 6 security guards (destructive, malware, secrets, audit, lakera, langfuse) + universal skills: commits, worktrees, handoff, pickup, decision, readme, guard, config, ship, audit, test, gbu, wtf, status",
+      "version": "1.16.0",
       "author": {
         "name": "twilc"
       },
