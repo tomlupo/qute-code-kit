@@ -5,6 +5,7 @@ Sends a push notification so the user doesn't have to stare at the terminal.
 """
 
 import json
+import platform
 import sys
 from pathlib import Path
 
