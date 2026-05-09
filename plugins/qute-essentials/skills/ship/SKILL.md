@@ -38,6 +38,24 @@ machinery in place and a `CHANGELOG.md` at the repo root.
 
 Webapps: use `gstack ship` from the shell instead.
 
+## Pre-bump gates
+
+Before invoking either mode's bump, run two checks. Treat them as
+release gates — releasing over a red gate is the kind of thing the
+release commit should explicitly note as a skip.
+
+1. **Tests** — run `/test`. Refuse to proceed on failures unless the
+   user explicitly says to ship anyway ("ship anyway", "skip tests",
+   "skip gates"). Skip silently if no test framework is detected —
+   that is not a failure, just an absence.
+2. **Dep audit** (Python mode only) — run `/audit`. Surface findings.
+   Warn loudly if CVEs are found, but do **not** block — audit
+   results are informational, not gating. Skip in plugin mode.
+
+When the user explicitly bypasses gates, mention the skip in the
+release commit body so the audit trail captures *why* the release went
+out without verification.
+
 ## Task — Plugin mode
 
 ```bash
