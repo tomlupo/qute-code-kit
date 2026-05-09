@@ -1,35 +1,75 @@
 #!/usr/bin/env python3
 """
-Helper script for the `guard` skill. Toggles any guard on/off and reports
-current status.
+guard_toggle.py — view or toggle qute-essentials security guards.
 
-Replaces the inline ``python -c`` one-liner that used to live in the skill
-body (which violated the bash-discipline "no inline python" rule and also
-hardcoded the plugin version in the config path).
+The `/guard` skill dispatches here; this script is the deterministic kernel
+that holds all the guard semantics, gotchas, and config-file handling.
 
-Usage:
-    guard_toggle.py status                    # show current status table
-    guard_toggle.py lakera on                 # enable Lakera Guard
-    guard_toggle.py lakera off                # disable Lakera Guard
-    guard_toggle.py langfuse on               # enable Langfuse tracing
-    guard_toggle.py langfuse off              # disable Langfuse tracing
-    guard_toggle.py secrets on                # enable secrets guard
-    guard_toggle.py secrets off               # disable secrets guard
-    guard_toggle.py audit on                  # enable audit guard
-    guard_toggle.py audit off                 # disable audit guard
-    guard_toggle.py destructive on            # enable destructive-command guard
-    guard_toggle.py destructive off           # disable destructive-command guard
-    guard_toggle.py malware on                # enable malware-scan guard
-    guard_toggle.py malware off               # disable malware-scan guard
-    guard_toggle.py all on                    # enable all guards
-    guard_toggle.py all off                   # disable all guards
+USAGE
+    guard_toggle.py [-h|--help]
+    guard_toggle.py [status]                    # show current status table
+    guard_toggle.py <name> <on|off>             # toggle one guard
+    guard_toggle.py all <on|off>                # toggle all guards
 
-Config location resolution (first hit wins):
-    1. ${CLAUDE_PLUGIN_ROOT}/config/guards.json (preferred, version-agnostic)
-    2. <script-dir>/../config/guards.json (relative to this script)
-    3. ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/config/guards.json (fallback, any version)
+Where <name> is one of: lakera, langfuse, secrets, audit, destructive,
+malware.
 
-Exit codes:
+GUARDS
+
+    lakera        Prompt-injection screening on tool outputs (WebFetch,
+                  WebSearch, MCP responses, untrusted Bash/Read content).
+                  Requires LAKERA_API_KEY. Effectively off if the key
+                  is missing, even when 'enabled: true'.
+
+    langfuse      Tracing / evaluation. PostToolUse spans grouped by
+                  Claude session ID. Requires LANGFUSE_SECRET_KEY +
+                  LANGFUSE_PUBLIC_KEY. Costs ~2.7s per tool call —
+                  default OFF for interactive; turn ON for headless /
+                  agentic-cron runs (CLAUDE_GUARD_LANGFUSE=1).
+
+    secrets       Block Write/Edit operations that leak API keys,
+                  tokens, or target credential files (.env, *.pem,
+                  id_rsa, database.ini). May false-positive on test
+                  fixtures with fake key patterns — disable per-write
+                  with CLAUDE_GUARD_SECRETS=0 in the failing call only.
+
+    audit         Auto-run pip-audit after package installs (uv add /
+                  sync / lock, pip install). Reports CVEs against the
+                  OSV database. Informational, non-blocking.
+
+    destructive   Block dangerous shell commands (rm -rf, git reset
+                  --hard, DROP TABLE, kubectl delete, force-push, etc).
+                  May false-positive on legitimate cleanup commands
+                  like 'rm -rf dist/' or 'git reset --hard' on a clean
+                  feature branch — disable temporarily, then re-enable.
+
+    malware       Scan file writes for obfuscated code, crypto
+                  drainers, reverse shells, exfiltration patterns.
+
+CONFIG RESOLUTION (first hit wins)
+
+    1. ${CLAUDE_PLUGIN_ROOT}/config/guards.json
+    2. <script-dir>/../config/guards.json
+    3. ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/config/guards.json
+
+GOTCHAS
+
+  - API-key guards (lakera, langfuse) are EFFECTIVELY OFF when their
+    key env var is missing, regardless of 'enabled' value. The status
+    table shows 'missing' in the API key column for this case.
+  - Guard state in guards.json is session-persistent — changes take
+    effect immediately on the next tool call and survive across
+    sessions. There is no auto-reset.
+  - CLAUDE_SKIP_GUARDS=1 bypasses ALL guards regardless of guards.json.
+    Never set this in a shell profile or .env — only inline for a
+    specific command that needs it.
+  - Per-guard env overrides: CLAUDE_GUARD_<NAME>=0 disables one guard
+    for the current process (e.g. CLAUDE_GUARD_LANGFUSE=0). Use this
+    for cron sessions that legitimately need different guard policies
+    than your interactive shell.
+
+EXIT CODES
+
     0 — success
     1 — usage error or config missing
     2 — unknown guard name
@@ -165,6 +205,11 @@ def set_guard(config: dict, guard: str, enabled: bool) -> None:
 
 def main() -> None:
     args = sys.argv[1:]
+
+    if args and args[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return
+
     if not args:
         args = ["status"]
 

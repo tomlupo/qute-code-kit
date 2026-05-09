@@ -1,112 +1,40 @@
 ---
 name: config
-description: View or update qute-essentials plugin configuration — currently covers notification settings (ntfy.sh server, topic, priority, event filters) and is the intended home for future qute-essentials plugin-wide settings. Use when the user asks to change notification settings, view current config, enable/disable specific events for notifications, or configure the plugin. Do NOT use for toggling Lakera Guard or Langfuse (use the `guard` skill for those).
-argument-hint: "[--set key=value] [--enable event] [--disable event]"
+description: View or update qute-essentials notification config (ntfy.sh server, topic, priority, event flags, command filters). Triggers — "show config", "set ntfy topic", "enable task_complete notifications", "disable build_failure", "set min duration to 60s". Do NOT use for security guards (lakera, langfuse, etc.) — that's `/guard`.
+argument-hint: "[show | set <key>=<value> | enable <event> | disable <event> | filter <key>=<value>]"
 ---
 
 # /config
 
-View or update qute-essentials plugin configuration. Currently scoped to
-notification settings; intended to grow into the central entry point for all
-qute-essentials plugin-wide configuration over time.
+Run the helper and print stdout verbatim:
 
-**Out of scope**: Lakera Guard and Langfuse toggles — those live in the `guard`
-skill. A future refactor may fold guard into this skill for a single `/config`
-entry point.
-
-## Usage
-
-```
-/config                                   # show current config
-/config --set <key>=<value>               # update a config value
-/config --enable <event>                  # enable notification for an event
-/config --disable <event>                 # disable notification for an event
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/config_toggle.py" $@
 ```
 
-## Behavior
+Pass through the user's args verbatim. The script handles config
+resolution, schema validation, mutation, and the pretty-printed view.
 
-### View configuration (no args)
+For specific questions ("which events are valid?", "what's the
+ntfy.sh rate limit?", "why doesn't disabling an event silence
+the hook?"), invoke:
 
-```
-📱 qute-essentials Configuration
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Notifications (ntfy.sh)
-  Server: https://ntfy.sh
-  Topic: claude-notifications
-  Priority: default
-  Tags: 🤖
-
-## Enabled Events
-✅ task_complete
-✅ build_success
-✅ build_failure
-✅ test_complete
-✅ error
-
-## Disabled Events
-❌ commit
-❌ session_end
-
-## Filters
-  Min duration: 30s
-  Monitored commands: npm, python, pytest, make, cargo
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/config_toggle.py" --help
 ```
 
-### Update a value
+…rather than answering from memory. The script's `--help` is the
+authoritative reference — schema, valid keys, gotchas, and
+config-file resolution all live there.
 
-```
-/config --set topic=my-custom-topic
-/config --set priority=high
-/config --set server=https://my-ntfy.example.com
-```
+## Out of scope
 
-### Enable/disable events
+Security guards (lakera, langfuse, secrets, audit, destructive,
+malware) are managed by `/guard`, not here. `/config` is the
+notification-and-future-non-guard entry point.
 
-```
-/config --enable commit
-/config --disable build_success
-```
+## Related
 
-## Configuration keys
-
-| Key | Description | Default |
-|---|---|---|
-| `server` | ntfy server URL | `https://ntfy.sh` |
-| `topic` | Notification topic | `claude-notifications` |
-| `priority` | Default priority | `default` |
-| `tags` | Default tags | `robot` |
-
-## Notification events
-
-| Event | Description |
-|---|---|
-| `task_complete` | Long-running task finishes |
-| `build_success` | Build completes successfully |
-| `build_failure` | Build fails |
-| `test_complete` | Tests finish running |
-| `commit` | Git commit created |
-| `error` | Error occurs |
-| `session_end` | Claude session ends |
-
-## Filters
-
-- `min_duration_seconds` — only notify for commands taking longer than this
-- `commands` — list of commands to monitor
-
-## Implementation
-
-Configuration is persisted at `${CLAUDE_PLUGIN_ROOT}/config/ntfy.json`.
-Read and write this file directly using `Read` and `Edit`/`Write` tools.
-Notifications themselves are sent by the `notify.py` helper script and
-triggered by PostToolUse / Notification hooks — they are **not** manually
-invoked. This skill only manages the configuration values, not notification
-delivery.
-
-## Gotchas
-
-- **ntfy.sh is public** — anyone who knows your topic string can subscribe and read all notifications; use a hard-to-guess topic or a self-hosted server for sensitive projects
-- **ntfy.sh free-tier rate limit** is 250 messages/day — for projects with frequent builds, set `min_duration_seconds` high (e.g., 60) or switch to a self-hosted ntfy instance
-- **Changing `topic` only affects future notifications** — past notifications remain on the old topic; subscribers to the old topic stop receiving updates immediately
-- **The config file does not exist until first run or manual creation** — if `/config` shows an error, the file may not have been created yet; `/config --set topic=my-topic` will create it
-- **Guards (lakera, langfuse) are NOT managed here** — use `/guard` for those; `/config` is for notification settings only
+- `/guard` — security guards (guards.json)
+- `scripts/config_toggle.py` — the kernel this skill dispatches to
+- `scripts/notify.py` — actual ntfy delivery (consults this config)
