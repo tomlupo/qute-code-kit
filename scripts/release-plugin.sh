@@ -43,9 +43,9 @@ build_script="scripts/build-marketplace.py"
 [ -f "$marketplace_json" ] || { echo "error: $marketplace_json not found" >&2; exit 1; }
 [ -f "$build_script" ]     || { echo "error: $build_script not found" >&2; exit 1; }
 
-if [ -n "$(git status --porcelain)" ]; then
-  echo "error: working tree is dirty. commit or stash first." >&2
-  git status --short >&2
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "error: working tree has uncommitted tracked changes. commit or stash first." >&2
+  git status --short --untracked-files=no >&2
   exit 1
 fi
 
