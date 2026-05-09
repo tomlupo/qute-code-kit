@@ -1,3 +1,14 @@
+## v1.17.0 (2026-05-09)
+
+### Feat
+
+- thin /guard and /config skills + config_toggle.py
+- /ship pre-bump gates + plugin description fix
+
+### Fix
+
+- ignore untracked files in dirty-tree check
+
 ## v1.16.0 (2026-05-09)
 
 ### BREAKING
