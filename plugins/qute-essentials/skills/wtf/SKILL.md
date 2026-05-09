@@ -4,8 +4,9 @@ description: >-
   Activate when the user expresses frustration, anger, or incredulity at assistant or LLM
   behavior — says "wtf," "are you serious," "you ignored me," "wrong again," "this is useless,"
   or reacts with caps or profanity to output quality. Acknowledges the failure briefly, extracts
-  concrete issues, proposes the smallest fix, then records the failure as a feedback memory and
-  updates CLAUDE.md if a rule is warranted.
+  concrete issues, proposes the smallest fix, then records the failure across three guardrail tiers:
+  feedback memory (judgment), CLAUDE.md rule (structural), and a hookify rule (deterministic
+  enforcement) when the failure is pattern-catchable.
   Triggers: wtf, are you serious, you ignored, wrong again, hallucination, broken, useless, this is wrong.
 argument-hint: "[what went wrong]"
 ---
@@ -58,7 +59,47 @@ Check if the failure maps to a rule that belongs in the project's `CLAUDE.md`:
 
 If adding, append to the most relevant existing section in CLAUDE.md (or create a `## Conventions` section if none fits). Keep the rule under 2 lines — imperative voice.
 
-## Step 4: Follow-up action
+## Step 4: Offer a hookify rule if pattern-catchable
+
+Memory and CLAUDE.md are model-side guardrails — both depend on me recalling and applying them. For failures that match a deterministic pattern, a `hookify` rule adds a third tier: the harness blocks or warns regardless of model judgment.
+
+Offer a hookify rule **only if all three hold**:
+
+1. **Tool + input is regex-matchable** — a specific event (`bash`, `file`, `prompt`, `stop`) plus a regex on the command/path/text catches the failure cleanly.
+2. **Low false-positive rate** — the regex won't fire on legitimate uses you'd dismiss every time. False positives erode signal until rules get ignored.
+3. **High-cost recurrence** — the consequence is bad enough to justify a permanent guardrail.
+
+If any one is false, **stop at memory + CLAUDE.md**. Do not propose hookify for verbosity, tone, missing context, or other model-behavior failures — they aren't pattern-catchable and the rule thicket they create costs more than it saves.
+
+If all three hold, propose the rule and write it at:
+
+- **Project-scoped**: `<project_root>/.claude/hookify.<slug>.local.md` — when the rule applies to one repo
+- **User-scoped**: `~/.claude/hookify.<slug>.local.md` — when the rule applies everywhere
+
+Format:
+
+```markdown
+---
+name: <kebab-case-slug>
+enabled: true
+event: <bash|file|prompt|stop>
+pattern: <python regex>
+action: <warn|block>
+---
+
+<Short message: what failed last time, what to do instead.>
+```
+
+Default to `action: warn` unless the user explicitly wants a hard block. Hookify rules take effect immediately on the next tool call — no restart needed.
+
+**Triage examples:**
+- "you ran `rm -rf` without checking the path" → all three hold → **hookify** (`event: bash`, `pattern: rm\s+-rf`, `action: warn`)
+- "you edited `/home/prod/` files directly instead of via `sudo -u prod`" → all three hold → **hookify** (`event: file`, pattern matches the prod path)
+- "you summarized at the end again" → not pattern-catchable → **memory only**
+- "you used the wrong variable name" → too narrow, false-positives → **memory only**
+- "you pushed to main without `/ship`" → catchable, but `/ship` already gates this → **CLAUDE.md note only**
+
+## Step 5: Follow-up action
 
 After acknowledging and recording — default to action, not therapy. Choose based on context:
 
