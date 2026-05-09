@@ -1,3 +1,13 @@
+## v1.17.2 (2026-05-09)
+
+### Feat
+
+- native manifest validation in pre-commit + end-user upgrade docs in /ship
+
+### Fix
+
+- handoff YAML frontmatter + derived manifest missing version
+
 ## v1.17.1 (2026-05-09)
 
 ### Feat
