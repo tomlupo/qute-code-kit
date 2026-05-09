@@ -1,3 +1,9 @@
+## v1.17.1 (2026-05-09)
+
+### Feat
+
+- refactor/perf in CHANGELOG + pyproject sync + auto-stage derived manifest
+
 ## v1.17.0 (2026-05-09)
 
 ### Feat
