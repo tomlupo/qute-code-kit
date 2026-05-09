@@ -1,6 +1,6 @@
 ---
 name: status
-description: Print per-subsystem prod/dev tags, active worktrees, TASKS.md::Now items, and orphan handoff warnings. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what's live", "what version is in prod", or names a subsystem.
+description: Print latest release tag, per-subsystem last change, active worktrees, TASKS.md::Now items, and orphan handoff warnings. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what's live", "what changed in {subsystem}", or names a subsystem.
 argument-hint: "[alias]"
 ---
 
@@ -38,8 +38,9 @@ bash "$(dirname "$0")/../../scripts/lifecycle/status.sh" $1
 Print stdout verbatim. Surface non-zero exit as a warning.
 
 The script reads:
-- `$CLAUDE_PROJECT_DIR/CLAUDE.md` Subsystems table (alias list)
-- `git tag` namespaces matching `{alias}-v*`
+- `$CLAUDE_PROJECT_DIR/CLAUDE.md` Subsystems table (alias + production paths from column 3)
+- `git tag --list 'v*'` (latest release tag, single namespace)
+- `git log --first-parent -1 -- {subsystem-paths}` (last change per subsystem)
 - `git worktree list`
 - `TASKS.md::Now`
 - `.claude/handoffs/*.md` (orphan detection)
@@ -49,30 +50,33 @@ The skill MUST NOT call other skills, write files, or perform LLM synthesis.
 ## Output anatomy
 
 ```
-{project} @ {branch}{dirty?}  ·  {last commit hash + subject}
+{project} @ {branch}{dirty?}  ·  {last commit}
+Latest release: vX.Y.Z (YYYY-MM-DD)  ·  N commits ahead on dev
 
-Subsystem    Prod (main)            Dev                    Active
-  taa        taa-v4.8.1             taa-v5.1.0             research/taa-v6-...
-  selection  fundsel-v1.0.0         =                      —
-  ...
+Subsystem    Last change                                       Active branch
+  taa        2026-04-29 b12a6a0 docs(taa): mark v6/v7 super...  research/taa-v6
+  selection  2026-05-08 d496308 fix(selection): fund_master ... feat/selection-aum
+  saa        (research-only)                                    —
+  extract    2026-05-07 abc1234 feat(extract): santander Q1 ... —
+  app        2026-04-15 def5678 feat(app): allocator UI         —
 
 Worktrees (3):
   dm-evo                            [dev]
-  dm-evo-taa                        [research/taa-v6-...]
-  ...
+  dm-evo-taa-v6                     [research/taa-v6]
+  dm-evo-fundsel-aum-flags          [feat/selection-aum-flags]
 
 Now (TASKS.md):
-  TAA v6.0.0 — engine ship ...
-  Validate FI_PL_SHORT widening ...
+  TAA v6.0.0 — engine ship
+  Validate FI_PL_SHORT widening
 
 Orphan handoffs (no TASKS.md link):
   2026-05-XX-some-handoff.md (task: foo — not in TASKS.md, status: in-progress)
 ```
 
-Sections that are empty (no orphans, no Now items) are silently dropped.
+Sections that are empty (no orphans, no Now items, no subsystems registry) are silently dropped.
 
 ## Notes
 
-Per DR-010, this skill no longer reads `STATUS.md`. Subsystem state is regenerated from git tags and worktree state on every invocation — single source of truth, never stale.
+Per DR-010, this skill no longer reads `STATUS.md`. Per the single-namespace migration, this skill no longer queries `{alias}-vX.Y.Z` tags (retired alongside `/promote`). Subsystem-level "what's in prod?" is regenerated from `git log` against the production paths declared in column 3 of `CLAUDE.md::Subsystems`.
 
-Known gap: aliases whose tag namespace differs from the alias name (e.g. `selection` → legacy `prod-fundsel-*`) show blank `Prod (main)` until first promote in the new namespace. Future enhancement: optional `legacy_alias` field in CLAUDE.md::Subsystems.
+**Production paths parsing:** column 3 of the Subsystems table is parsed for backticked path tokens containing `/` (e.g. `` `src/taa_signals/` ``). Rows whose column 3 starts with `(` (parenthesized prose like `(research-only — ...)`) are treated as having no production paths and report `(research-only)` for last change.

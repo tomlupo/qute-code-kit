@@ -31,21 +31,25 @@ Resolution order:
 
 Refuse to proceed with no resolution. The `task:` field is the orphan-prevention anchor; missing it would defeat the design.
 
-### 2. Diff the session
+### 2. Diff the session — fast
 
 ```bash
-git diff HEAD~5 2>/dev/null  # or session-start ref if known
+git diff --stat HEAD~5 2>/dev/null  # paths + line counts only; cheap
 ```
 
-Files touched go in `files_touched:` frontmatter. If diff is huge, summarize directories rather than every file.
+Files touched go in `files_touched:`. If >20 files, list directories not files. Don't read full diffs unless the next step explicitly needs them — handoff describes outcomes, not contents.
 
-### 3. Synthesize handoff body
+### 3. Synthesize handoff body — keep it terse
 
-Required sections in the markdown body:
-- **Summary** (3-5 sentences): what was tried, what worked, what didn't.
-- **Decisions** (bullet list): non-trivial choices made, one sentence each.
-- **Next steps** (numbered list): MUST mirror the `next:` frontmatter list, in the same order.
-- **Risks / open questions** (optional bullets): things the resumer should be aware of.
+Required:
+- **Summary** (2-4 sentences max): what was tried, the outcome.
+- **Next steps** (numbered list): mirrors the `next:` frontmatter list, same order.
+
+Optional (only when there's something non-obvious worth recording):
+- **Decisions**: non-trivial choices the resumer needs to know.
+- **Risks / open questions**: blockers or unknowns.
+
+Skip the optional sections when the work was straightforward — they exist to capture *non-obvious* state, not to fill a template.
 
 ### 4. Write the handoff file
 

@@ -1,23 +1,67 @@
 ---
 name: ship
-description: Cut a release for the current Python project. Bumps `pyproject.toml::version`, updates `CHANGELOG.md`, and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked. First-time setup (commitizen + CHANGELOG + workflow) runs automatically. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Python-only in v1; webapps use `gstack ship` instead.
-argument-hint: ""
+description: Cut a release for the current project. Two modes — Python (bumps `pyproject.toml::version` via commitizen) and Plugin (bumps `plugins/<name>/plugin.json` and regenerates `.claude-plugin/marketplace.json` via `scripts/release-plugin.sh`). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked. First-time setup (commitizen + CHANGELOG + workflow) runs automatically for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
+argument-hint: "[plugin-name] [patch|minor|major|X.Y.Z]"
 ---
 
 # /ship
 
-Cut a release for the current project. Bumps `pyproject.toml::version`,
-updates `CHANGELOG.md`, and creates an annotated `vX.Y.Z` git tag based on
-Conventional Commits since the last release. First-time setup runs
+Cut a release for the current project. Updates `CHANGELOG.md` and creates an
+annotated `vX.Y.Z` git tag based on Conventional Commits since the last
+release.
+
+`vX.Y.Z` on `main` is the only release-tag namespace. Per-subsystem semver
+(formerly via `/promote`) is retired; track subsystem-level changes with
+`git log --first-parent -- src/{subsystem}/`.
+
+## Mode dispatch
+
+Detect mode by what's in the repo root:
+
+1. **`.claude-plugin/marketplace.json` exists** → **Plugin mode**. The repo
+   is a plugin marketplace (one or more `plugins/<name>/plugin.json` files).
+   Run `scripts/release-plugin.sh <plugin-name> <bump-or-version>`. Args:
+   - `<plugin-name>` — required if the marketplace contains more than one
+     plugin. If only one, default to that one and confirm with the user.
+   - `<bump-or-version>` — `patch`, `minor`, `major`, or an explicit
+     `X.Y.Z`. Choose `minor` for new features, `patch` for fixes only,
+     `major` for breaking changes (or any commit with a `!` type or
+     `BREAKING CHANGE:` footer since the last tag).
+2. **`pyproject.toml` exists** (and no marketplace.json) → **Python mode**.
+   Run the commitizen-driven script (below).
+3. **Otherwise** → fail with a message naming what was missing.
+
+The first-time-setup behavior (commitizen, CHANGELOG template,
+release.yml) only applies to Python mode. Plugin mode assumes the
+marketplace repo already has its `scripts/build-marketplace.py` build
+machinery in place and a `CHANGELOG.md` at the repo root.
+
+Webapps: use `gstack ship` from the shell instead.
+
+## Task — Plugin mode
+
+```bash
+scripts/release-plugin.sh <plugin-name> <patch|minor|major|X.Y.Z>
+```
+
+Report:
+- the new version (printed by the script as `✓ Released <plugin> vX.Y.Z`)
+- the tag that was created
+- a one-line summary of the CHANGELOG entries that were added
+
+The script refuses to bump if `plugin.json` and `marketplace.json` versions
+disagree before the bump. If you hit that error, the drift must be fixed
+manually (pick the higher version, edit `plugin.json` to match, rerun) —
+this only happens once per repo when migrating into the lockstep model.
+
+The pre-commit hook in `.githooks/pre-commit` blocks future drift
 automatically.
 
-Pairs with `/promote {alias}`: `/promote` ships per-subsystem model
-versions (`{alias}-vX.Y.Z` on `dev`); `/ship` cuts the repo-wide release
-train (`vX.Y.Z` on `main`).
+**Do not** stage, commit, push, or modify anything beyond what the script
+does itself. The script already produces the `chore(release): bump …`
+commit and the `vX.Y.Z` tag. Caller pushes:  `git push --follow-tags`.
 
-Python-only in v1. Webapps: use `gstack ship` from the shell instead.
-
-## Task
+## Task — Python mode
 
 Run exactly one command, then report the outcome:
 
@@ -77,8 +121,8 @@ skill has been folded into `/ship` and is no longer a separate command.
 - **Forbidden path tracked** → the script refuses to bump. Strip the
   files (e.g. `git rm -r docs/superpowers && git commit -m 'chore: strip
   skill artifacts before release'`) and re-run `/ship`. Do not bypass —
-  these artifacts on `main` create durable noise that `/handoff` and
-  `/promote` rely on never reaching prod.
+  these artifacts on `main` create durable noise that `/handoff` relies
+  on never reaching prod.
 - **No Conventional Commits since last tag** → the script exits with
   "nothing to release"; you need at least one `feat:`, `fix:`, or
   `perf:` commit since the last tag.
@@ -96,5 +140,4 @@ skill has been folded into `/ship` and is no longer a separate command.
 
 ## Related
 
-- `/promote {alias}` — per-subsystem model promotion (`{alias}-vX.Y.Z` on `dev`)
 - `generating-commit-messages` skill — Conventional Commits so `/ship` can parse version bumps

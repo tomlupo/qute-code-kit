@@ -36,7 +36,7 @@ Do NOT invoke for:
    ```bash
    bash "$CLAUDE_PLUGIN_ROOT/scripts/lifecycle/pickup-ctx.sh" $1
    ```
-   It returns tab-separated `<kind>\t<path>` lines for the focus row. Read each cited file (handoff, plan). Cap: 4 files / ~3000 tokens.
+   It returns tab-separated `<kind>\t<path>` lines for the focus row. Read each cited file (handoff, plan). **Hard cap: 2 files / ~2000 tokens.** Reading more is the speed trap — pick the latest handoff + plan if both exist, skip older history.
 
 4. **Brief** (~150 words, structured):
    - **Resuming {project} @ {branch}. Focus: {row title}.**
