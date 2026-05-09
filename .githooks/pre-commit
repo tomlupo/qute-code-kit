@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# pre-commit hook: refuse to commit when a plugin's plugin.json::version
+# disagrees with .claude-plugin/marketplace.json's catalog entry.
+#
+# This is the "drift detector" — the actual version bumps must always go
+# through scripts/release-plugin.sh which bumps both files atomically.
+#
+# Install:  git config core.hooksPath .githooks
+# Bypass:   git commit --no-verify   (use sparingly — only when fixing
+#           drift you intentionally introduced and will resolve in the
+#           same series of commits)
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+marketplace_json=".claude-plugin/marketplace.json"
+[ -f "$marketplace_json" ] || exit 0   # not a marketplace repo; nothing to check
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "pre-commit: jq not installed; skipping plugin version drift check" >&2
+  exit 0
+fi
+
+drift=0
+while IFS= read -r entry; do
+  name="${entry%%$'\t'*}"
+  catalog="${entry##*$'\t'}"
+  plugin_json="plugins/${name}/plugin.json"
+  [ -f "$plugin_json" ] || continue
+  source_v="$(jq -r .version "$plugin_json")"
+  if [ "$source_v" != "$catalog" ]; then
+    echo "pre-commit: version drift in plugin '${name}':" >&2
+    echo "  $plugin_json:      $source_v" >&2
+    echo "  $marketplace_json: $catalog"   >&2
+    drift=1
+  fi
+done < <(jq -r '.plugins[] | "\(.name)\t\(.version)"' "$marketplace_json")
+
+if [ "$drift" -ne 0 ]; then
+  cat >&2 <<EOF
+
+The two version sources are out of sync. Run:
+  scripts/release-plugin.sh <plugin> <patch|minor|major|X.Y.Z>
+
+…to bump them atomically, or fix by hand and stage both files. To bypass
+intentionally:  git commit --no-verify
+EOF
+  exit 1
+fi
+exit 0
