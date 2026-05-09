@@ -1,3 +1,13 @@
+## v1.19.1 (2026-05-09)
+
+### Feat
+
+- pre-push hook enforces release-shape for plugin version bumps
+
+### Fix
+
+- on_notification.py missing platform import
+
 ## v1.19.0 (2026-05-09)
 
 ### Feat
