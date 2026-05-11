@@ -135,6 +135,67 @@ if [ -n "$main_co" ]; then
   fi
 fi
 
+# ---- Orphan-stash detector ----------------------------------------------
+# Stashes referencing branches that no longer exist locally are dead WIP
+# from sessions where `git stash` was followed by `git branch -d/--D` (or
+# remote-branch-deleted-on-merge) without first applying or dropping the
+# stash. Git doesn't warn about this; the stash survives but its branch
+# context is gone. Without periodic surfacing, valuable WIP can sit
+# unnoticed for weeks (or get lost entirely if the stash itself is dropped
+# without review).
+orphan_lines=()
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  # Line shape: "stash@{N}: On <branch>: <msg>"   OR
+  #             "stash@{N}: WIP on <branch>: <msg>"
+  ref=$(echo "$line" | sed -n 's/^\(stash@{[0-9][0-9]*}\):.*/\1/p')
+  br=$(echo "$line" | sed -nE 's/^stash@\{[0-9]+\}: (On |WIP on )([^:]+):.*/\2/p')
+  if [ -n "$ref" ] && [ -n "$br" ]; then
+    if ! git rev-parse --verify --quiet "refs/heads/$br" >/dev/null 2>&1; then
+      orphan_lines+=("  $ref → branch '$br' is deleted")
+    fi
+  fi
+done < <(git stash list 2>/dev/null)
+if [ "${#orphan_lines[@]}" -gt 0 ]; then
+  echo "⚠ Orphan stashes (their source branch no longer exists):"
+  printf '%s\n' "${orphan_lines[@]}"
+  echo "  Inspect with: git stash show '<ref>' --include-untracked"
+  echo "  Apply with:   git stash apply '<ref>'   (then commit + drop)"
+  echo "  Discard with: git stash drop '<ref>'    (after confirming content is stale)"
+  echo
+fi
+
+# ---- Merged-worktree prune detector -------------------------------------
+# Walks `git worktree list` and flags worktrees whose branch has a merged
+# PR (per `gh pr list --state merged --head <branch>`). Catches the
+# "PR merged, branch + worktree forgotten" pattern that accumulates local
+# debt across sessions. Silently skipped if gh isn't available.
+if command -v gh >/dev/null 2>&1; then
+  merged_lines=()
+  while IFS= read -r wt_line; do
+    [ -z "$wt_line" ] && continue
+    wt_path=$(echo "$wt_line" | awk '{print $1}')
+    # Only consider .worktrees/ entries (skip the main checkout)
+    case "$wt_path" in
+      */.worktrees/*) ;;
+      *) continue ;;
+    esac
+    wt_br=$(echo "$wt_line" | sed -nE 's/.*\[([^]]+)\].*/\1/p')
+    [ -z "$wt_br" ] && continue
+    pr_num=$(gh pr list --state merged --head "$wt_br" --json number --jq '.[0].number // empty' 2>/dev/null)
+    if [ -n "$pr_num" ]; then
+      merged_lines+=("  ${wt_path##*/}  [$wt_br]  PR #$pr_num merged")
+    fi
+  done < <(git worktree list 2>/dev/null)
+  if [ "${#merged_lines[@]}" -gt 0 ]; then
+    echo "⚠ Worktrees with merged PRs (safe to prune):"
+    printf '%s\n' "${merged_lines[@]}"
+    echo "  Cleanup: git worktree remove <path> && git branch -D <branch>"
+    echo "  Or use the /clean_gone skill (commit-commands plugin) to batch-prune."
+    echo
+  fi
+fi
+
 # ---- Subsystems ---------------------------------------------------------
 if [ "${#SUBSYSTEMS[@]}" -gt 0 ]; then
   printf '%-12s %-50s %s\n' "Subsystem" "Last change" "Active branch"
