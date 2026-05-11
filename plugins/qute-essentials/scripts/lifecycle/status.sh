@@ -112,6 +112,29 @@ if [ -n "$release" ]; then
 fi
 echo
 
+# ---- Main-checkout discipline lint --------------------------------------
+# Per the canonical-checkout convention (dm-evo's git-workflow.md::Layout,
+# generalizable to any project using the worktree-per-branch model), the
+# main project dir stays on the integration branch ('dev'); 'main' is
+# allowed silently during /ship ceremonies. Non-dev work belongs in a
+# worktree under .worktrees/{project}-{slug}/. Warn when the canonical
+# checkout drifts onto a worker branch — usually a skill created a branch
+# in place and never switched back.
+main_co=$(git worktree list --porcelain 2>/dev/null | awk '
+  /^worktree / { wt=$2; in_main=(wt !~ /\/\.worktrees\//); next }
+  /^branch / { if (in_main) { print wt"\t"$2; exit } }')
+if [ -n "$main_co" ]; then
+  main_path="${main_co%%$'\t'*}"
+  main_br="${main_co#*$'\t'}"
+  main_br="${main_br#refs/heads/}"
+  if [ "$main_br" != "dev" ] && [ "$main_br" != "main" ]; then
+    echo "⚠ main checkout ($main_path) is on '$main_br', expected 'dev'."
+    echo "  Per git-workflow.md::Layout, the canonical checkout stays on dev;"
+    echo "  non-dev work belongs in a worktree under .worktrees/{project}-{slug}/."
+    echo
+  fi
+fi
+
 # ---- Subsystems ---------------------------------------------------------
 if [ "${#SUBSYSTEMS[@]}" -gt 0 ]; then
   printf '%-12s %-50s %s\n' "Subsystem" "Last change" "Active branch"
