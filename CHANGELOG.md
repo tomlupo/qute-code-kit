@@ -1,3 +1,9 @@
+## v1.21.0 (2026-05-11)
+
+### Feat
+
+- /status detects orphan stashes + merged-PR worktrees
+
 ## v1.20.0 (2026-05-11)
 
 ### Feat
