@@ -1,3 +1,9 @@
+## v1.20.0 (2026-05-11)
+
+### Feat
+
+- /status warns when main checkout drifts off dev
+
 ## v1.19.1 (2026-05-09)
 
 ### Feat
