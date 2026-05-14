@@ -1,3 +1,9 @@
+## v2.0.0 (2026-05-14)
+
+### BREAKING
+
+- feat(qute-essentials)!: add /issue /board, lean rewrite of /handoff /pickup /status
+
 ## v1.21.0 (2026-05-11)
 
 ### Feat
