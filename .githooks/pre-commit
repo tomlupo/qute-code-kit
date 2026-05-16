@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# pre-commit hook: refuse to commit when a plugin's plugin.json::version
-# disagrees with .claude-plugin/marketplace.json's catalog entry.
+# pre-commit hook: refuse to commit when a plugin's
+# .claude-plugin/plugin.json::version disagrees with
+# .claude-plugin/marketplace.json's catalog entry.
 #
 # This is the "drift detector" — the actual version bumps must always go
 # through scripts/release-plugin.sh which bumps both files atomically.
@@ -26,7 +27,7 @@ drift=0
 while IFS= read -r entry; do
   name="${entry%%$'\t'*}"
   catalog="${entry##*$'\t'}"
-  plugin_json="plugins/${name}/plugin.json"
+  plugin_json="plugins/${name}/.claude-plugin/plugin.json"
   [ -f "$plugin_json" ] || continue
   source_v="$(jq -r .version "$plugin_json")"
   if [ "$source_v" != "$catalog" ]; then
