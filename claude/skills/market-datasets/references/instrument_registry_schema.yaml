@@ -1,0 +1,333 @@
+# Instrument Registry Schema
+#
+# Purpose:
+#   Shared machine-readable contract for instrument registries used by
+#   quantbox-datasets, client dataset repos, and Qute research tasks.
+#
+# Design:
+#   The registry is metadata around market data, not a replacement for simple
+#   prices DataFrames. Backtests may still use columns such as BTC, SPY, or
+#   US10Y, while manifests and promotion checks use stable uid values.
+
+schema_version: instrument-registry.v1
+
+description: >
+  A tabular instrument registry. Files may be stored as CSV or Parquet. Each
+  row identifies one tradable instrument, index, rate, currency pair, crypto
+  market, macro series, or other research feature. Dataset-specific registries
+  may contain a subset of a larger master registry, but uid values should remain
+  stable across repos and versions.
+
+formats:
+  - csv
+  - parquet
+
+primary_key: uid
+
+required_columns:
+  - uid
+  - symbol
+  - instrument_type
+  - asset_class
+  - source
+  - source_ticker
+
+required_one_of:
+  - columns:
+      - currency
+      - quote_currency
+    reason: >
+      Most instruments need either a trading/reporting currency or a quote
+      currency. Some macro/rate series may only have currency when quote
+      currency is not meaningful.
+
+columns:
+  uid:
+    type: string
+    required: true
+    nullable: false
+    unique: true
+    description: Stable instrument identifier used across dataset versions.
+    examples:
+      - isin_US78462F1030
+      - crypto_BTC_USDT_SPOT
+      - perp_BTC_USDT_BINANCE
+      - fx_EURUSD
+      - idx_SPX
+      - rate_US10Y
+      - cmd_GOLD
+
+  symbol:
+    type: string
+    required: true
+    nullable: false
+    description: Human-friendly canonical column name used in research DataFrames.
+    examples:
+      - SPY
+      - BTC
+      - BTCUSDT_PERP
+      - EURUSD
+      - US10Y
+
+  name:
+    type: string
+    required: false
+    nullable: true
+    description: Human-readable instrument name.
+
+  instrument_type:
+    type: enum
+    required: true
+    nullable: false
+    values:
+      - equity
+      - etf
+      - index
+      - crypto_spot
+      - crypto_perp
+      - crypto_future
+      - currency_pair
+      - rate
+      - bond
+      - commodity
+      - commodity_future
+      - macro_series
+      - fundamental_series
+      - option
+      - other
+
+  asset_class:
+    type: enum
+    required: true
+    nullable: false
+    values:
+      - equity
+      - fixed_income
+      - fx
+      - crypto
+      - commodity
+      - macro
+      - fundamental
+      - multi_asset
+      - alternative
+      - other
+
+  source:
+    type: string
+    required: true
+    nullable: false
+    description: Primary source for this dataset row.
+    examples:
+      - yahoo_finance
+      - binance
+      - fred
+      - stooq
+      - nbp
+      - tiingo
+      - financialdata_net
+      - client_vendor
+
+  source_ticker:
+    type: string
+    required: true
+    nullable: false
+    description: Ticker or series identifier as used by the primary source.
+    examples:
+      - SPY
+      - BTC/USDT
+      - BTC/USDT:USDT
+      - ^GSPC
+      - DGS10
+
+  currency:
+    type: string
+    required: false
+    nullable: true
+    description: Trading, reporting, or local currency as ISO 4217 code.
+    examples:
+      - USD
+      - PLN
+      - EUR
+
+  quote_currency:
+    type: string
+    required: false
+    nullable: true
+    description: Quote currency for pairs, crypto markets, and derivatives.
+    examples:
+      - USD
+      - USDT
+      - PLN
+
+  base_currency:
+    type: string
+    required: false
+    nullable: true
+    description: Base currency for FX or crypto pairs.
+    examples:
+      - BTC
+      - ETH
+      - EUR
+
+  isin:
+    type: string
+    required: false
+    nullable: true
+    pattern: "^[A-Z]{2}[A-Z0-9]{9}[0-9]$"
+    description: ISIN where applicable.
+
+  exchange:
+    type: string
+    required: false
+    nullable: true
+    description: Primary venue or exchange code.
+    examples:
+      - NYSE
+      - NASDAQ
+      - WSE
+      - BINANCE
+      - CME
+
+  country:
+    type: string
+    required: false
+    nullable: true
+    description: ISO 3166-1 alpha-2 country code where applicable.
+    examples:
+      - US
+      - PL
+      - GB
+
+  sector:
+    type: string
+    required: false
+    nullable: true
+    description: Sector, industry, or broad category where useful.
+
+  ticker_yahoo:
+    type: string
+    required: false
+    nullable: true
+    description: Yahoo Finance ticker.
+
+  ticker_stooq:
+    type: string
+    required: false
+    nullable: true
+    description: Stooq ticker.
+
+  ticker_binance:
+    type: string
+    required: false
+    nullable: true
+    description: Binance or CCXT market symbol.
+
+  ticker_fred:
+    type: string
+    required: false
+    nullable: true
+    description: FRED series identifier.
+
+  ticker_bloomberg:
+    type: string
+    required: false
+    nullable: true
+    description: Bloomberg ticker where available.
+
+  vendor_ticker:
+    type: string
+    required: false
+    nullable: true
+    description: Client/vendor-specific ticker when no public source field fits.
+
+  multiplier:
+    type: number
+    required: false
+    nullable: true
+    description: Contract multiplier for futures, options, or vendor feeds.
+
+  point_value:
+    type: number
+    required: false
+    nullable: true
+    description: Monetary value of one point where applicable.
+
+  price_unit:
+    type: string
+    required: false
+    nullable: true
+    description: Unit convention for price levels.
+    examples:
+      - USD
+      - percent
+      - index_points
+      - cents_per_bushel
+
+  mapping_source:
+    type: enum
+    required: false
+    nullable: true
+    values:
+      - manual
+      - source_api
+      - yahoo_api
+      - vendor_file
+      - inferred
+      - migrated
+      - unknown
+
+  last_verified:
+    type: date
+    required: false
+    nullable: true
+    description: Date when the mapping was last checked.
+
+  active:
+    type: boolean
+    required: false
+    nullable: true
+    default: true
+    description: Whether the instrument is active in the registry.
+
+  start_date:
+    type: date
+    required: false
+    nullable: true
+    description: Earliest expected data date for this instrument in the dataset.
+
+  end_date:
+    type: date
+    required: false
+    nullable: true
+    description: Last expected data date when known, for delisted or retired instruments.
+
+  notes:
+    type: string
+    required: false
+    nullable: true
+    description: Free-form notes for caveats or mapping assumptions.
+
+uid_conventions:
+  equity_with_isin: "isin_{ISIN}"
+  etf_with_isin: "isin_{ISIN}"
+  equity_without_isin: "eq_{COUNTRY}_{EXCHANGE}_{SYMBOL}"
+  etf_without_isin: "etf_{SYMBOL}"
+  equity_index: "idx_{SYMBOL}"
+  fx_pair: "fx_{BASE}{QUOTE}"
+  crypto_spot: "crypto_{BASE}_{QUOTE}_SPOT"
+  crypto_perp: "perp_{BASE}_{QUOTE}_{EXCHANGE}"
+  crypto_future: "future_{BASE}_{QUOTE}_{EXCHANGE}_{EXPIRY}"
+  rate: "rate_{SYMBOL}"
+  commodity: "cmd_{SYMBOL}"
+  commodity_future: "cmdf_{SYMBOL}_{EXCHANGE}"
+  macro_series: "macro_{SOURCE}_{SERIES}"
+
+validation_rules:
+  - uid must be unique and non-empty.
+  - symbol must be non-empty and should match a market data column when the registry is dataset-specific.
+  - source_ticker must be non-empty for the declared source.
+  - either currency or quote_currency should be present unless the row is a non-currency macro/fundamental series.
+  - ticker_* columns are optional, but if present they should not contradict source/source_ticker.
+  - dataset-specific registries may omit unused optional columns.
+  - master registries should preserve inactive instruments instead of deleting them when historical data still references them.
+
