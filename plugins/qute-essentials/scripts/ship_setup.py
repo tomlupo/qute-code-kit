@@ -44,10 +44,15 @@ def main() -> int:
 
 
 def setup_python(root: Path, pyproject: Path) -> int:
-    # 1. Install commitizen as a dev dependency
-    if shutil.which("uv"):
+    pyproject_text = pyproject.read_text(encoding="utf-8")
+
+    # 1. Install commitizen as a dev dependency (skip if already declared anywhere).
+    if "commitizen" in pyproject_text:
+        info("commitizen already declared in pyproject.toml — skipping install")
+    elif shutil.which("uv"):
         try:
             run(["uv", "add", "--dev", "commitizen"])
+            pyproject_text = pyproject.read_text(encoding="utf-8")
         except subprocess.CalledProcessError as exc:
             info(
                 f"`uv add --dev commitizen` failed (exit {exc.returncode}); continuing"
@@ -56,7 +61,7 @@ def setup_python(root: Path, pyproject: Path) -> int:
         info("`uv` not on PATH — skipping commitizen install. Add it manually.")
 
     # 2. Merge [tool.commitizen] block if missing
-    content = pyproject.read_text(encoding="utf-8")
+    content = pyproject_text
     if "[tool.commitizen]" in content:
         info("pyproject.toml already has [tool.commitizen] — skipping")
     else:
