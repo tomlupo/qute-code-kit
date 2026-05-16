@@ -2,6 +2,10 @@
 
 Documentation for the `security_master.csv` file and `TickerRegistry` service.
 
+For QuantBox/Qute dataset repos, the canonical machine-readable contract is
+[`instrument_registry_schema.yaml`](instrument_registry_schema.yaml). This page
+documents the current CSV-backed skill registry and usage patterns.
+
 ## Overview
 
 The security master is a single CSV file that serves as the source of truth for instrument identification and cross-source ticker mappings. It enables:
@@ -12,7 +16,7 @@ The security master is a single CSV file that serves as the source of truth for 
 
 **Location**: `.claude/skills/market-datasets/data/security_master.csv`
 
-## Schema
+## Current CSV Schema
 
 | Column | Type | Required | Description | Example |
 |--------|------|----------|-------------|---------|
@@ -31,6 +35,31 @@ The security master is a single CSV file that serves as the source of truth for 
 | `mapping_source` | string | No | How mapping was obtained | `manual`, `yahoo_api` |
 | `last_updated` | datetime | No | When mapping was verified | `2026-01-09` |
 
+## Dataset Registry Schema
+
+Dataset repos should use the shared instrument registry contract:
+
+```text
+references/instrument_registry_schema.yaml
+```
+
+Minimum required columns:
+
+| Column | Description |
+|--------|-------------|
+| `uid` | Stable primary key across dataset versions |
+| `symbol` | Canonical DataFrame column name |
+| `instrument_type` | Instrument type such as `etf`, `crypto_spot`, `crypto_perp`, `rate` |
+| `asset_class` | Broad asset class such as `equity`, `crypto`, `fx`, `macro` |
+| `source` | Primary source used by this dataset row |
+| `source_ticker` | Source-native ticker or series identifier |
+| `currency` or `quote_currency` | Currency context where applicable |
+
+The older CSV registry uses `uid` plus source-specific `ticker_*` columns. A
+dataset-specific registry should add `symbol`, `asset_class`, `source`, and
+`source_ticker` so that simple price DataFrames remain easy to use while run
+manifests can still record stable instrument identity.
+
 ## UID Conventions
 
 The `uid` (Universal ID) is the primary key. Format conventions:
@@ -43,6 +72,14 @@ The `uid` (Universal ID) is the primary key. Format conventions:
 | Bond | `bond_{ISIN}` | `bond_US912828YM28` |
 | Commodity | `cmd_{NAME}` | `cmd_GOLD` |
 | Rate | `rate_{NAME}` | `rate_WIBOR3M` |
+
+For crypto and derivatives, prefer the newer dataset conventions:
+
+| Instrument Type | UID Format | Example |
+|-----------------|------------|---------|
+| Crypto spot | `crypto_{BASE}_{QUOTE}_SPOT` | `crypto_BTC_USDT_SPOT` |
+| Crypto perpetual | `perp_{BASE}_{QUOTE}_{EXCHANGE}` | `perp_BTC_USDT_BINANCE` |
+| Crypto future | `future_{BASE}_{QUOTE}_{EXCHANGE}_{EXPIRY}` | `future_BTC_USDT_BINANCE_20260626` |
 
 ## TickerRegistry Usage
 

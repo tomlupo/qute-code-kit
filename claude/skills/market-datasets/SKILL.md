@@ -221,4 +221,5 @@ Load these when needed for detailed information:
 | [api_setup.md](references/api_setup.md) | API key setup, troubleshooting |
 | [dividend_treatment.md](references/dividend_treatment.md) | Raw vs adjusted prices, validation |
 | [security_master.md](references/security_master.md) | TickerRegistry API, UID conventions |
+| [instrument_registry_schema.yaml](references/instrument_registry_schema.yaml) | Shared registry schema for dataset repos |
 | [migration.md](references/migration.md) | Migrating fetchers to production projects |

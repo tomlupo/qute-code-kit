@@ -8,7 +8,7 @@ name = "cz_conventional_commits"
 version = "2.0.0"
 version_files = [
     ".claude-plugin/marketplace.json:version",
-    "plugins/qute-essentials/plugin.json:version",
+    "plugins/qute-essentials/.claude-plugin/plugin.json:version",
 ]
 update_changelog_on_bump = true
 tag_format = "v$version"
