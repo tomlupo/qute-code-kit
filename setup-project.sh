@@ -1,1 +1,0 @@
-scripts/setup-project.sh
