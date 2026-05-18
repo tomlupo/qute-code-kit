@@ -1,3 +1,19 @@
+## v2.1.0 (2026-05-18)
+
+### Feat
+
+- salvage backtest skill + market-datasets instrument schema (#35)
+
+### Fix
+
+- drop jq dependency in release-plugin.sh + pre-commit (#39)
+- make plugin hooks Windows-compatible (#38)
+- remove broken setup-project.sh symlink (#37)
+
+### Refactor
+
+- unify /ship dispatch; canonicalize .claude-plugin/plugin.json (#33)
+
 ## v2.0.0 (2026-05-14)
 
 ### BREAKING
