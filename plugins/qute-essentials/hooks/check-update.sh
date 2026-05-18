@@ -3,6 +3,15 @@
 # Called from SessionStart hook. Outputs JSON with update notice if available.
 set -euo pipefail
 
+# Pick a working python interpreter — python3 on Linux/macOS, python on Windows.
+if command -v python3 >/dev/null 2>&1; then
+  py=python3
+elif command -v python >/dev/null 2>&1; then
+  py=python
+else
+  echo '{}' && exit 0
+fi
+
 STATE_DIR="$HOME/.gstack"
 CACHE_FILE="$STATE_DIR/qute-essentials-update-check"
 MARKETPLACE_DIR="$HOME/.claude/plugins/marketplaces/qute-marketplace"
@@ -27,7 +36,7 @@ date +%s > "$CACHE_FILE"
 local_version=""
 for cache_dir in "$HOME/.claude/plugins/cache/qute-marketplace/qute-essentials"/*/; do
   if [[ -f "${cache_dir}plugin.json" ]]; then
-    local_version=$(python3 -c "import json; print(json.load(open('${cache_dir}plugin.json'))['version'])" 2>/dev/null || echo "")
+    local_version=$("$py" -c "import json; print(json.load(open('${cache_dir}plugin.json'))['version'])" 2>/dev/null || echo "")
     break
   fi
 done
@@ -38,7 +47,7 @@ if [[ -z "$local_version" ]]; then
 fi
 
 # Fetch latest from git (quick, just the marketplace.json)
-remote_version=$(cd "$MARKETPLACE_DIR" 2>/dev/null && git fetch origin main --quiet 2>/dev/null && git show origin/main:.claude-plugin/marketplace.json 2>/dev/null | python3 -c "
+remote_version=$(cd "$MARKETPLACE_DIR" 2>/dev/null && git fetch origin main --quiet 2>/dev/null && git show origin/main:.claude-plugin/marketplace.json 2>/dev/null | "$py" -c "
 import json, sys
 data = json.load(sys.stdin)
 for p in data.get('plugins', []):

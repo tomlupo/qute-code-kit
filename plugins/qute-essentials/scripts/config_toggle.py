@@ -68,6 +68,12 @@ import platform
 import sys
 from pathlib import Path
 
+# Ensure unicode (emoji, ✓/✗) prints cleanly on Windows cp1250/cp1252 consoles.
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 VALID_PRIORITY = {"min", "low", "default", "high", "urgent"}
 VALID_TOP_KEYS = {"server", "topic", "priority", "tags"}
 VALID_EVENTS = {

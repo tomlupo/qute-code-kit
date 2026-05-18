@@ -6,6 +6,15 @@
 # telling Claude to run a security scan before doing any work.
 set -euo pipefail
 
+# Pick a working python interpreter — python3 on Linux/macOS, python on Windows.
+if command -v python3 >/dev/null 2>&1; then
+  py=python3
+elif command -v python >/dev/null 2>&1; then
+  py=python
+else
+  echo '{}' && exit 0
+fi
+
 KNOWN_FILE="$HOME/.claude/permission-audit/known-repos"
 mkdir -p "$(dirname "$KNOWN_FILE")"
 touch "$KNOWN_FILE"
@@ -18,7 +27,8 @@ if [ -z "$REPO_ROOT" ]; then
   exit 0
 fi
 
-REPO_ID=$(echo "$REPO_ROOT" | md5sum | cut -d' ' -f1)
+# md5sum isn't on Git Bash for Windows — use python's hashlib for portability.
+REPO_ID=$("$py" -c "import hashlib,sys; print(hashlib.md5(sys.argv[1].encode()).hexdigest())" "$REPO_ROOT")
 
 # Check if we've seen this repo before
 if grep -q "^$REPO_ID " "$KNOWN_FILE" 2>/dev/null; then
@@ -39,7 +49,7 @@ fi
 
 # 2. Check for npm install scripts
 if [ -f "$REPO_ROOT/package.json" ]; then
-  SCRIPTS=$(python3 -c "
+  SCRIPTS=$("$py" -c "
 import json, sys
 try:
     d = json.load(open('$REPO_ROOT/package.json'))
@@ -77,6 +87,6 @@ else
 fi
 
 # Escape for JSON
-ESCAPED=$(echo -e "$MSG" | python3 -c "import json,sys; print(json.dumps(sys.stdin.read()))")
+ESCAPED=$(printf '%b' "$MSG" | "$py" -c "import json,sys; print(json.dumps(sys.stdin.read()))")
 
 echo "{\"additionalContext\":$ESCAPED}"
