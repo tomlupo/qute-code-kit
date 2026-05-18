@@ -12,31 +12,45 @@
 #           same series of commits)
 set -euo pipefail
 
+# Pick a working python interpreter — python3 on Linux/macOS, python on Windows.
+if command -v python3 >/dev/null 2>&1; then
+  py=python3
+elif command -v python >/dev/null 2>&1; then
+  py=python
+else
+  echo "pre-commit: no python interpreter found; skipping drift check" >&2
+  exit 0
+fi
+
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 marketplace_json=".claude-plugin/marketplace.json"
 [ -f "$marketplace_json" ] || exit 0   # not a marketplace repo; nothing to check
 
-if ! command -v jq >/dev/null 2>&1; then
-  echo "pre-commit: jq not installed; skipping plugin version drift check" >&2
-  exit 0
-fi
+# Build name<TAB>version list from marketplace.json.
+catalog_entries="$("$py" -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data.get('plugins', []):
+    print(f\"{p['name']}\t{p['version']}\")
+" "$marketplace_json")"
 
 drift=0
 while IFS= read -r entry; do
+  [ -z "$entry" ] && continue
   name="${entry%%$'\t'*}"
   catalog="${entry##*$'\t'}"
   plugin_json="plugins/${name}/.claude-plugin/plugin.json"
   [ -f "$plugin_json" ] || continue
-  source_v="$(jq -r .version "$plugin_json")"
+  source_v="$("$py" -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" "$plugin_json")"
   if [ "$source_v" != "$catalog" ]; then
     echo "pre-commit: version drift in plugin '${name}':" >&2
     echo "  $plugin_json:      $source_v" >&2
     echo "  $marketplace_json: $catalog"   >&2
     drift=1
   fi
-done < <(jq -r '.plugins[] | "\(.name)\t\(.version)"' "$marketplace_json")
+done <<< "$catalog_entries"
 
 if [ "$drift" -ne 0 ]; then
   cat >&2 <<EOF
@@ -65,7 +79,7 @@ if command -v claude >/dev/null 2>&1; then
       validation_failed=1
     fi
     rm -f /tmp/claude-validate.$$
-  done < <(jq -r '.plugins[] | "\(.name)\t\(.version)"' "$marketplace_json")
+  done <<< "$catalog_entries"
 
   if [ "$validation_failed" -ne 0 ]; then
     cat >&2 <<EOF
