@@ -17,6 +17,16 @@
 #   scripts/release-plugin.sh qute-essentials 1.16.0
 set -euo pipefail
 
+# Pick a working python interpreter — python3 on Linux/macOS, python on Windows.
+if command -v python3 >/dev/null 2>&1; then
+  py=python3
+elif command -v python >/dev/null 2>&1; then
+  py=python
+else
+  echo "error: no python interpreter found on PATH" >&2
+  exit 1
+fi
+
 usage() {
   cat >&2 <<EOF
 Usage: $0 <plugin> <patch|minor|major|X.Y.Z>
@@ -49,8 +59,15 @@ if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   exit 1
 fi
 
-current="$(jq -r .version "$plugin_json")"
-catalog="$(jq -r --arg n "$plugin" '.plugins[] | select(.name==$n) | .version' "$marketplace_json")"
+current="$("$py" -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" "$plugin_json")"
+catalog="$("$py" -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data.get('plugins', []):
+    if p['name'] == sys.argv[2]:
+        print(p['version'])
+        break
+" "$marketplace_json" "$plugin")"
 
 if [ "$current" != "$catalog" ]; then
   echo "error: version drift detected before bump:" >&2
@@ -137,15 +154,29 @@ else
 fi
 rm -f /tmp/release-plugin-entry.$$
 
-# Bump plugin.json (jq writes atomically via temp file).
-tmp="$(mktemp)"
-jq --arg v "$new" '.version=$v' "$plugin_json" > "$tmp" && mv "$tmp" "$plugin_json"
+# Bump plugin.json — preserves 2-space indent + trailing newline.
+"$py" -c "
+import json, sys
+path, new = sys.argv[1], sys.argv[2]
+data = json.load(open(path))
+data['version'] = new
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+" "$plugin_json" "$new"
 
 # Regenerate marketplace.json from plugin.json sources.
-python3 "$build_script" >/dev/null
+"$py" "$build_script" >/dev/null
 
 # Verify drift is now zero.
-post_catalog="$(jq -r --arg n "$plugin" '.plugins[] | select(.name==$n) | .version' "$marketplace_json")"
+post_catalog="$("$py" -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data.get('plugins', []):
+    if p['name'] == sys.argv[2]:
+        print(p['version'])
+        break
+" "$marketplace_json" "$plugin")"
 if [ "$post_catalog" != "$new" ]; then
   echo "error: marketplace.json regen produced $post_catalog, expected $new" >&2
   exit 1
