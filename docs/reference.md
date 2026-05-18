@@ -31,8 +31,7 @@
 
 | Skill | Invocation | Notes |
 |-------|------------|-------|
-| gist-report | `/gist-report` | Styled HTML → GitHub gist (user-only) |
-| gist-transcript | `/gist-transcript` | Session transcript → gist (user-only) |
+| gist-report | `/gist-report` | Styled HTML → GitHub gist (transcript upload also lives here) |
 | excalidraw | `/excalidraw` | Hand-drawn diagrams as JSON |
 
 ### Standalone (not in bundles)
