@@ -1,3 +1,9 @@
+## v2.2.0 (2026-05-18)
+
+### Feat
+
+- modernize pyproject templates per osquant 2025 guide (#41)
+
 ## v2.1.0 (2026-05-18)
 
 ### Feat
