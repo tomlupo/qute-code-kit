@@ -123,10 +123,12 @@ Config stored in `config/guards.json`. Changes take effect immediately.
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| `check-update.sh` | SessionStart | Daily version check against GitHub |
+| `check-update.py` | SessionStart | Daily version check against the marketplace |
+| `repo-scan.py` | SessionStart | First-time repo safety scan (setup.py obfuscation, dangerous npm scripts, tracked `.env`) |
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with ruff |
 | `doc_reminder.py` | PostToolUse (Edit/Write) | ADR-aware reminder when editing decision-related files |
-| `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Activity logging |
+| `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Skill/agent activity logging |
+| `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
 | `on_task_complete.py` | PostToolUse (Bash) | ntfy notification for long-running commands |
 | `on_notification.py` | Notification | ntfy push when Claude is waiting for input |
 
@@ -146,12 +148,14 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 |-------|-------------|
 | `/guard` | Toggle any of the 6 security guards on/off, check status |
 | `/config` | View or update plugin configuration (notifications) |
-| `/commit` | Generate conventional commit messages |
+| `generating-commit-messages` | Conventional Commits guidance (auto-applied before any `git commit`) |
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
 | `/pickup` | Resume work from a previous handoff |
-| `/ship-setup` | One-time setup for `/ship` in a project (commitizen + CHANGELOG) |
-| `/ship` | Bump version, update CHANGELOG, create tag (Python, via commitizen) |
+| `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). Auto-runs first-time setup (commitizen + CHANGELOG + workflow) on Python projects |
+| `/board` | Show open tasks for the current repo (auto-detects Paperclip or `TASKS.md` backend) |
+| `/issue` | Create a new task in the current repo's task source |
+| `/status` | Print current production state for subsystems (from `prod-{scope}-v*` tags + MLflow registry) |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
 | `/test` | Run test suite, interpret failures, propose fixes |
 | `/worktrees` | Manage git worktrees for parallel development |
