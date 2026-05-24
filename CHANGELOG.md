@@ -1,3 +1,14 @@
+## v2.3.0 (2026-05-24)
+
+### Feat
+
+- add /task and rework /board to merge sources
+- add unified task engine (pulse.sh) with GitHub source
+
+### Refactor
+
+- retire /issue, board.sh, issue.sh
+
 ## v2.2.2 (2026-05-19)
 
 ## v2.2.1 (2026-05-19)
