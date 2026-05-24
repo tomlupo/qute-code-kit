@@ -153,8 +153,8 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
 | `/pickup` | Resume work from a previous handoff |
 | `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). Auto-runs first-time setup (commitizen + CHANGELOG + workflow) on Python projects |
-| `/board` | Show open tasks for the current repo (auto-detects Paperclip or `TASKS.md` backend) |
-| `/issue` | Create a new task in the current repo's task source |
+| `/board` | One-glance merged view across `TASKS.md`, GitHub Issues (via `gh`), and Paperclip; flags duplicates |
+| `/task` | Add or close a task in this repo's tracker — auto-routes to `TASKS.md`, GitHub, or Paperclip |
 | `/status` | Print current production state for subsystems (from `prod-{scope}-v*` tags + MLflow registry) |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
 | `/test` | Run test suite, interpret failures, propose fixes |
