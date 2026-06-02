@@ -115,7 +115,14 @@ Each artifact is checked independently — missing ones are created, present
 ones are left alone:
 
 1. `commitizen` as a dev dependency (skipped if already in `pyproject.toml`).
-2. `[tool.commitizen]` block in `pyproject.toml`.
+2. `[tool.commitizen]` block in `pyproject.toml`. Before seeding, setup
+   **reconciles the version** across `{[project] version, latest vX.Y.Z tag,
+   stray __version__ literals}`: it seeds cz from the highest and aligns the
+   others, so a repo whose tags ran ahead of `pyproject.toml` (e.g. tags cut
+   by hand) doesn't seed at a stale version and collide on the first bump.
+   Stray `__version__` literals (e.g. `src/pkg/__init__.py`) are added to
+   `version_files` so they bump in lockstep; a `__version__` derived from
+   `importlib.metadata` is left alone.
 3. `CHANGELOG.md` from the Keep-a-Changelog template.
 4. `.github/workflows/release.yml`.
 
@@ -140,8 +147,12 @@ are skipped with a one-line note.
 - **`BREAKING CHANGE:` must be in the commit footer** (not the subject)
   to trigger a major bump — alternatively, append `!` after the type:
   `feat!: remove old API`.
-- **Last tag doesn't match `pyproject.toml` version** → verify with
-  `git tag --list 'v*' | sort -V | tail -5` before running.
+- **Last tag doesn't match `pyproject.toml` version** → *first-time setup*
+  now auto-reconciles this (seeds from the highest, aligns the rest). If
+  drift is reintroduced *after* setup — e.g. someone cuts a `git tag` by hand
+  instead of via `/ship` — `cz bump` can compute unexpected versions. Don't
+  hand-tag; verify with `git tag --list 'v*' | sort -V | tail -5` if a bump
+  looks off.
 - **Untracked or uncommitted files** don't affect the bump but appear in
   git noise — commit or stash first for a clean release.
 
