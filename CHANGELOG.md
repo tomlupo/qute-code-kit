@@ -1,3 +1,9 @@
+## v2.4.0 (2026-06-02)
+
+### Feat
+
+- reconcile version across pyproject, tags, and __version__ on setup (#44)
+
 ## v2.3.0 (2026-05-24)
 
 ### Feat
