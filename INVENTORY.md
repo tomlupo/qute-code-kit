@@ -2,13 +2,14 @@
 
 Full contents of `claude/` and `templates/`. Use as a map — copy the bits you want into target repos. See [`README.md`](README.md) for the high-level intro and copy commands.
 
-## Skills (23)
+## Skills (24)
 
 ### Quant / research
 
 | Name | Description |
 |---|---|
 | `analizy-pl-data` | Programmatic access to Polish investment fund data from analizy.pl |
+| `atlasetf-scraper` | Scrape ETF data from atlasetf.pl (screener of ~13k funds, per-ISIN detail, prices) via its JSON API |
 | `backtest` | Portfolio allocation backtesting via vectorbt (drift, rebalancing, fees, multi-strategy) |
 | `bird-twitter` | Retrieve Twitter/X bookmarks and search tweets via Bird CLI |
 | `investment-research` | Iterative investment research from question to deliverable |
