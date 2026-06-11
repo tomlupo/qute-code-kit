@@ -9,6 +9,8 @@ Entry shapes:
   SubagentStart→ {"timestamp", "type": "subagent", "agent_id", "agent_type", "project"}
 """
 
+from __future__ import annotations
+
 import json
 import sys
 from datetime import datetime, timezone

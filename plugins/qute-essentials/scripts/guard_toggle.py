@@ -11,15 +11,14 @@ USAGE
     guard_toggle.py <name> <on|off>             # toggle one guard
     guard_toggle.py all <on|off>                # toggle all guards
 
-Where <name> is one of: lakera, langfuse, secrets, audit, destructive,
-malware.
+Where <name> is one of: lakera, langfuse, secrets, audit, destructive.
 
 GUARDS
 
     lakera        Prompt-injection screening on tool outputs (WebFetch,
-                  WebSearch, MCP responses, untrusted Bash/Read content).
-                  Requires LAKERA_API_KEY. Effectively off if the key
-                  is missing, even when 'enabled: true'.
+                  WebSearch, MCP responses). Requires LAKERA_API_KEY.
+                  Effectively off if the key is missing, even when
+                  'enabled: true'.
 
     langfuse      Tracing / evaluation. PostToolUse spans grouped by
                   Claude session ID. Requires LANGFUSE_SECRET_KEY +
@@ -42,9 +41,6 @@ GUARDS
                   May false-positive on legitimate cleanup commands
                   like 'rm -rf dist/' or 'git reset --hard' on a clean
                   feature branch — disable temporarily, then re-enable.
-
-    malware       Scan file writes for obfuscated code, crypto
-                  drainers, reverse shells, exfiltration patterns.
 
 CONFIG RESOLUTION (first hit wins)
 
@@ -75,6 +71,8 @@ EXIT CODES
     2 — unknown guard name
 """
 
+from __future__ import annotations
+
 import json
 import os
 import sys
@@ -83,7 +81,7 @@ from pathlib import Path
 GUARDS = {
     "lakera": {
         "display": "Lakera Guard",
-        "env_key": "LAKERA_API_KEY",
+        "env_key": "LAKERA_GUARD_API_KEY",
         "description": "Prompt injection screening",
     },
     "langfuse": {
@@ -102,10 +100,6 @@ GUARDS = {
     "destructive": {
         "display": "Destructive Guard",
         "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE)",
-    },
-    "malware": {
-        "display": "Malware Guard",
-        "description": "Scan file writes for obfuscated code, crypto drainers, reverse shells",
     },
 }
 
@@ -233,7 +227,7 @@ def main() -> None:
     # Toggle commands: <guard> <on|off>
     if len(args) != 2 or args[1].lower() not in ("on", "off"):
         print(
-            "USAGE: guard_toggle.py [status | <lakera|langfuse|secrets|audit|destructive|malware|all> <on|off>]",
+            "USAGE: guard_toggle.py [status | <lakera|langfuse|secrets|audit|destructive|all> <on|off>]",
             file=sys.stderr,
         )
         sys.exit(1)

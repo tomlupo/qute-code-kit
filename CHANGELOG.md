@@ -4,6 +4,11 @@
 
 - slim to essentials — scope guards, drop redundant hooks/skills
 
+### Fix
+
+- Python 3.9/3.8 compatibility — defer annotations in `guard_toggle`/`log_use` (were `TypeError` on import under <3.10)
+- guard_toggle: drop the removed malware guard from the toggle set; correct Lakera env var (`LAKERA_GUARD_API_KEY`) in the status table
+
 ## v2.4.0 (2026-06-02)
 
 ### Feat
