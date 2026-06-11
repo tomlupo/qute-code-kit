@@ -22,6 +22,31 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
+NTFY_CONFIG = Path(__file__).parent.parent / "config" / "ntfy.json"
+
+
+def _ntfy_url() -> str:
+    """Resolve the ntfy endpoint: server + topic from config/ntfy.json,
+    falling back to https://ntfy.sh/{hostname}-{username}-claude when the
+    topic is unset — so one config drives alerts correctly on any machine."""
+    server, topic = "https://ntfy.sh", ""
+    try:
+        cfg = json.loads(NTFY_CONFIG.read_text())
+        server = (cfg.get("server") or server).rstrip("/")
+        topic = (cfg.get("topic") or "").strip()
+    except (OSError, ValueError):
+        pass
+    if not topic:
+        import getpass
+        import socket
+
+        host = socket.gethostname().split(".")[0]
+        try:
+            user = getpass.getuser()
+        except Exception:
+            user = os.environ.get("USER") or "user"
+        topic = f"{host}-{user}-claude"
+    return f"{server}/{topic}"
 
 
 def is_enabled() -> bool:
@@ -367,7 +392,7 @@ def main():
                     from urllib.request import Request, urlopen
 
                     ntfy_req = Request(
-                        "https://ntfy.sh/core-tom-claude",
+                        _ntfy_url(),
                         data=f"🛑 Destructive command blocked\n{description}\n{command[:100]}".encode(),
                         headers={
                             "Title": "Destructive Command Blocked",

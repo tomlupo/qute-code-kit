@@ -32,6 +32,31 @@ LAKERA_API_KEY = os.environ.get("LAKERA_GUARD_API_KEY", "")
 LOG_DIR = Path.home() / ".claude" / "permission-audit"
 LOG_FILE = LOG_DIR / "guard-detections.jsonl"
 GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
+NTFY_CONFIG = Path(__file__).parent.parent / "config" / "ntfy.json"
+
+
+def _ntfy_url() -> str:
+    """Resolve the ntfy endpoint: server + topic from config/ntfy.json,
+    falling back to https://ntfy.sh/{hostname}-{username}-claude when the
+    topic is unset — so one config drives alerts correctly on any machine."""
+    server, topic = "https://ntfy.sh", ""
+    try:
+        cfg = json.loads(NTFY_CONFIG.read_text())
+        server = (cfg.get("server") or server).rstrip("/")
+        topic = (cfg.get("topic") or "").strip()
+    except (OSError, ValueError):
+        pass
+    if not topic:
+        import getpass
+        import socket
+
+        host = socket.gethostname().split(".")[0]
+        try:
+            user = getpass.getuser()
+        except Exception:
+            user = os.environ.get("USER") or "user"
+        topic = f"{host}-{user}-claude"
+    return f"{server}/{topic}"
 
 
 def is_enabled() -> bool:
@@ -241,7 +266,7 @@ def main():
                 ntfy_payload += f"\nSource: {target[:100]}"
 
             ntfy_req = Request(
-                "https://ntfy.sh/core-tom-claude",
+                _ntfy_url(),
                 data=ntfy_payload.encode("utf-8"),
                 headers={
                     "Title": "Prompt Injection Detected",

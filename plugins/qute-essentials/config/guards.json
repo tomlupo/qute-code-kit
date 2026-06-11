@@ -13,10 +13,6 @@
     "enabled": true,
     "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE, etc.)"
   },
-  "malware": {
-    "enabled": true,
-    "description": "Scan file writes for obfuscated code, crypto drainers, reverse shells, exfiltration"
-  },
   "secrets": {
     "enabled": true,
     "description": "Block Write/Edit that leaks secrets (API keys, private keys, tokens) or targets credential files (.env, *.pem, id_rsa, database.ini)"

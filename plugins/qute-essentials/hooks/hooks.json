@@ -1,26 +1,6 @@
 {
-  "description": "Essential hooks: skill evaluation, doc tracking, Python formatting, notifications",
+  "description": "Essential hooks: security guards (destructive/secrets/injection), Python formatting, dependency audit, usage logging",
   "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/check-update.py"
-          }
-        ]
-      },
-      {
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/repo-scan.py"
-          }
-        ]
-      }
-    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -28,16 +8,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/destructive-guard.py",
-            "timeout": 3
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/malware-scan.py",
             "timeout": 3
           }
         ]
@@ -64,29 +34,11 @@
         ]
       },
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/doc_reminder.py"
-          }
-        ]
-      },
-      {
         "matcher": "Skill|Agent",
         "hooks": [
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/log_use.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/on_task_complete.py"
           }
         ]
       },
@@ -101,7 +53,7 @@
         ]
       },
       {
-        "matcher": "WebFetch|WebSearch|Bash|Read|mcp__",
+        "matcher": "WebFetch|WebSearch|mcp__",
         "hooks": [
           {
             "type": "command",
@@ -117,16 +69,6 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/langfuse-trace.py",
             "timeout": 5,
             "async": true
-          }
-        ]
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/on_notification.py"
           }
         ]
       }

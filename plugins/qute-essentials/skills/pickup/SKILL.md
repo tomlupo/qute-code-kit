@@ -14,7 +14,7 @@ Loads the most recent handoff matching this repo and briefs you on it.
 - Session start, after context reset
 
 Do NOT invoke for:
-- Cross-branch git state — use `/status`
+- Cross-branch git state — use `/repo-status`
 - Listing tasks — use `/board`
 
 ## Behavior

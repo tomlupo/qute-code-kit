@@ -1,10 +1,10 @@
 ---
-name: status
+name: repo-status
 description: Pure git/worktree dashboard. Walks `git worktree list`, surfaces latest release, per-subsystem last change (when CLAUDE.md has a Subsystems table), orphan stashes, and worktrees with merged PRs. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what branches are live", "what's stale".
 argument-hint: "[alias]"
 ---
 
-# /status
+# /repo-status
 
 Sub-second git/worktree dashboard. **No LLM body** — exec the bash script and print stdout verbatim.
 

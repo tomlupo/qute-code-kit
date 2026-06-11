@@ -18,7 +18,7 @@ just give it a title; it routes for you.
 
 Do NOT invoke for:
 - Viewing the backlog — use `/board`
-- Pure git state / session context — use `/status`, `/pickup`
+- Pure git state / session context — use `/repo-status`, `/pickup`
 
 ## Behavior
 

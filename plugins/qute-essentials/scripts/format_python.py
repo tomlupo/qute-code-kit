@@ -2,8 +2,13 @@
 """
 PostToolUse hook (filtered to Edit, Write): auto-format Python files with ruff.
 
-Runs ruff format and ruff check --fix after Python file edits. Silently skips
+Runs `ruff format` (cosmetic only) after Python file edits. Silently skips
 if ruff is not available or file is not Python.
+
+Note: `ruff check --fix` is intentionally NOT run here. Its F401 unused-import
+removal fires once per edit, so an import added before its first use (normal
+mid-task editing) gets deleted before the using code lands. Run lint autofix
+deliberately (`ruff check --fix`) or in CI/pre-commit, where timing is safe.
 """
 
 import json
@@ -47,16 +52,11 @@ def main():
     if not ruff_cmd:
         return
 
-    # Format
+    # Format only (see module docstring — `ruff check --fix` deliberately omitted)
     subprocess.run(
         ruff_cmd + ["format", "--quiet", file_path],
-        capture_output=True, timeout=10,
-    )
-
-    # Auto-fix safe lint issues
-    subprocess.run(
-        ruff_cmd + ["check", "--fix", "--quiet", file_path],
-        capture_output=True, timeout=10,
+        capture_output=True,
+        timeout=10,
     )
 
     print(f"[RuffFormatter] Formatted {Path(file_path).name}")

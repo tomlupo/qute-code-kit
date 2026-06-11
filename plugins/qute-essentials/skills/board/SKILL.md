@@ -16,7 +16,7 @@ One picture of every task source in this repo. Powered by the shared task engine
 - To spot the same task tracked twice across systems
 
 Do NOT invoke for:
-- Pure git/worktree state — use `/status`
+- Pure git/worktree state — use `/repo-status`
 - Loading one task's session context — use `/pickup`
 - Adding or closing a task — use `/task`
 

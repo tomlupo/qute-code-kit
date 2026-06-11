@@ -4,20 +4,20 @@ Essential hooks, guards, and skills for Claude Code. Provides prompt injection s
 
 ## Guard System
 
-Six security guards — toggleable via `/guard`. Three run PreToolUse (block before execution), three run PostToolUse (scan after):
+Five security guards — toggleable via `/guard`. Two run PreToolUse (block before execution), three run PostToolUse (scan after):
 
 ```
                      ┌──────────────────────────────┐
                      │   Tool call (any tool)        │
                      └──────────────┬───────────────┘
                                     │
-          ┌─────────── PreToolUse ──┼──────────────┐
-          │                         │              │
- ┌────────▼──────────┐  ┌───────────▼──────┐  ┌───▼──────────────┐
- │ Destructive Guard │  │  Secrets Guard   │  │  Malware Guard   │
- │ blocks rm -rf,    │  │  blocks writes   │  │  blocks obfusc.  │
- │ git reset --hard  │  │  with API keys   │  │  code / drainers │
- └───────────────────┘  └──────────────────┘  └──────────────────┘
+          ┌─────────── PreToolUse ──┴──────┐
+          │                                │
+ ┌────────▼──────────┐         ┌───────────▼──────┐
+ │ Destructive Guard │         │  Secrets Guard   │
+ │ blocks rm -rf,    │         │  blocks writes   │
+ │ git reset --hard  │         │  with API keys   │
+ └───────────────────┘         └──────────────────┘
                                     │
                                  executes
                                     │
@@ -76,13 +76,12 @@ Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert 
 
 ### Lakera Guard (PostToolUse)
 
-Screens tool outputs for prompt injection via the Lakera Guard API. Targets untrusted content sources:
+Screens tool outputs for prompt injection via the Lakera Guard API. The hook matcher is scoped to the untrusted-content ingestion surface only:
 
 - WebFetch, WebSearch (always screened)
 - MCP tool responses (always screened)
-- Bash output from curl/wget/python (selective)
-- Read output from inbox/raw/tmp dirs (selective)
-- Safe local commands (git, ls, find) are skipped to save API quota
+
+Bash and Read are **not** screened — the matcher was narrowed to web/MCP ingestion (the real injection surface), removing the per-Bash/Read API round-trip. If you pull untrusted web content via `curl`/`summarize` (which run through Bash), prefer `WebFetch` so it gets screened.
 
 When injection is detected, a warning is injected into the conversation context and an urgent ntfy alert is sent. Requires `LAKERA_GUARD_API_KEY` env var. Free tier: 10k requests/month.
 
@@ -112,7 +111,6 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 /guard langfuse off         # disable Langfuse tracing
 /guard secrets off          # disable secrets guard (session override)
 /guard destructive off      # disable destructive command blocking
-/guard malware off          # disable malware scan
 /guard audit off            # disable auto pip-audit
 /guard all on               # re-enable everything
 ```
@@ -123,31 +121,23 @@ Config stored in `config/guards.json`. Changes take effect immediately.
 
 | Hook | Event | Purpose |
 |------|-------|---------|
-| `check-update.py` | SessionStart | Daily version check against the marketplace |
-| `repo-scan.py` | SessionStart | First-time repo safety scan (setup.py obfuscation, dangerous npm scripts, tracked `.env`) |
-| `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with ruff |
-| `doc_reminder.py` | PostToolUse (Edit/Write) | ADR-aware reminder when editing decision-related files |
+| `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with `ruff format` (cosmetic only — `ruff check --fix` deliberately omitted so per-edit F401 doesn't strip imports mid-task) |
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Skill/agent activity logging |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
-| `on_task_complete.py` | PostToolUse (Bash) | ntfy notification for long-running commands |
-| `on_notification.py` | Notification | ntfy push when Claude is waiting for input |
 
 ## Notifications
 
-Push notifications via [ntfy.sh](https://ntfy.sh). Config in `config/ntfy.json`.
+Push notifications via [ntfy.sh](https://ntfy.sh). Config in `config/ntfy.json` (`server` + `topic`).
 
-Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude`). Subscribe in the ntfy app to receive alerts for:
+The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-derive `{hostname}-{username}-claude` (e.g., `core-tom-claude`), or set it explicitly to override. Subscribe in the ntfy app to receive alerts for:
 - Destructive command blocks
 - Prompt injection detections
-- Long-running command completions
-- Permission prompts (agent waiting for input)
 
 ## Skills
 
 | Skill | Description |
 |-------|-------------|
-| `/guard` | Toggle any of the 6 security guards on/off, check status |
-| `/config` | View or update plugin configuration (notifications) |
+| `/guard` | Toggle any of the 5 security guards on/off, check status |
 | `generating-commit-messages` | Conventional Commits guidance (auto-applied before any `git commit`) |
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
@@ -155,13 +145,12 @@ Topic auto-generates from `{hostname}-{username}-claude` (e.g., `core-tom-claude
 | `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). Auto-runs first-time setup (commitizen + CHANGELOG + workflow) on Python projects |
 | `/board` | One-glance merged view across `TASKS.md`, GitHub Issues (via `gh`), and Paperclip; flags duplicates |
 | `/task` | Add or close a task in this repo's tracker — auto-routes to `TASKS.md`, GitHub, or Paperclip |
-| `/status` | Print current production state for subsystems (from `prod-{scope}-v*` tags + MLflow registry) |
+| `/repo-status` | Print current production state for subsystems (from `prod-{scope}-v*` tags + MLflow registry) |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
 | `/test` | Run test suite, interpret failures, propose fixes |
 | `/worktrees` | Manage git worktrees for parallel development |
 | `/readme` | Generate or update README files |
 | `/gbu` | Good/bad/ugly structured code or design review |
-| `/wtf` | Acknowledge failure, record feedback memory, immediately retry |
 
 ## Setup
 
