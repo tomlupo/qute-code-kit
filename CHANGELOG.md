@@ -1,3 +1,9 @@
+## v2.5.0 (2026-06-11)
+
+### Refactor
+
+- slim to essentials — scope guards, drop redundant hooks/skills
+
 ## v2.4.0 (2026-06-02)
 
 ### Feat
