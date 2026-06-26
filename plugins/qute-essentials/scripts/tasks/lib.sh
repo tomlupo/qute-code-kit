@@ -33,6 +33,7 @@ set -uo pipefail
 # markdown, greppable by the engine.
 TASKS_TOMBSTONE_MARKER='<!-- qute-tasks: migrated-to-github -->'
 TASKS_KEEPLOCAL_MARKER='<!-- qute-tasks: keep-local -->'
+TASKS_PROPOSED_MARKER='<!-- qute-tasks: migration-proposed -->'
 
 # ---------------------------------------------------------------------------
 # Repo discovery
@@ -56,7 +57,8 @@ tasks_tasksmd_path() {
 tasks_threshold() {
   local root claude_md decl
   if [[ -n "${QUTE_TASKS_THRESHOLD:-}" ]]; then
-    echo "$QUTE_TASKS_THRESHOLD"; return 0
+    # Only honour a numeric override; otherwise fall through to the default.
+    [[ "$QUTE_TASKS_THRESHOLD" =~ ^[0-9]+$ ]] && { echo "$QUTE_TASKS_THRESHOLD"; return 0; }
   fi
   root=$(tasks_repo_root)
   claude_md="$root/CLAUDE.md"
@@ -80,6 +82,22 @@ tasks_is_tombstone() {
 tasks_is_keep_local() {
   local f; f=$(tasks_tasksmd_path)
   [[ -f "$f" ]] && grep -qF "$TASKS_KEEPLOCAL_MARKER" "$f" 2>/dev/null
+}
+
+# True if the migration proposal has already been shown once for this repo.
+tasks_is_proposed() {
+  local f; f=$(tasks_tasksmd_path)
+  [[ -f "$f" ]] && grep -qF "$TASKS_PROPOSED_MARKER" "$f" 2>/dev/null
+}
+
+# Record that the migration proposal has been shown, so it fires only once.
+# Appends the marker to TASKS.md (created if absent). Best-effort; never fails
+# the caller.
+tasks_mark_proposed() {
+  local f; f=$(tasks_tasksmd_path)
+  tasks_is_proposed && return 0
+  [[ -f "$f" ]] || printf '# Tasks\n\n' >"$f" 2>/dev/null || return 0
+  printf '%s\n' "$TASKS_PROPOSED_MARKER" >>"$f" 2>/dev/null || return 0
 }
 
 # Count open `- [ ]` checklist items in TASKS.md (0 when absent/tombstoned).
@@ -142,6 +160,7 @@ tasks_should_propose() {
   [[ "$(tasks_active_store)" == tasks-md ]] || return 1
   tasks_github_available 2>/dev/null || return 1
   tasks_is_keep_local && return 1
+  tasks_is_proposed && return 1
   local n thr
   n=$(tasks_open_count_md)
   thr=$(tasks_threshold)

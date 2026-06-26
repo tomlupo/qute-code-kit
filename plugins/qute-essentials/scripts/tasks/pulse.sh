@@ -39,6 +39,8 @@ _emit_proposal() {
   echo "  Graduate? \`/task migrate\` opens one issue per item and leaves TASKS.md as a"
   echo "  pointer to the Issues tab. One store, no double-tracking."
   echo "  Staying on TASKS.md is fine — \`/task decline\` silences this once and for all."
+  # Record that we've proposed, so this fires truly ONCE (not "nag until declined").
+  tasks_mark_proposed
 }
 
 # --- report (/board) ---
@@ -49,9 +51,20 @@ cmd_report() {
 
   case "$store" in
     github)
+      # Distinguish "could not reach GitHub" from "genuinely 0 open issues":
+      # if gh/auth/network is broken we must NOT render an empty board.
+      if ! tasks_github_available 2>/dev/null; then
+        echo "pulse: cannot reach GitHub (gh unavailable, not authenticated, or no remote)." >&2
+        echo "       The active store is GitHub Issues but it could not be read — backlog state unknown." >&2
+        return 1
+      fi
       local json
       json=$(tasks_github_open_json 2>/dev/null)
-      if [[ -z "$json" || "$json" == "null" || "$json" == "[]" ]]; then
+      if [[ -z "$json" || "$json" == "null" ]]; then
+        echo "pulse: failed to read GitHub issues (gh error) — backlog state unknown." >&2
+        return 1
+      fi
+      if [[ "$json" == "[]" ]]; then
         echo "no open GitHub issues"
         return 0
       fi
@@ -171,15 +184,19 @@ cmd_migrate() {
     return 0
   fi
 
-  local repo url created=0
+  local repo url created=0 total=0
   repo=$(tasks_github_repo)
 
-  # Open each item as an issue.
+  # Open each item as an issue. Track failures so we NEVER tombstone (and thus
+  # erase) TASKS.md unless every open item migrated successfully.
   local urls=()
+  local failed=()
   while IFS= read -r text; do
     [[ -n "$text" ]] || continue
+    total=$((total + 1))
     url=$(tasks_github_create "$text" "Migrated from TASKS.md.") || {
       echo "pulse: failed to create issue for: $text" >&2
+      failed+=("$text")
       continue
     }
     urls+=("$url")
@@ -188,7 +205,23 @@ cmd_migrate() {
   done < <(grep -nE '^- \[ \]' "$file" 2>/dev/null \
             | sed -E 's/^[0-9]+:- \[ \] *//; s/\*\*//g; s/[[:space:]]+$//')
 
-  # Replace TASKS.md with a tombstone pointer to the Issues tab.
+  # Nothing to migrate — don't tombstone an (effectively) empty/no-open-items file.
+  if (( total == 0 )); then
+    echo "pulse: no open items in TASKS.md to migrate — leaving it intact" >&2
+    return 1
+  fi
+
+  # Any failure -> leave TASKS.md fully intact so the failed items are preserved.
+  if (( ${#failed[@]} > 0 )); then
+    echo "pulse: $created/$total item(s) migrated; ${#failed[@]} failed — TASKS.md left intact (no tombstone)." >&2
+    echo "pulse: failed item(s):" >&2
+    local f
+    for f in "${failed[@]}"; do echo "  - $f" >&2; done
+    echo "pulse: re-run migrate after resolving the gh failure(s) above." >&2
+    return 1
+  fi
+
+  # All open items migrated (created == total > 0): safe to tombstone.
   local issues_url="https://github.com/$repo/issues"
   {
     echo "# Tasks"
