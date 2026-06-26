@@ -25,6 +25,11 @@ tasks_github_open_json() {
     --json number,title,state,labels,assignees,updatedAt,url 2>/dev/null
 }
 
+# Count of open issues (0 on any failure). Excludes PRs.
+tasks_github_open_count() {
+  gh issue list --state open --limit 500 --json number -q 'length' 2>/dev/null || echo 0
+}
+
 # Create an issue.  Args: <title> [body...]   Prints the new issue URL.
 tasks_github_create() {
   local title="$1"; shift || true

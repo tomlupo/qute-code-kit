@@ -212,6 +212,11 @@ def wipe_tasks_completed(root: Path, pyproject: Path) -> None:
         return
 
     content = tasks.read_text(encoding="utf-8")
+    # Tier-1 only: a repo that graduated to GitHub Issues leaves TASKS.md as a
+    # migration tombstone — its completion record lives in the Issues tab.
+    if "qute-tasks: migrated-to-github" in content:
+        return
+
     pattern = re.compile(
         r"^## Completed\b[^\n]*\n.*?(?=^## |^---\s*$|\Z)",
         re.MULTILINE | re.DOTALL,
