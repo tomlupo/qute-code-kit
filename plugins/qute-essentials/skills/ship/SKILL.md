@@ -106,8 +106,9 @@ line; blank lines and `# comments` allowed).
 After cz bump succeeds, the script removes any `## Completed (…)` sections
 from `TASKS.md` (work just shipped, canonical record is now `CHANGELOG.md`)
 and creates a follow-up commit `chore(tasks): wipe Completed after vX.Y.Z`.
-The bump commit + tag stay untouched. Skipped silently if `TASKS.md` is
-missing.
+The bump commit + tag stay untouched. This is a **Tier-1 convenience only**:
+skipped silently if `TASKS.md` is missing or is a migration tombstone (a repo
+that graduated to GitHub Issues tracks completion in the Issues tab, not here).
 
 ### First-time setup (Python mode, auto + idempotent)
 

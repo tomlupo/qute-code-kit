@@ -8,7 +8,7 @@ argument-hint: "[alias]"
 
 Sub-second git/worktree dashboard. **No LLM body** — exec the bash script and print stdout verbatim.
 
-Scope: pure git state. **Task state lives in `/board`** (auto-detects Paperclip vs TASKS.md). **Session state lives in `~/.claude/handoffs/`** (use `/pickup` to load latest).
+Scope: pure git state. **Task state lives in `/board`** (auto-detects TASKS.md vs GitHub Issues). **Session state lives in `~/.claude/handoffs/`** (use `/pickup` to load latest).
 
 ## When to use
 

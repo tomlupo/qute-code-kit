@@ -12,8 +12,8 @@
 # Args:
 #   $1 (optional)  — alias filter; if given, restrict subsystems to that one.
 #
-# Scope: pure git state. Task-source state lives in /board (Paperclip or
-# TASKS.md, auto-detected). Session state lives in ~/.claude/handoffs/ (use
+# Scope: pure git state. Task-source state lives in /board (TASKS.md or
+# GitHub Issues, auto-detected). Session state lives in ~/.claude/handoffs/ (use
 # /pickup to load latest).
 set -uo pipefail
 
