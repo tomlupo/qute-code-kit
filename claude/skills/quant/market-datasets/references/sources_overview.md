@@ -692,5 +692,7 @@ uv run scripts/fetch_eodhd.py ETFBW20TR.WAR 2024-01-01  # GPW Beta ETF
 uv run scripts/fetch_eodhd.py ^BCOM 2024-01-01          # -> BCOM.INDX
 ```
 
-Routing: the unified fetcher prefers EODHD for US/ETF tickers, `^`-indices,
-and `.WA/.WAR/.L/.LSE` suffixes, falling back to Yahoo/Stooq.
+Routing: EODHD is **opt-in**, not auto-routed — the default router keeps Yahoo
+primary for ad-hoc to avoid burning paid calls. Reach for EODHD deliberately
+via `source='eodhd'` for UCITS/ETF, GPW (`.WAR`), and datacenter hosts where
+Stooq/Yahoo are blocked.

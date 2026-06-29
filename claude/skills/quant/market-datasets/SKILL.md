@@ -20,12 +20,13 @@ Unified market data fetching with intelligent source selection, plus long-histor
 
 | Source | Best For | Auth | Coverage |
 |--------|----------|------|----------|
-| **EODHD** | UCITS/ETF + global multi-exchange; datacenter-reachable | API key | US/EU/GPW stocks, ETFs, indices, ISIN-keyed; splits/div-adjusted |
+| **EODHD** | UCITS/ETF + global multi-exchange; datacenter-reachable (**opt-in** — `source='eodhd'`, paid) | API key | US/EU/GPW stocks, ETFs, indices, ISIN-keyed; splits/div-adjusted |
 | **Stooq** | Polish market | Free | Stocks, indices, FX, commodities |
 | **NBP** | Official PLN FX | Free | PLN exchange rates |
-| **Yahoo** | Global equities | Free | Stocks, ETFs, indices worldwide |
+| **Yahoo** | Global equities (**ad-hoc primary**) | Free | Stocks, ETFs, indices worldwide |
 | **Tiingo** | Yahoo fallback | API key | US stocks/ETFs, 30+ years |
-| **CCXT/Binance** | Crypto | Free | All crypto pairs, multiple timeframes |
+| **CCXT/Binance** | Crypto OHLCV | Free | All crypto pairs, multiple timeframes |
+| **CoinGecko** | Crypto price/market-cap by coin id | Free (opt-in) | Daily price, mcap, volume |
 | **FRED** | Macro indicators | API key | US economic data |
 | **FinancialData.Net** | Fundamentals, options, insider | API key | US/intl stocks, options, statements, ratios |
 | **Shiller** | Long-history equity/bonds | Free | Monthly S&P 500 + 10Y yield (1871+) |
@@ -47,9 +48,9 @@ See [references/dividend_treatment.md](references/dividend_treatment.md).
 
 | Need | Approach |
 |------|----------|
-| Current/recent prices | Auto-routing via unified fetcher |
-| ETF / UCITS / GPW-listed prices | EODHD (primary; force `source='eodhd'` or auto-routed) |
-| Datacenter/VPS where Stooq/Yahoo blocked | EODHD (REST, no geo-block) |
+| Current/recent prices (ad-hoc) | Auto-routing via unified fetcher — **Yahoo primary** |
+| ETF / UCITS / GPW-listed prices | **EODHD, opt-in** — force `source='eodhd'` (paid; confirm cost) |
+| Datacenter/VPS where Stooq/Yahoo blocked | EODHD (REST, no geo-block) — force `source='eodhd'` |
 | Official PLN FX rates | Force NBP source |
 | Multi-decade backtest series | Long-history construction (see below) |
 | ISIN-based lookups | TickerRegistry + Yahoo Direct API |
