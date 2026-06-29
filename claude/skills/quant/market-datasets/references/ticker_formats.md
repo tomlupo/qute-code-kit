@@ -441,3 +441,22 @@ prices, dividends, splits, mapping = fetch_by_isin(
 | mWIG40 index | Stooq | `mwig40` | Lowercase |
 | By ISIN | Yahoo Direct | `PLXTRDM00011` | Auto-converts to ticker |
 | Dividends & splits | Yahoo Direct | `XTB.WA` | Use `events=div,splits` |
+
+### EODHD
+
+Exchange-suffixed symbols (one symbol per call). ISIN lookup also supported.
+
+```
+SPY.US          # US ETFs/stocks (bare ticker -> .US)
+AGG.US          # iShares Core US Aggregate Bond
+IMEU.LSE        # UCITS on London (Yahoo .L -> .LSE)
+ETFBW20TR.WAR   # GPW / Warsaw Beta ETF (Yahoo .WA -> .WAR)
+BCOM.INDX       # indices (^BCOM -> BCOM.INDX)
+```
+
+Conversion from common formats (`scripts/fetch_eodhd.py::eodhd_symbol`):
+- bare ticker → `.US`
+- `.WA` → `.WAR`  (Warsaw / GPW)
+- `.L`  → `.LSE`  (London)
+- `^IDX` → `IDX.INDX`
+- already exchange-suffixed → passthrough

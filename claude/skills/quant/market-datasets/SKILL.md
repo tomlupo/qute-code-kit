@@ -1,6 +1,6 @@
 ---
 name: market-datasets
-description: Fetch market data, fundamentals, and financial datasets from multiple sources (Stooq, NBP, Yahoo Finance, FRED, Tiingo, CCXT, FinancialData.Net) with intelligent routing, plus long-history construction patterns for investment research. Use when users request stock prices, indices, FX rates, economic indicators, cryptocurrency data, fundamentals, options, financial statements, or need to build multi-decade return series for backtesting.
+description: Fetch market data, fundamentals, and financial datasets from multiple sources (EODHD, Stooq, NBP, Yahoo Finance, FRED, Tiingo, CCXT, FinancialData.Net) with intelligent routing, plus long-history construction patterns for investment research. Use when users request stock prices, indices, FX rates, economic indicators, cryptocurrency data, fundamentals, options, financial statements, or need to build multi-decade return series for backtesting.
 argument-hint: "[ticker] [start-date] [end-date]"
 allowed-tools: Bash, Read
 ---
@@ -20,6 +20,7 @@ Unified market data fetching with intelligent source selection, plus long-histor
 
 | Source | Best For | Auth | Coverage |
 |--------|----------|------|----------|
+| **EODHD** | UCITS/ETF + global multi-exchange; datacenter-reachable | API key | US/EU/GPW stocks, ETFs, indices, ISIN-keyed; splits/div-adjusted |
 | **Stooq** | Polish market | Free | Stocks, indices, FX, commodities |
 | **NBP** | Official PLN FX | Free | PLN exchange rates |
 | **Yahoo** | Global equities | Free | Stocks, ETFs, indices worldwide |
@@ -47,6 +48,8 @@ See [references/dividend_treatment.md](references/dividend_treatment.md).
 | Need | Approach |
 |------|----------|
 | Current/recent prices | Auto-routing via unified fetcher |
+| ETF / UCITS / GPW-listed prices | EODHD (primary; force `source='eodhd'` or auto-routed) |
+| Datacenter/VPS where Stooq/Yahoo blocked | EODHD (REST, no geo-block) |
 | Official PLN FX rates | Force NBP source |
 | Multi-decade backtest series | Long-history construction (see below) |
 | ISIN-based lookups | TickerRegistry + Yahoo Direct API |
@@ -60,6 +63,7 @@ uv run scripts/fetch_unified.py PKO 2024-01-01 2024-12-31
 uv run scripts/fetch_stooq.py WIG20 2024-01-01
 uv run scripts/fetch_nbp.py USD 2024-01-01 2024-12-31
 uv run scripts/fetch_yahoo.py AAPL 2024-01-01
+uv run scripts/fetch_eodhd.py SPY 2024-01-01            # ETF/UCITS/GPW (EODHD)
 uv run scripts/fetch_financialdata.py AAPL 2024-01-01 2024-12-31
 ```
 

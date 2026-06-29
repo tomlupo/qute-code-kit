@@ -6,6 +6,7 @@ Comprehensive comparison of all supported data sources for the market-datasets s
 
 | Source | Best For | Coverage | Auth Required | Rate Limits | Cost |
 |--------|----------|----------|---------------|-------------|------|
+| **EODHD** | UCITS/ETF + global multi-exchange, datacenter-reachable | US/EU/GPW stocks, ETFs, indices; ISIN-keyed; splits/div-adjusted | Yes (API key) | Free: 20/day, ~1yr history. Paid: 100k/day, full history | Free/Paid (~$20/mo) |
 | **Stooq** | Polish stocks & indices | Polish market, some international | No | Informal (~1-2s delay) | Free |
 | **NBP API** | PLN exchange rates | Official PLN rates vs major currencies | No | None documented | Free |
 | **Yahoo Finance** | US stocks & global equities | Global stocks, ETFs, indices | No | Informal (~1s delay) | Free |
@@ -19,6 +20,7 @@ Comprehensive comparison of all supported data sources for the market-datasets s
 
 | Source | Price Type | Dividends Available | Use For |
 |--------|------------|---------------------|---------|
+| **EODHD** | Both (close + adjusted_close) | Yes (splits/div-adjusted) | P&L (close), returns (adjusted_close) |
 | **Stooq** | Adjusted only | No (prices pre-adjusted) | Total return calculations |
 | **Yahoo Finance** | Both (close + adj_close) | Yes (via API) | P&L calc (close), returns (adj_close) |
 | **NBP** | N/A | N/A | FX rates only |
@@ -661,3 +663,34 @@ If experiencing rate limiting:
 | **Insider trading** | FinancialData.Net | Insider transactions, congress trading |
 | **Institutional ownership** | FinancialData.Net | Holders, holdings, portfolio stats |
 | **Event calendars** | FinancialData.Net | Earnings, IPO, splits, dividends |
+
+### 9. EODHD (eodhd.com)
+
+End-Of-Day Historical Data — REST API best suited to **UCITS/ETF and global
+multi-exchange** coverage. Chosen as the primary ETF/benchmark feed because it
+is **reachable from datacenters/VPS** where Stooq is geo-blocked and Yahoo is
+rate-limited, and it resolves GPW-listed and EU-domiciled instruments that the
+free feeds handle poorly.
+
+**Why EODHD**
+- One REST endpoint per symbol: `GET https://eodhd.com/api/eod/{SYMBOL}` → JSON OHLCV + `adjusted_close`.
+- Exchange-suffixed symbols: `.US`, `.LSE` (London), `.WAR` (Warsaw/GPW), `.INDX` (indices), plus ISIN lookup.
+- Splits/dividend-adjusted; tz-naive daily history.
+- Validated 2026-06-29 on a 42-instrument ETF benchmark universe: **100% resolution**, fresher than yfinance (incl. GPW Beta ETFs `.WAR` and UCITS `.LSE`).
+
+**Tiers**
+- Free: ~1 year history, 20 calls/day, limited symbols (validation only).
+- Paid (EOD Historical Data, ~$20/mo): full multi-decade history, 100k calls/day.
+
+**Symbol mapping** (see `scripts/fetch_eodhd.py::eodhd_symbol`): bare ticker → `.US`; Yahoo `.WA` → `.WAR`; Yahoo `.L` → `.LSE`; `^IDX` → `IDX.INDX`; already-suffixed → passthrough.
+
+```bash
+export EODHD_API_KEY="your_key"
+uv run scripts/fetch_eodhd.py SPY 2024-01-01            # -> SPY.US
+uv run scripts/fetch_eodhd.py IMEU.LSE 2024-01-01       # UCITS on London
+uv run scripts/fetch_eodhd.py ETFBW20TR.WAR 2024-01-01  # GPW Beta ETF
+uv run scripts/fetch_eodhd.py ^BCOM 2024-01-01          # -> BCOM.INDX
+```
+
+Routing: the unified fetcher prefers EODHD for US/ETF tickers, `^`-indices,
+and `.WA/.WAR/.L/.LSE` suffixes, falling back to Yahoo/Stooq.
