@@ -1,0 +1,27 @@
+{
+  "_template": "Global user settings",
+  "_usage": "Copy to ~/.claude/settings.json and adjust plugins to your installed set",
+
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)"
+    ],
+    "defaultMode": "default"
+  },
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "github@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "hookify@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "playground@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "claude-code-setup@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true,
+    "qute-essentials@qute-marketplace": true,
+    "compound-engineering@every-marketplace": true,
+    "document-skills@anthropic-agent-skills": true,
+    "example-skills@anthropic-agent-skills": true
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "_template": "Web Development / Frontend project",
+  "_usage": "Copy to <project>/.claude/settings.json and adjust permissions paths",
+
+  "permissions": {
+    "allow": [
+      "Read(.claude/**)",
+      "Edit(.claude/**)",
+      "Write(.claude/**)",
+      "Edit(src/**)",
+      "Write(src/**)",
+      "Edit(app/**)",
+      "Write(app/**)",
+      "Edit(components/**)",
+      "Write(components/**)",
+      "Edit(pages/**)",
+      "Write(pages/**)",
+      "Edit(public/**)",
+      "Write(public/**)",
+      "Edit(styles/**)",
+      "Write(styles/**)",
+      "Edit(lib/**)",
+      "Write(lib/**)",
+      "Read(docs/**)",
+      "Edit(docs/**)",
+      "Write(docs/**)",
+      "Edit(tests/**)",
+      "Write(tests/**)",
+      "Edit(config/**)",
+      "Write(config/**)"
+    ]
+  }
+}

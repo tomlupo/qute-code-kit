@@ -99,6 +99,13 @@ try:
 except ImportError:
     FINANCIALDATA_AVAILABLE = False
 
+try:
+    from fetch_eodhd import EODHDFetcher
+
+    EODHD_AVAILABLE = True
+except ImportError:
+    EODHD_AVAILABLE = False
+
 
 class UnifiedMarketDataFetcher:
     """
@@ -162,6 +169,7 @@ class UnifiedMarketDataFetcher:
         fred_api_key: Optional[str] = None,
         tiingo_api_key: Optional[str] = None,
         financialdata_api_key: Optional[str] = None,
+        eodhd_api_key: Optional[str] = None,
         crypto_exchange: str = "binance",
         use_registry: bool = True,
     ):
@@ -182,6 +190,7 @@ class UnifiedMarketDataFetcher:
         self.fred_api_key = fred_api_key
         self.tiingo_api_key = tiingo_api_key
         self.financialdata_api_key = financialdata_api_key
+        self.eodhd_api_key = eodhd_api_key
         self.crypto_exchange = crypto_exchange
 
         # Initialize TickerRegistry for ISIN/ticker lookups
@@ -206,9 +215,7 @@ class UnifiedMarketDataFetcher:
 
         if FRED_AVAILABLE and fred_api_key:
             try:
-                self.fetchers["fred"] = FREDFetcher(
-                    fred_api_key, use_cache, cache_hours
-                )
+                self.fetchers["fred"] = FREDFetcher(fred_api_key, use_cache, cache_hours)
             except ValueError:
                 print("[Unified] FRED API key not configured, FRED unavailable")
 
@@ -218,18 +225,14 @@ class UnifiedMarketDataFetcher:
         # Initialize Tiingo (requires API key)
         if TIINGO_AVAILABLE:
             try:
-                self.fetchers["tiingo"] = TiingoFetcher(
-                    tiingo_api_key, use_cache, cache_hours
-                )
+                self.fetchers["tiingo"] = TiingoFetcher(tiingo_api_key, use_cache, cache_hours)
             except ValueError:
                 print("[Unified] Tiingo API key not configured, Tiingo unavailable")
 
         # Initialize CCXT for crypto (no API key needed for public data)
         if CCXT_AVAILABLE:
             try:
-                self.fetchers["ccxt"] = CCXTFetcher(
-                    crypto_exchange, use_cache, cache_hours
-                )
+                self.fetchers["ccxt"] = CCXTFetcher(crypto_exchange, use_cache, cache_hours)
             except Exception as e:
                 print(f"[Unified] CCXT unavailable: {e}")
 
@@ -243,6 +246,14 @@ class UnifiedMarketDataFetcher:
                 print(
                     "[Unified] FinancialData.Net API key not configured, FinancialData unavailable"
                 )
+
+        # Initialize EODHD (requires API key) — primary for UCITS/ETF + global
+        # multi-exchange (US/.LSE/.WAR/.INDX), reachable where Stooq/Yahoo aren't.
+        if EODHD_AVAILABLE:
+            try:
+                self.fetchers["eodhd"] = EODHDFetcher(eodhd_api_key, use_cache, cache_hours)
+            except ValueError:
+                print("[Unified] EODHD API key not configured, EODHD unavailable")
 
     def fetch(
         self,
@@ -287,9 +298,7 @@ class UnifiedMarketDataFetcher:
                 source_ticker = security.get_ticker(source)
                 if source_ticker:
                     ticker = source_ticker
-            return self._fetch_from_source(
-                source, ticker, start_date, end_date, **kwargs
-            )
+            return self._fetch_from_source(source, ticker, start_date, end_date, **kwargs)
 
         # Auto-detect best source using registry or pattern matching
         if security:
@@ -305,18 +314,14 @@ class UnifiedMarketDataFetcher:
         for source_name in sources:
             try:
                 ticker = ticker_map.get(source_name, identifier)
-                return self._fetch_from_source(
-                    source_name, ticker, start_date, end_date, **kwargs
-                )
+                return self._fetch_from_source(source_name, ticker, start_date, end_date, **kwargs)
             except Exception as e:
                 print(f"[Unified] {source_name} failed: {e}")
                 last_error = e
                 continue
 
         # All sources failed
-        raise ValueError(
-            f"All sources failed for '{identifier}'. Last error: {last_error}"
-        )
+        raise ValueError(f"All sources failed for '{identifier}'. Last error: {last_error}")
 
     def _route_security(self, security) -> Tuple[List[str], dict]:
         """
@@ -430,14 +435,21 @@ class UnifiedMarketDataFetcher:
                 if "fred" in self.fetchers:
                     return ["fred", "pdr"]
 
-        # Check for international indices (^SPX, ^IXIC, etc.)
+        # Check for international indices (^SPX, ^IXIC, ^BCOM, etc.)
         if ticker.startswith("^"):
-            return ["yahoo", "stooq", "pdr"]
+            sources = []
+            if "eodhd" in self.fetchers:  # EODHD .INDX coverage, e.g. ^BCOM
+                sources.append("eodhd")
+            sources.extend(["yahoo", "stooq", "pdr"])
+            return sources
 
-        # Check for US stocks (all caps, short)
+        # Check for US stocks / ETFs (all caps, short). EODHD primary for ETFs
+        # (and fine for stocks); Yahoo/Tiingo as fallback.
         if ticker.isupper() and 1 <= len(ticker) <= 5:
-            # Tiingo is excellent for US stocks with better free tier
-            sources = ["yahoo"]
+            sources = []
+            if "eodhd" in self.fetchers:
+                sources.append("eodhd")
+            sources.append("yahoo")
             if "tiingo" in self.fetchers:
                 sources.append("tiingo")
             if "financialdata" in self.fetchers:
@@ -445,22 +457,31 @@ class UnifiedMarketDataFetcher:
             sources.extend(["pdr", "stooq"])
             return sources
 
-        # Check for explicit market suffix (.WA, .US, etc.)
+        # Check for explicit market suffix (.WA, .US, .L, .LSE, .WAR, etc.)
         if "." in ticker:
             suffix = ticker.split(".")[-1].upper()
-            if suffix == "WA":  # Warsaw Stock Exchange
-                return ["yahoo", "stooq", "pdr"]
+            # GPW (.WA/.WAR) + EU listings (.L/.LSE/.MI/...): EODHD is primary —
+            # validated 100% incl. GPW Beta ETFs and UCITS where Yahoo is flaky.
+            sources = []
+            if "eodhd" in self.fetchers:
+                sources.append("eodhd")
+            if suffix in ("WA", "WAR"):  # Warsaw Stock Exchange
+                sources.extend(["yahoo", "stooq", "pdr"])
             else:
-                sources = ["yahoo"]
+                sources.append("yahoo")
                 if "tiingo" in self.fetchers:
                     sources.append("tiingo")
                 if "financialdata" in self.fetchers:
                     sources.append("financialdata")
                 sources.extend(["pdr", "stooq"])
-                return sources
+            return sources
 
-        # Default fallback order (Yahoo first, Tiingo and FinancialData as backup)
-        sources = ["yahoo"]
+        # Default fallback order. EODHD first when available (broad UCITS/ETF +
+        # global coverage), then Yahoo, Tiingo, FinancialData, Stooq, pdr.
+        sources = []
+        if "eodhd" in self.fetchers:
+            sources.append("eodhd")
+        sources.append("yahoo")
         if "tiingo" in self.fetchers:
             sources.append("tiingo")
         if "financialdata" in self.fetchers:
@@ -508,16 +529,12 @@ class UnifiedMarketDataFetcher:
         elif source == "ccxt":
             # CCXT needs timeframe parameter
             timeframe = kwargs.pop("timeframe", "1d")
-            return fetcher.fetch(
-                ticker, start_date, end_date, timeframe=timeframe, **kwargs
-            )
+            return fetcher.fetch(ticker, start_date, end_date, timeframe=timeframe, **kwargs)
 
         elif source == "financialdata":
             # FinancialData.Net - supports endpoint parameter for different data types
             endpoint = kwargs.pop("fd_endpoint", "stock-prices")
-            return fetcher.fetch(
-                ticker, start_date, end_date, endpoint=endpoint, **kwargs
-            )
+            return fetcher.fetch(ticker, start_date, end_date, endpoint=endpoint, **kwargs)
 
         else:
             # Standard fetchers (stooq, yahoo, fred, tiingo)
@@ -713,9 +730,7 @@ if __name__ == "__main__":
     if "tiingo" in fetcher.fetchers:
         print("\n10. Fetching MSFT via Tiingo:")
         try:
-            df = fetcher.fetch(
-                "MSFT", start_date="20240101", end_date="20240131", source="tiingo"
-            )
+            df = fetcher.fetch("MSFT", start_date="20240101", end_date="20240131", source="tiingo")
             print(f"   Retrieved {len(df)} rows")
             print(df.head(3))
         except Exception as e:

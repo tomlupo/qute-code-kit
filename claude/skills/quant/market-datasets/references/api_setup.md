@@ -744,3 +744,33 @@ For issues with:
 - **CCXT**: https://github.com/ccxt/ccxt/issues
 - **yfinance**: https://github.com/ranaroussi/yfinance/issues
 - **pandas-datareader**: https://github.com/pydata/pandas-datareader/issues
+
+## EODHD API Setup
+
+EODHD (eodhd.com) is the primary UCITS/ETF + global multi-exchange source —
+reachable from datacenters/VPS where Stooq is geo-blocked and Yahoo is
+rate-limited.
+
+### Step 1: Get an API key
+Register at https://eodhd.com/. Free tier (~1yr history, 20 calls/day) is for
+validation only; the paid EOD Historical Data plan (~$20/mo) gives full history
+and 100k calls/day.
+
+### Step 2: Configure
+
+```bash
+# Option 1: environment variable (recommended)
+export EODHD_API_KEY="your_key"
+echo 'export EODHD_API_KEY="your_key"' >> ~/.bashrc
+
+# Option 2: .env file at the skill/scripts root
+echo 'EODHD_API_KEY=your_key' >> .env
+```
+
+### Step 3: Verify
+
+```bash
+uv run scripts/fetch_eodhd.py            # self-tests (US/.LSE/.WAR/.INDX)
+# check account tier/limits:
+curl -s "https://eodhd.com/api/user?api_token=$EODHD_API_KEY&fmt=json"
+```
