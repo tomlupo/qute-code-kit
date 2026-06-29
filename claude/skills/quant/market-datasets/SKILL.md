@@ -223,6 +223,7 @@ Load these when needed for detailed information:
 | [long_history_construction.md](references/long_history_construction.md) | Academic sources, splice methodology, validation |
 | [sources_overview.md](references/sources_overview.md) | Detailed source comparison, coverage |
 | [ticker_formats.md](references/ticker_formats.md) | Complete ticker format mappings |
+| [eodhd.md](references/eodhd.md) | EODHD coverage, plan limits, ISIN→listing pinning, holdings/index gaps |
 | [api_setup.md](references/api_setup.md) | API key setup, troubleshooting |
 | [dividend_treatment.md](references/dividend_treatment.md) | Raw vs adjusted prices, validation |
 | [security_master.md](references/security_master.md) | TickerRegistry API, UID conventions |
