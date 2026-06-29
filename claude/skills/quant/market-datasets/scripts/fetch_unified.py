@@ -106,6 +106,13 @@ try:
 except ImportError:
     EODHD_AVAILABLE = False
 
+try:
+    from fetch_coingecko import CoinGeckoFetcher
+
+    COINGECKO_AVAILABLE = True
+except ImportError:
+    COINGECKO_AVAILABLE = False
+
 
 class UnifiedMarketDataFetcher:
     """
@@ -247,13 +254,26 @@ class UnifiedMarketDataFetcher:
                     "[Unified] FinancialData.Net API key not configured, FinancialData unavailable"
                 )
 
-        # Initialize EODHD (requires API key) — primary for UCITS/ETF + global
-        # multi-exchange (US/.LSE/.WAR/.INDX), reachable where Stooq/Yahoo aren't.
+        # Initialize EODHD (requires API key). OPT-IN, not auto-routed: keep
+        # Yahoo primary for ad-hoc to avoid burning paid EODHD calls. Use it
+        # deliberately via source='eodhd' — it's the right call for UCITS/ETF,
+        # GPW (.WAR), and datacenter hosts where Stooq/Yahoo are blocked.
         if EODHD_AVAILABLE:
             try:
                 self.fetchers["eodhd"] = EODHDFetcher(eodhd_api_key, use_cache, cache_hours)
             except ValueError:
                 print("[Unified] EODHD API key not configured, EODHD unavailable")
+
+        # Initialize CoinGecko (no key needed for the free tier) — crypto
+        # price/market-cap/volume by coin id, complementing CCXT's exchange
+        # OHLCV. Opt-in via source='coingecko'.
+        if COINGECKO_AVAILABLE:
+            try:
+                self.fetchers["coingecko"] = CoinGeckoFetcher(
+                    use_cache=use_cache, cache_hours=cache_hours
+                )
+            except Exception as e:  # noqa: BLE001
+                print(f"[Unified] CoinGecko unavailable: {e}")
 
     def fetch(
         self,
@@ -437,19 +457,11 @@ class UnifiedMarketDataFetcher:
 
         # Check for international indices (^SPX, ^IXIC, ^BCOM, etc.)
         if ticker.startswith("^"):
-            sources = []
-            if "eodhd" in self.fetchers:  # EODHD .INDX coverage, e.g. ^BCOM
-                sources.append("eodhd")
-            sources.extend(["yahoo", "stooq", "pdr"])
-            return sources
+            return ["yahoo", "stooq", "pdr"]
 
-        # Check for US stocks / ETFs (all caps, short). EODHD primary for ETFs
-        # (and fine for stocks); Yahoo/Tiingo as fallback.
+        # Check for US stocks / ETFs (all caps, short).
         if ticker.isupper() and 1 <= len(ticker) <= 5:
-            sources = []
-            if "eodhd" in self.fetchers:
-                sources.append("eodhd")
-            sources.append("yahoo")
+            sources = ["yahoo"]
             if "tiingo" in self.fetchers:
                 sources.append("tiingo")
             if "financialdata" in self.fetchers:
@@ -457,31 +469,22 @@ class UnifiedMarketDataFetcher:
             sources.extend(["pdr", "stooq"])
             return sources
 
-        # Check for explicit market suffix (.WA, .US, .L, .LSE, .WAR, etc.)
+        # Check for explicit market suffix (.WA, .US, .L, .LSE, etc.)
         if "." in ticker:
             suffix = ticker.split(".")[-1].upper()
-            # GPW (.WA/.WAR) + EU listings (.L/.LSE/.MI/...): EODHD is primary —
-            # validated 100% incl. GPW Beta ETFs and UCITS where Yahoo is flaky.
-            sources = []
-            if "eodhd" in self.fetchers:
-                sources.append("eodhd")
-            if suffix in ("WA", "WAR"):  # Warsaw Stock Exchange
-                sources.extend(["yahoo", "stooq", "pdr"])
+            if suffix == "WA":  # Warsaw Stock Exchange
+                return ["yahoo", "stooq", "pdr"]
             else:
-                sources.append("yahoo")
+                sources = ["yahoo"]
                 if "tiingo" in self.fetchers:
                     sources.append("tiingo")
                 if "financialdata" in self.fetchers:
                     sources.append("financialdata")
                 sources.extend(["pdr", "stooq"])
-            return sources
+                return sources
 
-        # Default fallback order. EODHD first when available (broad UCITS/ETF +
-        # global coverage), then Yahoo, Tiingo, FinancialData, Stooq, pdr.
-        sources = []
-        if "eodhd" in self.fetchers:
-            sources.append("eodhd")
-        sources.append("yahoo")
+        # Default fallback order (Yahoo first, Tiingo and FinancialData as backup).
+        sources = ["yahoo"]
         if "tiingo" in self.fetchers:
             sources.append("tiingo")
         if "financialdata" in self.fetchers:
