@@ -1,7 +1,7 @@
 {
   "name": "qute-essentials",
-  "version": "2.5.0",
-  "description": "Essential hooks (ruff, doc-reminder, notifications) + 6 security guards (destructive, malware, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, config, ship, audit, test, gbu, wtf, status, board, task",
+  "version": "2.5.1",
+  "description": "Essential hooks (ruff, notifications, auto-audit, langfuse-trace) + 5 security guards (destructive, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, repo-status, board, task",
   "author": {
     "name": "twilc"
   }

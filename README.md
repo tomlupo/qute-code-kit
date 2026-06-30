@@ -4,7 +4,7 @@ Home for **qute-essentials** — a Claude Code plugin focused on security guards
 
 ## The plugin: `qute-essentials`
 
-Essential hooks, guards, and skills for Claude Code. Six toggleable security guards (block destructive commands, scan writes for secrets and malware, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs), a notification layer (ntfy push for blocks/detections/long-running tasks/waiting prompts), and 16 universal skills covering the full release-and-handoff lifecycle.
+Essential hooks, guards, and skills for Claude Code. Five toggleable security guards (block destructive commands, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs), a notification layer (ntfy push for blocks/detections), and 16 universal skills covering the full release-and-handoff lifecycle.
 
 ```bash
 claude plugin marketplace add tomlupo/qute-code-kit
@@ -15,16 +15,16 @@ claude plugin install qute-essentials@qute-marketplace
 
 | | Components |
 |---|---|
-| **Hooks** | ruff-formatter, doc-reminder, skill-use-logger, ntfy notifications, auto-audit, daily update check, first-time repo safety scan |
-| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), malware (obfuscated code / drainers), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability) |
-| **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/board`, `/issue`, `/status` |
-| **Workflow** | `/audit`, `/test`, `/decision`, `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/config`, `/guard`, `generating-commit-messages` |
+| **Hooks** | ruff-formatter, skill-use-logger, ntfy notifications, auto-audit, langfuse-trace |
+| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability) |
+| **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/board`, `/task`, `/repo-status` |
+| **Workflow** | `/audit`, `/test`, `/decision`, `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
 
 Full plugin reference (including the guard architecture diagram and per-hook event table): [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md).
 
 ### Why it exists
 
-- **Default-safe agent operation.** Three PreToolUse guards refuse destructive commands, secret writes, and obfuscated/malware patterns before they run. Three PostToolUse guards screen what came back.
+- **Default-safe agent operation.** Two PreToolUse guards refuse destructive commands and secret writes before they run. Three PostToolUse guards screen dependency vulnerabilities, prompt injection, and trace every tool call.
 - **Single-command releases.** `/ship` detects whether the repo is a plugin marketplace or a Python project and dispatches accordingly. First-run setup is idempotent — no separate `/ship-setup` step.
 - **Cross-platform.** Hooks tested on Linux/macOS/Windows (Git Bash). No `jq`, `md5sum`, or `curl` dependencies in shell scripts (stdlib python everywhere).
 - **Observable.** Every tool call traces to Langfuse with session/project/host tags; long-running commands and waiting prompts push to ntfy.

@@ -151,6 +151,8 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/worktrees` | Manage git worktrees for parallel development |
 | `/readme` | Generate or update README files |
 | `/gbu` | Good/bad/ugly structured code or design review |
+| `/wtf` | Activated on frustration/pushback — captures failure, applies three guardrail tiers (feedback memory + CLAUDE.md rule + hook), proposes smallest fix |
+| `/qute-review` | Independent adversarial multi-agent code review; posts gate verdict (approve / request-changes) as a structured report |
 
 ## Setup
 

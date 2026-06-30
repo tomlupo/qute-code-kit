@@ -1,3 +1,9 @@
+## v2.5.1 (2026-06-30)
+
+### Fix
+
+- docs: sync README and plugin.json to reality — remove malware guard (was dropped in v2.5.0), add missing /wtf and /qute-review to skills table, drop phantom doc-reminder/config hooks
+
 ## v2.5.0 (2026-06-11)
 
 ### Refactor
