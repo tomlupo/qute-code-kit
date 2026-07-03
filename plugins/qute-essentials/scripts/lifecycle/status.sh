@@ -199,9 +199,14 @@ fi
 # (pulse.sh) rather than reimplementing store detection. Non-fatal on error.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PULSE="$SCRIPT_DIR/../tasks/pulse.sh"
-if [ -x "$PULSE" ] || [ -f "$PULSE" ]; then
+if [ -f "$PULSE" ]; then
+  # pulse.sh always prints a store header (and a "no open items" line) even when
+  # the backlog is empty, so gate on an actual `  open  ` item line — otherwise
+  # the empty-store case would render noise, breaking the "empty sections
+  # silently dropped" contract. When items exist, print the full report verbatim
+  # (header + items + any migration proposal).
   tasks_out=$(bash "$PULSE" report 2>/dev/null)
-  if [ -n "$tasks_out" ]; then
+  if printf '%s\n' "$tasks_out" | grep -qE '^  open  '; then
     echo "Open tasks:"
     printf '%s\n' "$tasks_out" | sed 's/^/  /'
     echo

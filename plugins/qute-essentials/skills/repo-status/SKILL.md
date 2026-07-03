@@ -70,4 +70,6 @@ Open tasks:
     open  #42  Migrate config loader to pydantic
 ```
 
-Empty sections are silently dropped. The Subsystems section only appears when CLAUDE.md has an `| Alias |` markdown table. The **Open tasks** section reads whichever store is live — a root `TASKS.md` checklist (Tier 1) or open GitHub Issues via `gh` (Tier 2) — via the shared `pulse.sh` engine; it is skipped silently when the store is empty or `pulse.sh` errors, and a migration proposal may append when a TASKS.md repo crosses the graduation threshold (route to `/task migrate`).
+Empty sections are silently dropped. The Subsystems section only appears when CLAUDE.md has an `| Alias |` markdown table. The **Open tasks** section reads whichever store is live — a root `TASKS.md` checklist (Tier 1) or open GitHub Issues via `gh` (Tier 2) — via the shared `pulse.sh` engine; it is skipped silently when the store has no open items or `pulse.sh` errors, and a migration proposal may append when a TASKS.md repo crosses the graduation threshold (route to `/task migrate`).
+
+> **Latency note:** the git dashboard is pure bash and sub-second. On **Tier-2 (GitHub Issues) repos**, the Open tasks glance shells out to `gh` (store detection + issue read), which adds network round-trips — so `/repo-status` is no longer strictly sub-second there. Tier-1 (TASKS.md) repos stay pure-bash fast. If `gh` is unreachable the section degrades to absent, not a hang.
