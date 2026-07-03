@@ -143,9 +143,8 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
 | `/pickup` | Resume work from a previous handoff |
 | `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). Auto-runs first-time setup (commitizen + CHANGELOG + workflow) on Python projects |
-| `/board` | One glance at the repo's open tasks from its single active store — `TASKS.md` (Tier 1) or GitHub Issues via `gh` (Tier 2), auto-detected |
 | `/task` | Add or close a task — tiered: manages `TASKS.md` by default, graduates to GitHub Issues once the list earns it; proposes migration once |
-| `/repo-status` | Print current production state for subsystems (from `prod-{scope}-v*` tags + MLflow registry) |
+| `/repo-status` | Git/worktree dashboard **plus** a read-only Open tasks glance at the repo's active store — `TASKS.md` (Tier 1) or GitHub Issues via `gh` (Tier 2), auto-detected (folds in the retired `/board`) |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
 | `/test` | Run test suite, interpret failures, propose fixes |
 | `/worktrees` | Manage git worktrees for parallel development |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tasks/pulse.sh — the tiered task engine behind /board and /task.
+# tasks/pulse.sh — the tiered task engine behind /repo-status and /task.
 #
 # Part of qute-essentials. Generic and project-agnostic: TWO tiers only.
 #   Tier 1 (default)  — TASKS.md in the repo root (managed directly here).
@@ -9,7 +9,7 @@
 #
 # Usage:
 #   pulse.sh                      read the ACTIVE store (default)
-#   pulse.sh report               same as above           (<- /board)
+#   pulse.sh report               same as above           (<- /repo-status)
 #   pulse.sh add "title" [body...]            create in the active store (<- /task)
 #   pulse.sh add --to <github|tasks-md> ...   create in a named store
 #   pulse.sh close <ref> [comment...]         complete in the active store (<- /task)
@@ -43,7 +43,7 @@ _emit_proposal() {
   tasks_mark_proposed
 }
 
-# --- report (/board) ---
+# --- report (/repo-status) ---
 
 cmd_report() {
   local store; store=$(tasks_active_store)
@@ -231,7 +231,7 @@ cmd_migrate() {
     echo "This repo's task store graduated to **GitHub Issues** on $(date +%Y-%m-%d)."
     echo "Live backlog: $issues_url"
     echo ""
-    echo "\`/task\` and \`/board\` now route to Issues for this repo. Do not re-add"
+    echo "\`/task\` and \`/repo-status\` now route to Issues for this repo. Do not re-add"
     echo "tasks here — this file is a pointer, not a store."
   } >"$file"
 

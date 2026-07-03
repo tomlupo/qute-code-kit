@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tasks/lib.sh — shared helpers for the tiered task engine (/board + /task).
+# tasks/lib.sh — shared helpers for the tiered task engine (/repo-status + /task).
 #
 # Source this from skill scripts:
 #   source "$CLAUDE_PLUGIN_ROOT/scripts/tasks/lib.sh"

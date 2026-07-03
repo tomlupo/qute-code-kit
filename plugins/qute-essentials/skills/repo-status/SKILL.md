@@ -6,9 +6,9 @@ argument-hint: "[alias]"
 
 # /repo-status
 
-Sub-second git/worktree dashboard. **No LLM body** — exec the bash script and print stdout verbatim.
+Sub-second git/worktree dashboard **plus a read-only open-tasks glance**. **No LLM body** — exec the bash script and print stdout verbatim.
 
-Scope: pure git state. **Task state lives in `/board`** (auto-detects TASKS.md vs GitHub Issues). **Session state lives in `~/.claude/handoffs/`** (use `/pickup` to load latest).
+Scope: git state + a read of this repo's open task list (folded in from the retired `/board` skill — auto-detects TASKS.md Tier 1 vs GitHub Issues Tier 2, via the shared `pulse.sh` engine). **Mutating tasks lives in `/task`** (add/close). **Session state lives in `~/.claude/handoffs/`** (use `/pickup` to load latest).
 
 ## When to use
 
@@ -16,9 +16,10 @@ Scope: pure git state. **Task state lives in `/board`** (auto-detects TASKS.md v
 - Before changing something: "is there an in-flight worktree on this?"
 - Cleanup pass: orphan stashes, merged-PR worktrees ready to prune
 - User says "status", "where are we", or names a subsystem (filters subsystem table)
+- "what's on the board", "show tasks", "what's open" — the open-tasks read now lives here
 
 Do NOT invoke for:
-- Listing tasks/issues — use `/board`
+- Adding or closing a task — use `/task`
 - Loading session context — use `/pickup`
 - Writing session state — use `/handoff`
 
@@ -62,6 +63,11 @@ Subsystem    Last change                                        Active branch
 Active worktrees:
   dm-evo                         [dev]
   dm-evo-taa-migration           [feat/taa-migration]
+
+Open tasks:
+  pulse · {project}  [store: tasks-md | github]
+    open  L3   Wire up the retry backoff
+    open  #42  Migrate config loader to pydantic
 ```
 
-Empty sections are silently dropped. The Subsystems section only appears when CLAUDE.md has an `| Alias |` markdown table.
+Empty sections are silently dropped. The Subsystems section only appears when CLAUDE.md has an `| Alias |` markdown table. The **Open tasks** section reads whichever store is live — a root `TASKS.md` checklist (Tier 1) or open GitHub Issues via `gh` (Tier 2) — via the shared `pulse.sh` engine; it is skipped silently when the store is empty or `pulse.sh` errors, and a migration proposal may append when a TASKS.md repo crosses the graduation threshold (route to `/task migrate`).

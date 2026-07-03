@@ -12,9 +12,10 @@
 # Args:
 #   $1 (optional)  — alias filter; if given, restrict subsystems to that one.
 #
-# Scope: pure git state. Task-source state lives in /board (TASKS.md or
-# GitHub Issues, auto-detected). Session state lives in ~/.claude/handoffs/ (use
-# /pickup to load latest).
+# Scope: git state + a read-only open-tasks glance (Open tasks section below,
+# via the shared tasks/pulse.sh engine — TASKS.md or GitHub Issues, auto-
+# detected; folded in from the retired /board skill, issue #51). Session state
+# lives in ~/.claude/handoffs/ (use /pickup to load latest).
 set -uo pipefail
 
 cd "${CLAUDE_PROJECT_DIR:-$PWD}"
@@ -189,4 +190,20 @@ if [ "${#WORKTREES[@]}" -gt 1 ]; then
     printf '  %-30s [%s]\n' "$wt_name" "$branch_short"
   done
   echo
+fi
+
+# ---- Open tasks ---------------------------------------------------------
+# Folded in from the former /board skill (issue #51): a read-only glance at the
+# repo's open task list from its single ACTIVE store — TASKS.md (Tier 1) or
+# GitHub Issues (Tier 2), auto-detected. Reuses the shared task engine
+# (pulse.sh) rather than reimplementing store detection. Non-fatal on error.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PULSE="$SCRIPT_DIR/../tasks/pulse.sh"
+if [ -x "$PULSE" ] || [ -f "$PULSE" ]; then
+  tasks_out=$(bash "$PULSE" report 2>/dev/null)
+  if [ -n "$tasks_out" ]; then
+    echo "Open tasks:"
+    printf '%s\n' "$tasks_out" | sed 's/^/  /'
+    echo
+  fi
 fi
