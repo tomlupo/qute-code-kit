@@ -7,7 +7,7 @@ argument-hint: "<title> [body...]  |  close <ref> [comment...]  |  migrate  |  d
 # /task
 
 Write half of the tiered task engine. Adds or completes a task in whichever
-store this repo uses, sharing one engine (`pulse.sh`) with `/board`. No backend
+store this repo uses, sharing one engine (`pulse.sh`) with `/repo-status`. No backend
 ceremony — give it a title; it routes for you.
 
 ## When to use
@@ -17,7 +17,7 @@ ceremony — give it a title; it routes for you.
 - After a discussion that produced a unit of work
 
 Do NOT invoke for:
-- Viewing the backlog — use `/board`
+- Viewing the backlog — use `/repo-status` (its Open tasks section)
 - Pure git state / session context — use `/repo-status`, `/pickup`
 
 ## The tiered model (generic, project-agnostic)
@@ -75,7 +75,7 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" migrate
 
 This is mechanical: each open `- [ ]` item becomes a `gh issue create`, then
 TASKS.md is replaced with a short tombstone pointing at the Issues tab. From
-then on `/task` and `/board` route to Issues automatically.
+then on `/task` and `/repo-status` route to Issues automatically.
 
 If the user prefers to stay local, silence the nag for good:
 

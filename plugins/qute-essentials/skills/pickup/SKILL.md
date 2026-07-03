@@ -15,7 +15,7 @@ Loads the most recent handoff matching this repo and briefs you on it.
 
 Do NOT invoke for:
 - Cross-branch git state — use `/repo-status`
-- Listing tasks — use `/board`
+- Listing tasks — use `/repo-status` (its Open tasks section)
 
 ## Behavior
 
