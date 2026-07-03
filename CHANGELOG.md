@@ -1,3 +1,20 @@
+## v2.6.0 (2026-07-03)
+
+### Feat
+
+- fold /board open-tasks read into /repo-status (#51)
+- add gpw-benchmark-scraper + generalized quant-review
+- EODHD opt-in routing + CoinGecko crypto floor (#50)
+- add qute-review — independent adversarial review that posts the gate verdict (#47)
+
+### Fix
+
+- sync docs and plugin.json to v2.5.1 reality
+
+### Refactor
+
+- tiered task tracking, drop Paperclip (#46)
+
 ## v2.5.1 (2026-06-30)
 
 ### Fix
