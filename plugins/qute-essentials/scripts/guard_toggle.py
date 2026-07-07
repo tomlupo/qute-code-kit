@@ -16,7 +16,7 @@ Where <name> is one of: lakera, langfuse, secrets, audit, destructive.
 GUARDS
 
     lakera        Prompt-injection screening on tool outputs (WebFetch,
-                  WebSearch, MCP responses). Requires LAKERA_API_KEY.
+                  WebSearch, MCP responses). Requires LAKERA_GUARD_API_KEY.
                   Effectively off if the key is missing, even when
                   'enabled: true'.
 
