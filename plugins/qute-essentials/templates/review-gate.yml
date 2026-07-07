@@ -1,0 +1,54 @@
+# review-gate — require an INDEPENDENT review object before a PR can merge.
+#
+# OPTIONAL, install-on-request. This is NOT auto-added to any repo. Install it
+# into a repo that has opted into PR-flow enforcement with the one-liner in the
+# qute-essentials README (or copy this file to .github/workflows/review-gate.yml).
+#
+# It fails until a native review object authored by a DIFFERENT identity than the
+# PR author exists — i.e. an independent reviewer (qute-review[bot] via
+# /qute-reviewer, another App, or a human). A CI "comment" does NOT count; only a
+# review object in state COMMENTED / APPROVED / CHANGES_REQUESTED does.
+#
+# This plan has no branch protection, so the check cannot HARD-block a merge — it
+# turns a missing independent review into a visible RED check (the closing step is
+# still on the agent). Enable branch protection requiring "review-gate" to hard-gate.
+name: review-gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  pull-requests: read
+  contents: read
+
+jobs:
+  require-independent-reviewer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a review by a different identity than the author
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const author = pr.user.login;
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+            const independent = reviews.filter(r =>
+              r.user && r.user.login !== author &&
+              ["COMMENTED", "APPROVED", "CHANGES_REQUESTED"].includes(r.state)
+            );
+            if (independent.length === 0) {
+              core.setFailed(
+                `No independent review yet (PR authored by @${author}). ` +
+                `Post one with /qute-reviewer (qute-review[bot]) or have another identity review.`
+              );
+            } else {
+              const who = [...new Set(independent.map(r => r.user.login))].join(", ");
+              core.info(`Independent review present from: ${who}`);
+            }

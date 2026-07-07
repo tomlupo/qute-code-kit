@@ -19,6 +19,7 @@ claude plugin install qute-essentials@qute-marketplace
 | **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability) |
 | **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/task`, `/repo-status` (git dashboard + Open tasks glance) |
 | **Workflow** | `/audit`, `/test`, `/decision`, `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
+| **PR flow** (opt-in enforcement, default OFF) | `/qute-coder` (open a PR as qute-coder[bot]), `/qute-reviewer` (post an independent qute-review[bot] verdict); a per-repo `quteEnforcePrReview` marker arms the gated `pr-flow-guard` hook + optional `review-gate.yml` CI template |
 
 Full plugin reference (including the guard architecture diagram and per-hook event table): [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md).
 

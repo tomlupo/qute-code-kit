@@ -127,6 +127,7 @@ effect immediately.
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with `ruff format` (cosmetic only — `ruff check --fix` deliberately omitted so per-edit F401 doesn't strip imports mid-task) |
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Skill/agent activity logging |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
+| `pr-flow-guard.py` | PreToolUse (Bash) | **Opt-in, default OFF** (per-repo `quteEnforcePrReview` marker). Blocks `gh pr create` → `/qute-coder` and `gh pr merge` without a qute-review[bot] review. Inert unless the repo opts in — see "PR-flow enforcement" below |
 
 ## Notifications
 
@@ -155,6 +156,38 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/gbu` | Good/bad/ugly structured code or design review |
 | `/wtf` | Activated on frustration/pushback — captures failure, applies three guardrail tiers (feedback memory + CLAUDE.md rule + hook), proposes smallest fix |
 | `/qute-review` | Independent adversarial multi-agent code review; posts gate verdict (approve / request-changes) as a structured report |
+| `/qute-coder` | Open a PR authored by the **qute-coder** GitHub App (qute-coder[bot]) — same args as `gh pr create`; makes the independent-reviewer gate pass by construction. Fail-loud if App creds are absent (never mis-attributes to your gh user) |
+| `/qute-reviewer` | Post an INDEPENDENT verdict authored by the **qute-review** GitHub App (qute-review[bot]) via the dispatcher `/review` service (fallback: `qute-review-verdict` helper), and confirm a native review **object** was created — the review the gate requires |
+
+## PR-flow enforcement (opt-in, default OFF)
+
+The two skills above are always available and purely additive. On top of them, an **opt-in** PreToolUse
+hook (`pr-flow-guard.py`) enforces the flow **per repo** — it is **inert by default**. A repo that merely
+has qute-essentials installed behaves exactly as before (no block, no warning, no failure) until it opts in.
+
+**Opt in** by adding this to the target repo's `.claude/settings.json` (top level):
+
+```json
+{ "quteEnforcePrReview": true }
+```
+
+When enabled, in that repo only, the hook:
+- blocks `gh pr create` → directs you to `/qute-coder` (so the PR is authored by qute-coder[bot]);
+- blocks `gh pr merge` unless a native review object by **qute-review[bot]** already exists on the PR
+  (fail-open on ambiguity: if the PR can't be resolved it warns rather than blocking).
+
+Absent or `false` marker → the hook returns `{}` and does nothing. Env overrides: `QUTE_ENFORCE_PR_REVIEW=1|0`.
+
+### Optional CI gate
+
+`templates/review-gate.yml` is a workflow template (NOT auto-added to any repo) that turns a missing
+independent review into a red check. Install it into an opting-in repo on request:
+
+```bash
+mkdir -p .github/workflows && cp "$(claude plugin path qute-essentials)/templates/review-gate.yml" .github/workflows/review-gate.yml
+```
+
+(or copy the file from the plugin's `templates/` directory).
 
 ## Setup
 
