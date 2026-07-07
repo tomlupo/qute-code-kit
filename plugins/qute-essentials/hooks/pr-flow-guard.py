@@ -2,15 +2,18 @@
 """
 PreToolUse(Bash) hook: enforce the qute-coder → qute-reviewer PR flow.
 
-OPT-IN, DEFAULT OFF. Inert unless the current repo sets
-``"quteEnforcePrReview": true`` in .claude/settings.json (see pr_flow_config.py).
-A repo that merely has qute-essentials installed but has NOT opted in gets
-exactly the prior behaviour — no block, no warning, no failure.
+OPT-IN, DEFAULT OFF. Inert unless the current repo sets ``enforce: true`` in
+``.github/qute-pr.yml`` (the single source of truth) — or the legacy
+``"quteEnforcePrReview": true`` marker in .claude/settings.json (backward compat).
+See pr_flow_config.py. A repo that merely has qute-essentials installed but has NOT
+opted in gets exactly the prior behaviour — no block, no warning, no failure.
 
 When a repo HAS opted in, it:
   1. blocks ``gh pr create`` → tells the user to use /qute-coder (so the PR is
      authored by qute-coder[bot] and review independence holds by construction);
-  2. blocks ``gh pr merge`` unless a native review object authored by
+  2. blocks ``gh pr merge`` per ``allowAgentSelfMerge`` (.github/qute-pr.yml):
+     when false (default) the agent may not merge at all (assign-to-human); when
+     true, merge is allowed only once a native review object authored by
      qute-review[bot] already exists on the target PR.
 
 Fail-open on ambiguity: if enforcement is on but the PR/repo can't be resolved
@@ -31,7 +34,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-from pr_flow_config import enforcement_enabled  # noqa: E402
+from pr_flow_config import enforcement_enabled, resolve_workflow  # noqa: E402
 
 REVIEW_BOT = "qute-review[bot]"
 
@@ -172,7 +175,7 @@ def main() -> None:
 
     if _CREATE_RE.search(command):
         _emit_deny(
-            "🛑 PR-flow enforcement (this repo opted in via quteEnforcePrReview): "
+            "🛑 PR-flow enforcement (this repo opted in via .github/qute-pr.yml enforce:true): "
             "`gh pr create` is blocked. Use `/qute-coder` instead so the PR is authored by "
             "qute-coder[bot] — that makes the independent-reviewer gate pass by construction "
             "(author != reviewer). Same args as `gh pr create`."
@@ -180,6 +183,19 @@ def main() -> None:
         return
 
     if _MERGE_RE.search(command):
+        # allowAgentSelfMerge gates whether the agent may merge at all.
+        # Default false → the agent must NOT merge; the PR is assigned to a human.
+        if not resolve_workflow(cwd).get("allowAgentSelfMerge", False):
+            _emit_deny(
+                "🛑 PR-flow enforcement: agent self-merge is DISABLED for this repo "
+                "(allowAgentSelfMerge=false in .github/qute-pr.yml, the default). "
+                "Do not `gh pr merge` — the PR is assigned to the human reviewer, who merges. "
+                "Set qute-pr.yml `allowAgentSelfMerge: true` to let the agent merge after a "
+                "passing qute-review[bot] verdict."
+            )
+            return
+        # allowAgentSelfMerge=true → allow the merge only once an independent
+        # qute-review[bot] review object exists (fail-open on ambiguity).
         repo, pr = _resolve_pr(command, cwd)
         if not repo or not pr:
             _emit_warn(

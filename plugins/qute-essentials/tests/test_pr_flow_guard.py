@@ -87,3 +87,77 @@ def test_no_false_positive_in_quoted_string(tmp_path):
     assert _run(root, 'git commit -m "use gh pr create instead"') == {}
     assert _run(root, "printf %s gh pr create") == {}
     assert _run(root, "echo see the gh pr create docs") == {}
+
+
+# ── merge gate: allowAgentSelfMerge (config via .github/qute-pr.yml) ───────
+import os  # noqa: E402
+
+
+def _yml_repo(tmp_path: Path, body: str) -> Path:
+    root = tmp_path / "repo"
+    (root / ".github").mkdir(parents=True)
+    (root / ".git").mkdir()
+    (root / ".github" / "qute-pr.yml").write_text(body)
+    return root
+
+
+def _run_env(cwd: Path, command: str, env: dict) -> dict:
+    payload = json.dumps(
+        {"tool_name": "Bash", "cwd": str(cwd), "tool_input": {"command": command}}
+    )
+    r = subprocess.run(
+        ["python3", str(HOOK)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        env=env,
+    )
+    return json.loads(r.stdout or "{}")
+
+
+def _gh_stub(tmp_path: Path, review_count: int) -> str:
+    """A bin/ dir whose `gh` stub returns `review_count` for the reviews query."""
+    bind = tmp_path / "bin"
+    bind.mkdir()
+    gh = bind / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'for a in "$@"; do case "$a" in */reviews) echo %d; exit 0;; esac; done\n'
+        "# repo view / pr view resolution\n"
+        'case "$*" in\n'
+        '  *"repo view"*) echo o/r; exit 0;;\n'
+        '  *"pr view"*) echo \'{"number": 7}\'; exit 0;;\n'
+        "esac\n"
+        "exit 0\n" % review_count
+    )
+    gh.chmod(0o755)
+    return str(bind)
+
+
+def test_merge_denied_when_self_merge_off(tmp_path):
+    # default allowAgentSelfMerge=false + enforce=true -> merge blocked, no gh needed
+    root = _yml_repo(tmp_path, "enforce: true\nallowAgentSelfMerge: false\n")
+    out = _run(root, "gh pr merge 7 --repo o/r --squash")
+    assert _decision(out) == "deny"
+    assert "self-merge is DISABLED" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_merge_allowed_when_self_merge_on_and_review_exists(tmp_path):
+    root = _yml_repo(tmp_path, "enforce: true\nallowAgentSelfMerge: true\n")
+    env = dict(os.environ, PATH=_gh_stub(tmp_path, 1) + os.pathsep + os.environ["PATH"])
+    out = _run_env(root, "gh pr merge 7 --repo o/r --squash", env)
+    assert out == {}  # allowed
+
+
+def test_merge_denied_when_self_merge_on_but_no_review(tmp_path):
+    root = _yml_repo(tmp_path, "enforce: true\nallowAgentSelfMerge: true\n")
+    env = dict(os.environ, PATH=_gh_stub(tmp_path, 0) + os.pathsep + os.environ["PATH"])
+    out = _run_env(root, "gh pr merge 7 --repo o/r --squash", env)
+    assert _decision(out) == "deny"
+    assert "no independent" in out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def test_create_blocked_via_qute_pr_yml_enforce(tmp_path):
+    root = _yml_repo(tmp_path, "enforce: true\n")
+    assert _decision(_run(root, "gh pr create --title x")) == "deny"

@@ -4,10 +4,14 @@
 # into a repo that has opted into PR-flow enforcement with the one-liner in the
 # qute-essentials README (or copy this file to .github/workflows/review-gate.yml).
 #
-# It fails until a native review object authored by a DIFFERENT identity than the
-# PR author exists — i.e. an independent reviewer (qute-review[bot] via
-# /qute-reviewer, another App, or a human). A CI "comment" does NOT count; only a
-# review object in state COMMENTED / APPROVED / CHANGES_REQUESTED does.
+# POLICY SOURCE: it reads the committed `.github/qute-pr.yml` (the single source of
+# truth shared with the client hooks + /qute-coder skill). When `enforce: false`
+# (the default, or the file is absent) the gate is a NO-OP green — it never fails a
+# repo that hasn't opted in. When `enforce: true` it fails until a native review
+# object authored by a DIFFERENT identity than the PR author exists — i.e. an
+# independent reviewer (qute-review[bot] via /qute-reviewer, another App, or a
+# human). A CI "comment" does NOT count; only a review object in state COMMENTED /
+# APPROVED / CHANGES_REQUESTED does.
 #
 # This plan has no branch protection, so the check cannot HARD-block a merge — it
 # turns a missing independent review into a visible RED check (the closing step is
@@ -27,10 +31,58 @@ jobs:
   require-independent-reviewer:
     runs-on: ubuntu-latest
     steps:
+      # Read policy from the TRUSTED BASE branch, never the PR head — otherwise a
+      # PR could set `enforce: false` (or delete the file) to disable the gate that
+      # is meant to police it. base.sha is the base commit the PR targets.
+      - name: Check out base-branch policy (trusted; not PR-controlled)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Require a review by a different identity than the author
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+
+            // ── read the shared policy: .github/qute-pr.yml ──
+            // Dependency-free parse of the documented scalars in BOTH shapes: flat
+            // top-level keys, and keys nested directly under `qutePrWorkflow:`. We
+            // track nesting explicitly (rather than an indent-agnostic match) so an
+            // `enforce:` nested under some OTHER key can never be picked up — keeping
+            // this parser a faithful mirror of pr_flow_config.py (single source of truth).
+            function readPolicy() {
+              const policy = { enforce: false, assignTo: 'tomlupo' };
+              function coerce(v) { return v.replace(/['"]/g, '').trim(); }
+              for (const f of ['.github/qute-pr.yml', '.github/qute-pr.yaml']) {
+                let text;
+                try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+                let inWorkflow = false;
+                for (const raw of text.split('\n')) {
+                  const line = raw.replace(/#.*$/, '');
+                  if (!line.trim()) continue;
+                  const km = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$/);
+                  if (!km) continue;
+                  const indent = km[1].length, key = km[2], val = km[3];
+                  if (indent === 0) {
+                    inWorkflow = (key === 'qutePrWorkflow' && val === '');
+                  }
+                  // accept the key at top level, or nested one level under qutePrWorkflow
+                  const accept = (indent === 0) || inWorkflow;
+                  if (!accept || val === '') continue;
+                  if (key === 'enforce') policy.enforce = /^(true|yes|on)$/i.test(coerce(val));
+                  else if (key === 'assignTo') policy.assignTo = coerce(val);
+                }
+                break;
+              }
+              return policy;
+            }
+
+            const policy = readPolicy();
+            if (!policy.enforce) {
+              core.info('qute-pr.yml enforce=false (or absent) — review-gate is a no-op. Passing.');
+              return;
+            }
+
             const pr = context.payload.pull_request;
             const author = pr.user.login;
             const reviews = await github.paginate(github.rest.pulls.listReviews, {

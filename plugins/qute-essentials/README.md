@@ -127,7 +127,7 @@ effect immediately.
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with `ruff format` (cosmetic only — `ruff check --fix` deliberately omitted so per-edit F401 doesn't strip imports mid-task) |
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Skill/agent activity logging |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
-| `pr-flow-guard.py` | PreToolUse (Bash) | **Opt-in, default OFF** (per-repo `quteEnforcePrReview` marker). Blocks `gh pr create` → `/qute-coder` and `gh pr merge` without a qute-review[bot] review. Inert unless the repo opts in — see "PR-flow enforcement" below |
+| `pr-flow-guard.py` | PreToolUse (Bash) | **Opt-in, default OFF** (`.github/qute-pr.yml` `enforce:true`; legacy `quteEnforcePrReview` marker still honored). Blocks `gh pr create` → `/qute-coder`; gates `gh pr merge` on `allowAgentSelfMerge`. Inert unless the repo opts in — see "PR-flow enforcement" below |
 
 ## Notifications
 
@@ -165,18 +165,28 @@ The two skills above are always available and purely additive. On top of them, a
 hook (`pr-flow-guard.py`) enforces the flow **per repo** — it is **inert by default**. A repo that merely
 has qute-essentials installed behaves exactly as before (no block, no warning, no failure) until it opts in.
 
-**Opt in** by adding this to the target repo's `.claude/settings.json` (top level):
+**Policy lives in a committed, tool-agnostic single source of truth: `.github/qute-pr.yml`** (read by BOTH
+the client hooks / `/qute-coder` skill AND the CI review-gate). Copy `templates/qute-pr.yml` and edit:
 
-```json
-{ "quteEnforcePrReview": true }
+```yaml
+assignTo: tomlupo          # PR assignee + requested reviewer (default tomlupo)
+independentReview: true    # auto-run the qute-review[bot] review in the /qute-coder chain
+allowAgentSelfMerge: false # false → agent must NOT merge (assign to the human)
+enforce: true              # turn on the blocking hooks + CI gate (default false = inert)
 ```
 
-When enabled, in that repo only, the hook:
+Keys may be flat (as above) or nested under a top-level `qutePrWorkflow:` mapping. Absent file/keys →
+documented defaults (review on, assign tomlupo, self-merge off, enforce off) — nothing new fails.
+
+When `enforce: true`, in that repo only, the hook:
 - blocks `gh pr create` → directs you to `/qute-coder` (so the PR is authored by qute-coder[bot]);
-- blocks `gh pr merge` unless a native review object by **qute-review[bot]** already exists on the PR
+- gates `gh pr merge` on `allowAgentSelfMerge`: `false` (default) blocks agent merge entirely
+  (assign-to-human); `true` allows it only once a native **qute-review[bot]** review object exists
   (fail-open on ambiguity: if the PR can't be resolved it warns rather than blocking).
 
-Absent or `false` marker → the hook returns `{}` and does nothing. Env overrides: `QUTE_ENFORCE_PR_REVIEW=1|0`.
+**Backward-compat (transition):** a repo that still has the legacy `{ "quteEnforcePrReview": true }` marker
+in `.claude/settings.json` is honored as `enforce: true`. `.github/qute-pr.yml` is the primary home going
+forward. Env overrides: `QUTE_ENFORCE_PR_REVIEW=1|0`.
 
 ### Optional CI gate
 

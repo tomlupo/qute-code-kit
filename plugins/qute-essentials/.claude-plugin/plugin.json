@@ -1,6 +1,6 @@
 {
   "name": "qute-essentials",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "description": "Essential hooks (ruff, notifications, auto-audit, langfuse-trace, opt-in PR-flow enforcement) + 5 security guards (destructive, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, qute-coder, qute-reviewer, repo-status, task",
   "author": {
     "name": "twilc"
