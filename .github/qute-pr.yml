@@ -1,0 +1,7 @@
+# qute PR-flow policy for qute-code-kit — single source of truth, read by BOTH the
+# CI review-gate and the client-side qute-essentials hooks + /qute-coder skill.
+# See plugins/qute-essentials/templates/qute-pr.yml for the annotated template.
+assignTo: tomlupo
+independentReview: true
+allowAgentSelfMerge: false
+enforce: false

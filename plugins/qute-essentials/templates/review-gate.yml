@@ -4,10 +4,14 @@
 # into a repo that has opted into PR-flow enforcement with the one-liner in the
 # qute-essentials README (or copy this file to .github/workflows/review-gate.yml).
 #
-# It fails until a native review object authored by a DIFFERENT identity than the
-# PR author exists — i.e. an independent reviewer (qute-review[bot] via
-# /qute-reviewer, another App, or a human). A CI "comment" does NOT count; only a
-# review object in state COMMENTED / APPROVED / CHANGES_REQUESTED does.
+# POLICY SOURCE: it reads the committed `.github/qute-pr.yml` (the single source of
+# truth shared with the client hooks + /qute-coder skill). When `enforce: false`
+# (the default, or the file is absent) the gate is a NO-OP green — it never fails a
+# repo that hasn't opted in. When `enforce: true` it fails until a native review
+# object authored by a DIFFERENT identity than the PR author exists — i.e. an
+# independent reviewer (qute-review[bot] via /qute-reviewer, another App, or a
+# human). A CI "comment" does NOT count; only a review object in state COMMENTED /
+# APPROVED / CHANGES_REQUESTED does.
 #
 # This plan has no branch protection, so the check cannot HARD-block a merge — it
 # turns a missing independent review into a visible RED check (the closing step is
@@ -27,10 +31,39 @@ jobs:
   require-independent-reviewer:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out the repo (to read .github/qute-pr.yml)
+        uses: actions/checkout@v4
       - name: Require a review by a different identity than the author
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+
+            // ── read the shared policy: .github/qute-pr.yml (flat or nested) ──
+            // Tiny, dependency-free parse of the documented flat scalars.
+            function readPolicy() {
+              const policy = { enforce: false, assignTo: 'tomlupo' };
+              for (const f of ['.github/qute-pr.yml', '.github/qute-pr.yaml']) {
+                let text;
+                try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+                for (const raw of text.split('\n')) {
+                  const line = raw.replace(/#.*$/, '');
+                  let m = line.match(/^\s*enforce\s*:\s*(.+?)\s*$/);
+                  if (m) policy.enforce = /^(true|yes|on)$/i.test(m[1].replace(/['"]/g, ''));
+                  m = line.match(/^\s*assignTo\s*:\s*(.+?)\s*$/);
+                  if (m) policy.assignTo = m[1].replace(/['"]/g, '').trim();
+                }
+                break;
+              }
+              return policy;
+            }
+
+            const policy = readPolicy();
+            if (!policy.enforce) {
+              core.info('qute-pr.yml enforce=false (or absent) — review-gate is a no-op. Passing.');
+              return;
+            }
+
             const pr = context.payload.pull_request;
             const author = pr.user.login;
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
