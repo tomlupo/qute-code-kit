@@ -1,12 +1,12 @@
 {
   "lakera": {
-    "enabled": true,
-    "description": "Screen tool outputs for prompt injection via Lakera Guard API",
+    "enabled": false,
+    "description": "Screen tool outputs for prompt injection via Lakera Guard API. Off by default: sends up to 30k chars of tool output to api.lakera.ai — opt in deliberately with `/guard lakera on`.",
     "api_key_env": "LAKERA_GUARD_API_KEY"
   },
   "langfuse": {
     "enabled": false,
-    "description": "Trace tool executions to Langfuse for observability and evaluation",
+    "description": "Trace tool executions to Langfuse for observability and evaluation. Off by default: telemetry to an external service — opt in with `/guard langfuse on`.",
     "api_key_env": "LANGFUSE_SECRET_KEY"
   },
   "destructive": {

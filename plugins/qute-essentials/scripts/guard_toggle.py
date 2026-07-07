@@ -42,20 +42,30 @@ GUARDS
                   like 'rm -rf dist/' or 'git reset --hard' on a clean
                   feature branch — disable temporarily, then re-enable.
 
-CONFIG RESOLUTION (first hit wins)
+CONFIG RESOLUTION
 
-    1. ${CLAUDE_PLUGIN_ROOT}/config/guards.json
-    2. <script-dir>/../config/guards.json
-    3. ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/config/guards.json
+    Effective state is the shipped defaults (config/guards.json inside the
+    plugin) overlaid by a stable USER override file:
+
+        ~/.claude/qute-guards.json
+
+    Toggles are WRITTEN to the user file, which survives plugin updates —
+    the shipped file lives in the versioned plugin cache and is overwritten
+    on every update, so it holds defaults only. Status shows the merged
+    (effective) state.
 
 GOTCHAS
 
   - API-key guards (lakera, langfuse) are EFFECTIVELY OFF when their
     key env var is missing, regardless of 'enabled' value. The status
     table shows 'missing' in the API key column for this case.
-  - Guard state in guards.json is session-persistent — changes take
-    effect immediately on the next tool call and survive across
-    sessions. There is no auto-reset.
+  - Guard state is written to ~/.claude/qute-guards.json and is
+    session-persistent — changes take effect immediately on the next
+    tool call and survive across sessions AND plugin updates. There is
+    no auto-reset.
+  - lakera and langfuse are OFF by default and must be opted into
+    (`/guard lakera on`) — they send data off-box (Lakera API /
+    Langfuse). On a config error they fail CLOSED (stay off).
   - CLAUDE_SKIP_GUARDS=1 bypasses ALL guards regardless of guards.json.
     Never set this in a shell profile or .env — only inline for a
     specific command that needs it.
@@ -77,6 +87,9 @@ import json
 import os
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from guard_config import USER_CONFIG, load_guards  # noqa: E402
 
 GUARDS = {
     "lakera": {
@@ -104,58 +117,24 @@ GUARDS = {
 }
 
 
-def find_config() -> Path | None:
-    """Resolve the guards.json path. Returns None if nothing found."""
-    # 1. Plugin root env var (preferred — set by the Claude Code hook runtime)
-    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
-    if plugin_root:
-        candidate = Path(plugin_root) / "config" / "guards.json"
-        if candidate.exists():
-            return candidate
-
-    # 2. Relative to this script (if the plugin is installed and we're running from it)
-    script_dir = Path(__file__).resolve().parent
-    candidate = script_dir.parent / "config" / "guards.json"
-    if candidate.exists():
-        return candidate
-
-    # 3. Fallback: search the user's plugin cache for any version of qute-essentials
-    cache_root = (
-        Path.home()
-        / ".claude"
-        / "plugins"
-        / "cache"
-        / "qute-marketplace"
-        / "qute-essentials"
-    )
-    if cache_root.exists():
-        # Pick the highest-version directory that has a guards.json
-        versions = sorted(
-            (p for p in cache_root.iterdir() if p.is_dir()),
-            key=lambda p: p.name,
-            reverse=True,
-        )
-        for vdir in versions:
-            candidate = vdir / "config" / "guards.json"
-            if candidate.exists():
-                return candidate
-
-    return None
-
-
-def load_config(path: Path) -> dict:
+def load_user_config() -> dict:
+    """Read the user override file (may not exist yet)."""
+    if not USER_CONFIG.exists():
+        return {}
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(USER_CONFIG.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError) as e:
-        print(f"ERROR: could not read {path}: {e}", file=sys.stderr)
+        print(f"ERROR: could not read {USER_CONFIG}: {e}", file=sys.stderr)
         sys.exit(1)
 
 
-def save_config(path: Path, config: dict) -> None:
+def save_user_config(config: dict) -> None:
     try:
-        path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+        USER_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+        USER_CONFIG.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
     except OSError as e:
-        print(f"ERROR: could not write {path}: {e}", file=sys.stderr)
+        print(f"ERROR: could not write {USER_CONFIG}: {e}", file=sys.stderr)
         sys.exit(1)
 
 
@@ -164,9 +143,12 @@ def is_configured(env_key: str) -> bool:
     return bool(os.environ.get(env_key, "").strip())
 
 
-def print_status(config: dict, config_path: Path) -> None:
-    """Print a status table of all guards."""
-    print(f"Guards config: {config_path}")
+def print_status(config: dict) -> None:
+    """Print a status table of all guards (effective/merged state)."""
+    user_state = (
+        "present" if USER_CONFIG.exists() else "not created yet (shipped defaults)"
+    )
+    print(f"User overrides: {USER_CONFIG} ({user_state})")
     print()
     print(f"{'Guard':<18} {'Enabled':<10} {'API key':<15} {'Description'}")
     print(f"{'-' * 18} {'-' * 10} {'-' * 15} {'-' * 30}")
@@ -207,21 +189,11 @@ def main() -> None:
     if not args:
         args = ["status"]
 
-    config_path = find_config()
-    if config_path is None:
-        print(
-            "ERROR: could not locate guards.json. Set CLAUDE_PLUGIN_ROOT or "
-            "install the qute-essentials plugin.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    config = load_config(config_path)
-
     cmd = args[0].lower()
 
     if cmd == "status":
-        print_status(config, config_path)
+        # Show effective (shipped defaults overlaid by user overrides).
+        print_status(load_guards())
         return
 
     # Toggle commands: <guard> <on|off>
@@ -235,16 +207,20 @@ def main() -> None:
     target = args[0].lower()
     enabled = args[1].lower() == "on"
 
+    # Toggles are persisted to the user override file so they survive plugin
+    # updates; only the touched guards are written.
+    user_config = load_user_config()
+
     if target == "all":
         for guard in GUARDS:
-            set_guard(config, guard, enabled)
+            set_guard(user_config, guard, enabled)
     else:
-        set_guard(config, target, enabled)
+        set_guard(user_config, target, enabled)
 
-    save_config(config_path, config)
-    print(f"Updated {config_path}")
+    save_user_config(user_config)
+    print(f"Updated {USER_CONFIG}")
     print()
-    print_status(config, config_path)
+    print_status(load_guards())
 
 
 if __name__ == "__main__":

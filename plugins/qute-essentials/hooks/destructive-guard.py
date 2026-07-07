@@ -6,7 +6,7 @@ Catches git destruction, filesystem destruction, database drops,
 and custom project-specific protections. Context-aware to avoid
 false positives (won't block grep/echo containing patterns).
 
-Toggle on/off via config/guards.json {"destructive": {"enabled": true/false}}.
+Toggle with `/guard <name> on/off` (persists to ~/.claude/qute-guards.json).
 """
 
 import json
@@ -21,7 +21,6 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 if sys.stderr and hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 NTFY_CONFIG = Path(__file__).parent.parent / "config" / "ntfy.json"
 
 
@@ -49,17 +48,13 @@ def _ntfy_url() -> str:
     return f"{server}/{topic}"
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from guard_config import guard_enabled  # noqa: E402
+
+
 def is_enabled() -> bool:
-    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
-        return False
-    if os.environ.get("CLAUDE_GUARD_DESTRUCTIVE") == "0":
-        return False
-    try:
-        with open(GUARDS_CONFIG) as f:
-            config = json.load(f)
-        return config.get("destructive", {}).get("enabled", True)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return True
+    """Whether the destructive-command guard is enabled (local guard: fails open)."""
+    return guard_enabled("destructive")
 
 
 # ─── Pattern definitions ──────────────────────────────────────

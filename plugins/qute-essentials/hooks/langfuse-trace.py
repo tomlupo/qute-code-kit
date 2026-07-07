@@ -6,7 +6,7 @@ Logs tool name, input, output summary, and timing as Langfuse spans.
 Groups traces by Claude Code session ID. Enables evaluation and
 cost tracking in the Langfuse dashboard.
 
-Toggle on/off via config/guards.json {"langfuse": {"enabled": true/false}}.
+Toggle with `/guard <name> on/off` (persists to ~/.claude/qute-guards.json).
 Requires: LANGFUSE_SECRET_KEY, LANGFUSE_PUBLIC_KEY env vars.
 """
 
@@ -16,24 +16,25 @@ import sys
 import time
 from pathlib import Path
 
-GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 
 # Max output size to log (avoid bloating traces)
 MAX_OUTPUT_LEN = 5000
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from guard_config import guard_enabled  # noqa: E402
+
+
 def is_enabled() -> bool:
-    """Check if Langfuse tracing is enabled."""
-    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
-        return False
-    if os.environ.get("CLAUDE_GUARD_LANGFUSE") == "0":
-        return False
-    try:
-        with open(GUARDS_CONFIG) as f:
-            config = json.load(f)
-        return config.get("langfuse", {}).get("enabled", True)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return True
+    """Whether Langfuse tracing is enabled (telemetry guard: fails closed).
+
+    This hook fires on EVERY PostToolUse (no matcher — it must be able to
+    trace any tool), and hooks.json is static so the process spawn itself
+    can't be gated. So this check is the first thing main() does, before
+    reading stdin or importing langfuse — the disabled path is a bare
+    config read + print, the cheapest exit a per-call hook can manage.
+    """
+    return guard_enabled("langfuse")
 
 
 def truncate(text: str, max_len: int = MAX_OUTPUT_LEN) -> str:
@@ -60,7 +61,9 @@ def main():
         return
 
     # Check for required env vars
-    if not os.environ.get("LANGFUSE_SECRET_KEY") or not os.environ.get("LANGFUSE_PUBLIC_KEY"):
+    if not os.environ.get("LANGFUSE_SECRET_KEY") or not os.environ.get(
+        "LANGFUSE_PUBLIC_KEY"
+    ):
         print("{}")
         return
 
@@ -99,6 +102,7 @@ def main():
     hostname = os.environ.get("HOSTNAME", "")
     if not hostname:
         import platform
+
         hostname = platform.node().split(".")[0]
 
     if not tool_name:

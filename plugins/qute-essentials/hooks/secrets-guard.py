@@ -14,13 +14,13 @@ Two complementary checks:
 ## Override mechanisms (in order of preference)
 
 - **Session-wide**: `/guard secrets off` (flips `secrets.enabled` in
-  `config/guards.json`).
+  `~/.claude/qute-guards.json`).
 - **Single write**: `touch ~/.claude/.secret-scan-override` — this file is
   consumed (deleted) on the next allowed write. Good for one-off overrides.
 - **Environment**: `CLAUDE_SKIP_GUARDS=1` or `CLAUDE_GUARD_SECRETS=0`
   disables for the whole session (useful in CI or trusted contexts).
 
-Toggle via config/guards.json {"secrets": {"enabled": true/false}}.
+Toggle with `/guard <name> on/off` (persists to ~/.claude/qute-guards.json).
 """
 
 from __future__ import annotations
@@ -35,21 +35,16 @@ from pathlib import Path
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 OVERRIDE_FILE = Path.home() / ".claude" / ".secret-scan-override"
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from guard_config import guard_enabled  # noqa: E402
+
+
 def is_enabled() -> bool:
-    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
-        return False
-    if os.environ.get("CLAUDE_GUARD_SECRETS") == "0":
-        return False
-    try:
-        with open(GUARDS_CONFIG) as f:
-            config = json.load(f)
-        return config.get("secrets", {}).get("enabled", True)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return True
+    """Whether the secrets guard is enabled (local guard: fails open)."""
+    return guard_enabled("secrets")
 
 
 def consume_override() -> bool:
