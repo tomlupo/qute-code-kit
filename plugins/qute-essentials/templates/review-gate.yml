@@ -39,19 +39,33 @@ jobs:
           script: |
             const fs = require('fs');
 
-            // ── read the shared policy: .github/qute-pr.yml (flat or nested) ──
-            // Tiny, dependency-free parse of the documented flat scalars.
+            // ── read the shared policy: .github/qute-pr.yml ──
+            // Dependency-free parse of the documented scalars in BOTH shapes: flat
+            // top-level keys, and keys nested directly under `qutePrWorkflow:`. We
+            // track nesting explicitly (rather than an indent-agnostic match) so an
+            // `enforce:` nested under some OTHER key can never be picked up — keeping
+            // this parser a faithful mirror of pr_flow_config.py (single source of truth).
             function readPolicy() {
               const policy = { enforce: false, assignTo: 'tomlupo' };
+              function coerce(v) { return v.replace(/['"]/g, '').trim(); }
               for (const f of ['.github/qute-pr.yml', '.github/qute-pr.yaml']) {
                 let text;
                 try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
+                let inWorkflow = false;
                 for (const raw of text.split('\n')) {
                   const line = raw.replace(/#.*$/, '');
-                  let m = line.match(/^\s*enforce\s*:\s*(.+?)\s*$/);
-                  if (m) policy.enforce = /^(true|yes|on)$/i.test(m[1].replace(/['"]/g, ''));
-                  m = line.match(/^\s*assignTo\s*:\s*(.+?)\s*$/);
-                  if (m) policy.assignTo = m[1].replace(/['"]/g, '').trim();
+                  if (!line.trim()) continue;
+                  const km = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$/);
+                  if (!km) continue;
+                  const indent = km[1].length, key = km[2], val = km[3];
+                  if (indent === 0) {
+                    inWorkflow = (key === 'qutePrWorkflow' && val === '');
+                  }
+                  // accept the key at top level, or nested one level under qutePrWorkflow
+                  const accept = (indent === 0) || inWorkflow;
+                  if (!accept || val === '') continue;
+                  if (key === 'enforce') policy.enforce = /^(true|yes|on)$/i.test(coerce(val));
+                  else if (key === 'assignTo') policy.assignTo = coerce(val);
                 }
                 break;
               }
