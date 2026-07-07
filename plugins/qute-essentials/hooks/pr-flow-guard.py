@@ -67,9 +67,13 @@ def _emit_warn(msg: str) -> None:
     )
 
 
-# gh pr create — match the subcommand, not incidental mentions in strings/comments.
-_CREATE_RE = re.compile(r"\bgh\s+pr\s+create\b")
-_MERGE_RE = re.compile(r"\bgh\s+pr\s+merge\b")
+# Match `gh pr <sub>` only when `gh` STARTS a command — at string start or after a
+# shell separator (; & | newline ( ), optionally with an env-var prefix like FOO=bar) —
+# so an incidental mention inside a quoted string or another argument
+# (e.g. `printf %s gh pr create`, `git commit -m "gh pr create"`) does NOT trip it.
+_CMD_START = r"(?:^|[\n;&|(])\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+_CREATE_RE = re.compile(_CMD_START + r"gh\s+pr\s+create\b")
+_MERGE_RE = re.compile(_CMD_START + r"gh\s+pr\s+merge\b")
 
 
 def _run(args: list[str], cwd: str | None) -> tuple[int, str]:
