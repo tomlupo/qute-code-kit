@@ -115,7 +115,10 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 /guard all on               # re-enable everything
 ```
 
-Config stored in `config/guards.json`. Changes take effect immediately.
+Config resolution: user overrides at `~/.claude/qute-guards.json` (which survive
+plugin updates, user-wins per guard) merged over the shipped defaults in
+`config/guards.json`. `/guard` writes toggles to the user file. Changes take
+effect immediately.
 
 ## Other Hooks
 

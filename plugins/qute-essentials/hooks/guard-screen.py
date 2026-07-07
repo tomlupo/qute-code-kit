@@ -31,7 +31,6 @@ LAKERA_API_URL = "https://api.lakera.ai/v2/guard"
 LAKERA_API_KEY = os.environ.get("LAKERA_GUARD_API_KEY", "")
 LOG_DIR = Path.home() / ".claude" / "permission-audit"
 LOG_FILE = LOG_DIR / "guard-detections.jsonl"
-GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 NTFY_CONFIG = Path(__file__).parent.parent / "config" / "ntfy.json"
 
 
@@ -59,18 +58,13 @@ def _ntfy_url() -> str:
     return f"{server}/{topic}"
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from guard_config import guard_enabled  # noqa: E402
+
+
 def is_enabled() -> bool:
-    """Check if Lakera guard is enabled in guards.json."""
-    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
-        return False
-    if os.environ.get("CLAUDE_GUARD_LAKERA") == "0":
-        return False
-    try:
-        with open(GUARDS_CONFIG) as f:
-            config = json.load(f)
-        return config.get("lakera", {}).get("enabled", True)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return True  # default on
+    """Whether the Lakera guard is enabled (network guard: fails closed)."""
+    return guard_enabled("lakera")
 
 
 # Tools that return untrusted external content

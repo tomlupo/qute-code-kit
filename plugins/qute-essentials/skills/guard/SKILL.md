@@ -30,5 +30,8 @@ once is cheaper than carrying it in this skill prose every turn.
 
 ## Related
 
+- `~/.claude/qute-guards.json` — where user toggles are persisted (survives
+  plugin updates); `config/guards.json` in the plugin holds shipped defaults only
 - `config/ntfy.json` — notification (ntfy) settings, edited directly
 - `scripts/guard_toggle.py` — the kernel this skill dispatches to
+- `scripts/guard_config.py` — shared resolver (merge order + per-guard fail modes)

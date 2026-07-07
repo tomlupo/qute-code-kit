@@ -5,7 +5,7 @@ Runs audit.py and pipes a short summary back to Claude via stderr (or
 directly prints vulnerability details if any are found). Non-blocking:
 always exits 0 so it doesn't interfere with the main command.
 
-Toggle via config/guards.json {"audit": {"enabled": true/false}}.
+Toggle with `/guard <name> on/off` (persists to ~/.claude/qute-guards.json).
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from pathlib import Path
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-GUARDS_CONFIG = Path(__file__).parent.parent / "config" / "guards.json"
 AUDIT_SCRIPT = Path(__file__).parent / "audit.py"
 
 # Commands that change the resolved dependency set
@@ -29,17 +28,13 @@ TRIGGER = re.compile(
 )
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from guard_config import guard_enabled  # noqa: E402
+
+
 def is_enabled() -> bool:
-    if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
-        return False
-    if os.environ.get("CLAUDE_GUARD_AUDIT") == "0":
-        return False
-    try:
-        with open(GUARDS_CONFIG) as f:
-            config = json.load(f)
-        return config.get("audit", {}).get("enabled", True)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return True
+    """Whether the dependency-audit guard is enabled (local guard: fails open)."""
+    return guard_enabled("audit")
 
 
 def main() -> int:
