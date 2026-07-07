@@ -1,3 +1,10 @@
+## v2.7.0 (2026-07-07)
+
+### Feat
+
+- network guards off-by-default + update-proof user toggles (#53)
+- deprecate /board, fold open-tasks read into /repo-status (#51) (#52)
+
 ## v2.6.0 (2026-07-03)
 
 ### Feat
