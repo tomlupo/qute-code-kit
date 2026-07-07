@@ -31,8 +31,13 @@ jobs:
   require-independent-reviewer:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out the repo (to read .github/qute-pr.yml)
+      # Read policy from the TRUSTED BASE branch, never the PR head — otherwise a
+      # PR could set `enforce: false` (or delete the file) to disable the gate that
+      # is meant to police it. base.sha is the base commit the PR targets.
+      - name: Check out base-branch policy (trusted; not PR-controlled)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
       - name: Require a review by a different identity than the author
         uses: actions/github-script@v7
         with:
