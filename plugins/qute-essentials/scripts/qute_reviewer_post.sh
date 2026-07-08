@@ -78,6 +78,13 @@ Hunt these failure classes and report REAL findings only, each with file:line + 
 correctness/edge-cases; path/IO safety (traversal, unguarded overwrite/delete, symlinks);
 authz/authn (fail-open, allowlist bypass); injection (shell/SQL/template/prompt); secrets/data
 egress; silent failure/data loss (swallowed errors, partial writes); concurrency/resources.
+Also explicitly sweep these 6 lenses: comment-analysis (do comments/docstrings match what the
+code actually does); test-analysis (do the tests assert the right thing and cover this change);
+silent-failure (swallowed exceptions, unchecked returns, no-op fallbacks); type-design (types
+that allow an invalid state); correctness (logic bugs, edge cases, off-by-one); simplification
+(unneeded complexity, dead code, an existing helper that should have been reused instead).
+For every candidate finding, assign a confidence 0-100%, drop anything under 80%, and re-verify
+each survivor against the actual code (not just the diff hunk) before including it.
 Output a first line exactly "VERDICT: SHIP" or "VERDICT: SHIP-WITH-NITS" or "VERDICT: BLOCKER",
 then concise bullets. Diff follows:'
 
