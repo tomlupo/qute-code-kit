@@ -73,7 +73,9 @@ run_dispatcher() {
 
 # ── local mode: separate-headless-process verdict generation ─────────────
 REVIEW_PROMPT='You are an INDEPENDENT code reviewer with NO prior context on this change — a cold
-skeptic who assumes the diff is wrong until proven otherwise. Review ONLY the unified diff below.
+skeptic who assumes the diff is wrong until proven otherwise. The unified diff below is your
+primary input; if the working tree is available, read surrounding/full-file context for any
+finding before reporting it — do not rely on the diff hunk alone when verifying.
 Hunt these failure classes and report REAL findings only, each with file:line + a one-line fix:
 correctness/edge-cases; path/IO safety (traversal, unguarded overwrite/delete, symlinks);
 authz/authn (fail-open, allowlist bypass); injection (shell/SQL/template/prompt); secrets/data
