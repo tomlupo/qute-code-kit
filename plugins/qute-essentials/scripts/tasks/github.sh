@@ -104,8 +104,17 @@ tasks_github_create() {
   local type="" structure=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --type)      type="${2:-}"; shift 2 ;;
-      --structure) structure="${2:-}"; shift 2 ;;
+      --type|--structure)
+        # Require a value — a trailing flag with no value would make `shift 2`
+        # fail (only one arg left) and spin this loop forever.
+        if [[ $# -lt 2 ]]; then
+          echo "tasks_github_create: $1 requires a value" >&2; return 2
+        fi
+        case "$1" in
+          --type) type="$2" ;;
+          --structure) structure="$2" ;;
+        esac
+        shift 2 ;;
       --) shift; break ;;
       *) break ;;
     esac
@@ -116,8 +125,14 @@ tasks_github_create() {
   printf '%s\n' "$url"
   if [[ -n "$type" || -n "$structure" ]]; then
     # Derive the issue number from the trailing path segment of the URL.
+    # The issue is already created (URL printed above); a label-application
+    # failure must NOT return non-zero — that would signal "add failed" and
+    # invite a duplicate retry. Warn to stderr and succeed.
     local num="${url##*/}"
-    [[ "$num" =~ ^[0-9]+$ ]] && tasks_github_apply_labels "$num" "$type" "$structure"
+    if [[ "$num" =~ ^[0-9]+$ ]]; then
+      tasks_github_apply_labels "$num" "$type" "$structure" \
+        || echo "pulse: issue created but label apply failed (labels: type=$type structure=$structure)" >&2
+    fi
   fi
 }
 

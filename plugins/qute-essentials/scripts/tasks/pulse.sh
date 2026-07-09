@@ -99,9 +99,18 @@ cmd_add() {
   local backend="" type="" structure=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --to) backend="${2:-}"; shift 2 ;;
-      --type) type="${2:-}"; shift 2 ;;
-      --structure) structure="${2:-}"; shift 2 ;;
+      --to|--type|--structure)
+        # Value-taking flags: require a value so a trailing `--type` (no value)
+        # can't spin the loop forever (shift 2 fails when only one arg remains).
+        if [[ $# -lt 2 ]]; then
+          echo "pulse: $1 requires a value" >&2; return 2
+        fi
+        case "$1" in
+          --to) backend="$2" ;;
+          --type) type="$2" ;;
+          --structure) structure="$2" ;;
+        esac
+        shift 2 ;;
       --) shift; break ;;
       *) break ;;
     esac
