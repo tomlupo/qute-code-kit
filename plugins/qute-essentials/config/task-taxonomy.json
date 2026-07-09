@@ -1,0 +1,25 @@
+{
+  "_comment": "Label taxonomy for the `task` verb (obsidian-vaults#177). Exactly TWO label dimensions: TYPE (what kind of work) and STRUCTURE (epic vs task). status, priority, and owner are DELIBERATELY EXCLUDED from labels: owner = the board's Agent field; status and priority = board fields managed via gh-track. Keeping those OFF the issue labels avoids two sources of truth. Adding a status/priority/owner label here is a design violation, not a missing feature.",
+  "type": {
+    "_pick": "one",
+    "_dimension": "TYPE — the kind of work the issue represents.",
+    "values": {
+      "feature":  { "color": "1D76DB", "description": "New user-facing capability" },
+      "fix":      { "color": "D73A4A", "description": "Bug fix / defect correction" },
+      "infra":    { "color": "5319E7", "description": "Infrastructure, CI, tooling, ops" },
+      "refactor": { "color": "FBCA04", "description": "Internal restructuring, no behavior change" },
+      "research": { "color": "0E8A16", "description": "Investigation, spike, exploration" },
+      "docs":     { "color": "0075CA", "description": "Documentation only" },
+      "chore":    { "color": "CFD3D7", "description": "Maintenance, deps, housekeeping" }
+    }
+  },
+  "structure": {
+    "_pick": "one",
+    "_optional": true,
+    "_dimension": "STRUCTURE — the issue's place in the work hierarchy.",
+    "values": {
+      "epic": { "color": "B60205", "description": "Umbrella tracking multiple child tasks" },
+      "task": { "color": "C5DEF5", "description": "Single unit of work" }
+    }
+  }
+}

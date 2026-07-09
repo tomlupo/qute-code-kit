@@ -20,5 +20,9 @@
   "audit": {
     "enabled": true,
     "description": "Auto-run pip-audit after uv add/sync/lock/pip install — reports dependency CVEs (informational, non-blocking)"
+  },
+  "gh-verbs": {
+    "enabled": true,
+    "description": "Warn (non-blocking) on raw `gh issue create` / `gh label create` — steer repo issue ops to the `task` verb and board ops to gh-track so the TYPE+STRUCTURE label taxonomy and [agent:] comment prefix aren't bypassed (#177). Suppressed when the sanctioned verbs (pulse.sh/gh-track) issue gh themselves."
   }
 }

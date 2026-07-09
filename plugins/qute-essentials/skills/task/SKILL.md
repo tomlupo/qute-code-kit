@@ -45,6 +45,7 @@ Add (auto-routes to the active store when `--to` is omitted):
 ```bash
 bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" add "<title>" [body...]
 bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" add --to <github|tasks-md> "<title>" [body...]
+bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" add --type <t> [--structure <s>] "<title>" [body...]
 ```
 
 Complete:
@@ -60,8 +61,44 @@ Print stdout verbatim.
   `- [ ] **<title>** - <body>`.
 - **tasks-md close:** there's no API — check the box directly in the file
   (`- [ ]` → `- [x]`); the engine reminds you of this.
-- **github add:** `gh issue create` → prints the new issue URL.
-- **github close:** `gh issue close <number>` (optionally with a comment).
+- **github add:** `gh issue create` → prints the new issue URL. With
+  `--type`/`--structure` it also applies the label taxonomy after create
+  (see below). No flags → no labels (back-compat).
+- **github close:** `gh issue close <number>` (optionally with a comment). A
+  close comment is auto-prefixed with `[agent:<name>] ` unless it already
+  starts with `[agent:` (see "Agent comment prefix" below).
+
+## Label taxonomy (TYPE + STRUCTURE only)
+
+The `github` backend applies labels from `config/task-taxonomy.json`, which has
+**exactly two dimensions** (per obsidian-vaults#177):
+
+- **TYPE** (pick one): `feature`, `fix`, `infra`, `refactor`, `research`,
+  `docs`, `chore` — via `--type <t>`.
+- **STRUCTURE** (pick one, optional): `epic`, `task` — via `--structure <s>`.
+
+Each value carries a hex color + description; labels are created (idempotently,
+via `gh label create --force`) before being applied with `gh issue edit`.
+
+**Deliberately NOT label dimensions:** status, priority, and owner. `owner` is
+the board's **Agent** field; `status`/`priority` are board fields managed via
+**gh-track**. Keeping them off issue labels avoids two sources of truth — adding
+a status/priority/owner label is a design violation, not a missing feature.
+
+```bash
+# feature epic
+pulse.sh add --type feature --structure epic "Payments v2"
+# bug fix, no structure
+pulse.sh add --type fix "Login 500 on empty password"
+```
+
+## Agent comment prefix
+
+On `github close` with a comment, the body is auto-prefixed with
+`[agent:<name>] ` so board/issue history attributes the action to the acting
+agent. `<name>` resolves as `$AGENT_NAME` → `$DISPATCHER_SESSION_NAME` →
+`basename "$PWD"`. Already-prefixed comments (starting `[agent:`) are left
+untouched; an empty comment adds no prefix and posts nothing.
 
 ## Migration (Tier 1 → Tier 2)
 
