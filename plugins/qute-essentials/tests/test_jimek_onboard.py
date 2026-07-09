@@ -170,6 +170,50 @@ def test_render_commit_to_default_trivial_has_no_review():
     assert doc["rigor"]["trivial"]["review"] == []
 
 
+# ── review-gate branch trigger (regression: 2026-07-09 codex blocker) ─────────
+def test_review_gate_triggers_on_detected_master_base():
+    # A master-base repo must get a gate that fires on `master`, else onboarding
+    # installs a gate that never runs for the repo's PRs.
+    conv = _render_conv()
+    conv.update(base="master", release_branch="master")
+    text = jo.render_review_gate_yml(conv)
+    doc = yaml.safe_load(text)
+    branches = doc[True]["pull_request"]["branches"]  # YAML `on:` parses to True
+    assert branches == ["master"]
+    # And the GitHub Actions expressions survived intact (not mangled).
+    assert "${{ github.token }}" in text
+    assert "${COUNT:-0}" in text
+
+
+def test_review_gate_covers_base_and_release_for_dev_repos():
+    conv = _render_conv()
+    conv.update(base="dev", release_branch="main")
+    doc = yaml.safe_load(jo.render_review_gate_yml(conv))
+    assert doc[True]["pull_request"]["branches"] == ["dev", "main"]
+
+
+def test_review_gate_is_valid_yaml_and_single_job():
+    doc = yaml.safe_load(jo.render_review_gate_yml(_render_conv()))
+    assert "require-independent-reviewer" in doc["jobs"]
+
+
+def test_builtin_validate_skips_when_pyyaml_absent(monkeypatch):
+    # Simulate a plain-python3 runner with no PyYAML: the check must SKIP
+    # (return None), not raise or report a blocking error — so main() can still
+    # stamp (regression: 2026-07-09 codex blocker on the hard PyYAML dep).
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _no_yaml(name, *a, **k):
+        if name == "yaml":
+            raise ImportError("No module named 'yaml'")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", _no_yaml)
+    assert jo.builtin_validate(jo.render_jimek_yml(_render_conv())) is None
+
+
 # ── bundled validator ────────────────────────────────────────────────────────
 def test_builtin_validate_accepts_rendered():
     assert jo.builtin_validate(jo.render_jimek_yml(_render_conv())) == []

@@ -370,7 +370,27 @@ adrTemplate: ""
 """
 
 
-REVIEW_GATE_YML = """\
+def _review_gate_branches(conv: dict) -> list[str]:
+    """The branch names the review-gate must trigger on for THIS repo.
+
+    Rendered from the DETECTED conventions, not hard-coded — a `master`-base repo
+    (or any non-`main` default) would otherwise get a `jimek.yml` telling it to
+    open PRs to `<base>` while the stamped gate never fires on those PRs (review
+    blocker 2026-07-09). We watch the PR base AND the release branch (dev-base
+    repos merge dev→main, so the gate must also cover the eventual main PR),
+    deduped with a stable order.
+    """
+    branches: list[str] = []
+    for b in (conv["base"], conv["release_branch"]):
+        if b and b not in branches:
+            branches.append(b)
+    return branches or ["main"]
+
+
+# Template with a __BRANCHES__ sentinel (NOT an f-string — the body is full of
+# GitHub Actions ${{ … }} expressions and shell ${VAR:-default} that an f-string
+# would mangle). render_review_gate_yml() substitutes the detected branch set.
+_REVIEW_GATE_TEMPLATE = """\
 name: review-gate
 
 # Fails a PR until an INDEPENDENT reviewer (a party other than the author) posts
@@ -382,7 +402,7 @@ name: review-gate
 on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review]
-    branches: [dev, main]
+    branches: __BRANCHES__
   pull_request_review:
     types: [submitted, dismissed]
 
@@ -418,20 +438,29 @@ jobs:
 """
 
 
-# ── Validation ───────────────────────────────────────────────────────────────
-def builtin_validate(yaml_text: str) -> list[str]:
-    """Bundled, dependency-light structural check. Returns a list of errors.
+def render_review_gate_yml(conv: dict) -> str:
+    """Render review-gate.yml with the branch trigger set from detected conventions."""
+    branches = _yaml_list(_review_gate_branches(conv))
+    return _REVIEW_GATE_TEMPLATE.replace("__BRANCHES__", branches)
 
-    Guards the invariants that bit the W1c fan-out — above all that every rigor
-    tier's ``path`` is in VALID_PATHS. Runs even when the authoritative loader
-    is unreachable, so CI here can exercise it without a dispatcher checkout.
+
+# ── Validation ───────────────────────────────────────────────────────────────
+def builtin_validate(yaml_text: str) -> list[str] | None:
+    """Bundled, dependency-light structural check.
+
+    Returns a list of errors (empty = clean), or ``None`` when the check could
+    not run because PyYAML is absent. ``None`` is a SKIP, not a failure: PyYAML
+    is a genuinely optional dependency here (the plugin runs under ambient
+    ``python3`` with no dependency-install step), so a missing parser must NOT
+    block stamping — the authoritative dispatcher loader (when reachable) still
+    gates, and the caller warns. Guards the invariants that bit the W1c fan-out —
+    above all that every rigor tier's ``path`` is in VALID_PATHS.
     """
     errors: list[str] = []
     try:
         import yaml  # noqa: PLC0415 — optional dep, imported lazily
     except ImportError:
-        errors.append("PyYAML not available — cannot run the bundled structural check")
-        return errors
+        return None
 
     try:
         doc = yaml.safe_load(yaml_text)
@@ -626,9 +655,18 @@ def main(argv: list[str] | None = None) -> int:
     conv = detect_conventions(repo)
     jimek_yml = render_jimek_yml(conv)
 
-    # Always run the bundled check before writing anything.
+    # Always run the bundled check before writing anything. A None result means
+    # PyYAML is absent → the check is SKIPPED (not failed): warn and continue so
+    # the tool still stamps under a plain-python3 runner; the authoritative
+    # loader below still gates when a dispatcher checkout is reachable.
     builtin_errors = builtin_validate(jimek_yml)
-    if builtin_errors:
+    if builtin_errors is None:
+        print(
+            "warning: PyYAML not available — bundled structural check skipped "
+            "(the authoritative dispatcher loader still gates if reachable).",
+            file=sys.stderr,
+        )
+    elif builtin_errors:
         print(
             "error: generated jimek.yml failed the bundled structural check:",
             file=sys.stderr,
@@ -668,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_review_gate:
         _stamp(
             repo / ".github" / "workflows" / "review-gate.yml",
-            REVIEW_GATE_YML,
+            render_review_gate_yml(conv),
             force=args.force,
             dry_run=args.dry_run,
             log=log,
