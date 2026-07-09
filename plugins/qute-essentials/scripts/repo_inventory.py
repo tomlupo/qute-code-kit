@@ -167,7 +167,14 @@ def build_inventory(
 ) -> dict:
     """Resolve config + CLI/env into a host→repos inventory."""
     config = load_config(config_path)
-    max_depth = int(config.get("max_depth", DEFAULT_MAX_DEPTH))
+    try:
+        max_depth = int(config.get("max_depth", DEFAULT_MAX_DEPTH))
+    except (TypeError, ValueError):
+        print(
+            f"repo_inventory: warning: bad max_depth in config, using {DEFAULT_MAX_DEPTH}",
+            file=sys.stderr,
+        )
+        max_depth = DEFAULT_MAX_DEPTH
     hosts_cfg: dict = config.get("hosts", {})
 
     # Explicit CLI/env roots override the config entirely (local-only).

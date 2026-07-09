@@ -351,5 +351,9 @@ def test_default_mode_is_deps_only(monkeypatch, tmp_path):
 
 def test_mode_label():
     assert audit._mode_label(True, False, False) == "deep"
+    assert audit._mode_label(True, False, False, deps=False) == "deep-nodeps"
     assert audit._mode_label(False, False, False) == "deps"
     assert audit._mode_label(False, True, True) == "deps+secrets+static"
+    # --no-deps must not claim deps ran
+    assert audit._mode_label(False, True, False, deps=False) == "secrets"
+    assert audit._mode_label(False, False, False, deps=False) == "none"

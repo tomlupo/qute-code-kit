@@ -548,11 +548,13 @@ def build_json(
     }
 
 
-def _mode_label(deep: bool, secrets: bool, static: bool) -> str:
+def _mode_label(deep: bool, secrets: bool, static: bool, deps: bool = True) -> str:
     if deep:
-        return "deep"
-    active = [n for n, on in (("secrets", secrets), ("static", static)) if on]
-    return "+".join(["deps", *active]) if active else "deps"
+        return "deep" if deps else "deep-nodeps"
+    active = [
+        n for n, on in (("deps", deps), ("secrets", secrets), ("static", static)) if on
+    ]
+    return "+".join(active) if active else "none"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -580,7 +582,8 @@ def main(argv: list[str] | None = None) -> int:
 
     _JSON_MODE = args.json
     root = Path(args.path).resolve() if args.path else Path.cwd()
-    mode_early = _mode_label(args.deep, args.secrets, args.static)
+    deps = not args.no_deps
+    mode = _mode_label(args.deep, args.secrets, args.static, deps)
 
     # Validate the target up front so a bad --path returns a structured exit 2
     # instead of crashing inside a scanner's subprocess(cwd=root).
@@ -588,14 +591,12 @@ def main(argv: list[str] | None = None) -> int:
         warn(f"path is not a readable directory: {root}")
         if args.json:
             counts = _empty_counts()
-            print(json.dumps(build_json({}, counts, 2, mode_early)))
+            print(json.dumps(build_json({}, counts, 2, mode)))
         return 2
 
-    deps = not args.no_deps
     scanners, counts, exit_code = run_audit(
         root, deps=deps, secrets=args.secrets, static=args.static, deep=args.deep
     )
-    mode = _mode_label(args.deep, args.secrets, args.static)
 
     report_human(scanners, counts, exit_code)  # → stderr under --json
     if args.json:

@@ -174,6 +174,18 @@ def test_remote_host_empty_roots_refused(tmp_path, monkeypatch):
     assert "no roots" in out["hosts"]["forge"]["error"]
 
 
+def test_bad_max_depth_falls_back(tmp_path, monkeypatch):
+    _make_repo(tmp_path, "alpha")
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"max_depth": "deep", "hosts": {"core": {"roots": [str(tmp_path)]}}})
+    )
+    monkeypatch.delenv("QUTE_AUDIT_ROOTS", raising=False)
+    # malformed max_depth must not crash — falls back to the default
+    out = inv.build_inventory(config_path=cfg)
+    assert out["count"] == 1
+
+
 def test_json_cli(tmp_path, monkeypatch, capsys):
     _make_repo(tmp_path, "alpha")
     monkeypatch.delenv("QUTE_AUDIT_ROOTS", raising=False)
