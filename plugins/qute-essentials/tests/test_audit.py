@@ -67,6 +67,36 @@ def test_exit_two_when_nothing_ran():
     assert audit.compute_exit(scanners, 0) == 2
 
 
+def test_exit_two_when_a_scanner_errored_even_if_another_ran_clean():
+    # hygiene ran clean, but semgrep errored operationally → not a clean pass.
+    scanners = {
+        "hygiene": _scan(),  # ran, ok=True, no findings
+        "static": audit._scanner_result(
+            available=True, ran=False, ok=False, reason="semgrep exit 2"
+        ),
+    }
+    assert audit.compute_exit(scanners, 0) == 2
+
+
+def test_exit_one_takes_priority_over_scanner_error():
+    scanners = {
+        "deps": _scan(sev={"high": 1}),
+        "static": audit._scanner_result(
+            available=True, ran=False, ok=False, reason="semgrep exit 2"
+        ),
+    }
+    assert audit.compute_exit(scanners, 1) == 1
+
+
+def test_degraded_binary_absent_is_still_clean_exit():
+    # ok is None (binary absent) is graceful degradation, not an error.
+    scanners = {
+        "hygiene": _scan(),
+        "secrets": audit._degraded("gitleaks not on PATH"),
+    }
+    assert audit.compute_exit(scanners, 0) == 0
+
+
 # --------------------------------------------------------------------------- #
 # graceful degradation — binary absent
 # --------------------------------------------------------------------------- #

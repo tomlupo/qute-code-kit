@@ -86,8 +86,10 @@ output goes to stderr):
  "exit_code":1}
 ```
 
-Exit codes: `0` ran + no findings · `1` ran + findings present · `2` no scanner
-could run. `ok:false` only at exit 2.
+Exit codes: `0` ran cleanly, no findings · `1` findings present · `2` no scanner
+could run, **or** a requested scanner errored operationally with no findings (a
+failed scan is not a clean one; a merely-absent binary is graceful degradation,
+not an error). `ok:false` only at exit 2.
 
 ## Auto-run behaviour
 

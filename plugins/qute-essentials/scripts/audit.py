@@ -23,9 +23,11 @@ Structured return (Jimek verb contract, docs/playbooks/jimek-verb-contract.md):
                severity, per-scanner status, and the exit code.
 
 Exit codes:
-  0 — audit ran; no findings.
-  1 — audit ran; one or more findings.
-  2 — audit could not run at all (no scanner was able to execute).
+  0 — audit ran cleanly; no findings.
+  1 — one or more findings.
+  2 — audit could not run (no scanner executed) OR a requested scanner errored
+      operationally with no findings (a failed scan is not a clean one). A
+      scanner whose binary is merely absent is graceful degradation, not an error.
 """
 
 from __future__ import annotations
@@ -417,10 +419,23 @@ def aggregate(scanners: dict[str, dict]) -> dict:
 
 
 def compute_exit(scanners: dict[str, dict], findings_total: int) -> int:
+    """Coarse exit signal.
+
+    A scanner whose binary is simply absent (ok is None) is expected graceful
+    degradation. A scanner that *errored* while running (ok is False) must NOT be
+    reported as a clean pass — a failed security scan is not a clean one.
+
+      1  findings present
+      2  nothing ran, OR a requested scanner failed operationally (no findings)
+      0  something ran, everything that ran succeeded, no findings
+    """
     ran_any = any(r["ran"] for r in scanners.values())
-    if not ran_any:
+    had_error = any(r["ok"] is False for r in scanners.values())
+    if findings_total > 0:
+        return 1
+    if not ran_any or had_error:
         return 2
-    return 1 if findings_total > 0 else 0
+    return 0
 
 
 def _public_scanner(res: dict) -> dict:
