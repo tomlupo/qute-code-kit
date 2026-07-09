@@ -1,0 +1,132 @@
+# jimek.yml — dispatch + workflow-policy contract for THIS repo (qute-code-kit).
+#
+# Per-repo instance of the JimekContract schema (Jimek Wave 1c fan-out, epic
+# tomlupo/obsidian-vaults#155), modeled on the approved reference template at
+# tomlupo/dispatcher:jimek.yml (PR #76). It codifies qute-code-kit's CURRENT
+# workflow policy verbatim — ADDITIVE, describing today's behavior, NOT a
+# behavior change. camelCase names per the frozen #155 manifest.
+#
+# Loaded + fail-closed validated by dispatcher.jimek.load_contract (every model
+# is extra="forbid" + strict=True). Schema reference: dispatcher
+# docs/jimek-contract.md. Hot-reload via POST /jimek/reload.
+
+version: 1
+
+# ── Board state machine ──────────────────────────────────────────────────────
+# qute-code-kit is a low-volume personal-kit + plugin repo, solo-tracked. Generic
+# dispatchable-vs-done Status values, same as the template.
+board_states:
+  active:   [Todo, In Progress, Human Review, Merging]
+  terminal: [Done, Blocked]
+
+# ── Concurrency caps ─────────────────────────────────────────────────────────
+# Runs on core (4-core box) — keep the global cap low; one merge in flight at a
+# time so ff-only refreshes never race.
+concurrency:
+  max_concurrent: 3
+  by_state:
+    Merging: 1              # key must be declared in board_states.active above
+
+# ── Rigor tiers ──────────────────────────────────────────────────────────────
+# Tier names (trivial / standard / complex) are what the #159 rigor classifier +
+# enforcement engine expect. Unlike dispatcher, qute-code-kit's CLAUDE.md does
+# NOT forbid direct commits to the default branch, so the trivial tier commits
+# straight to main (matching the doc's generic example) — no PR, no review.
+rigor:
+  trivial:                  # tiny docs/config nudge — commit straight to main
+    path: commit
+    review: []
+    reviewers_min: 0
+  standard:                 # the DEFAULT flow: coder-pr → codex → independent reviewer
+    path: pr
+    review: [codex]
+    reviewers_min: 1
+  complex:                  # risky/architectural — adds an independent Claude session review
+    path: pr
+    review: [codex, independent-session]
+    reviewers_min: 1
+
+# ── Worktree mechanism (REFERENCE only) ──────────────────────────────────────
+# Jimek does not reimplement worktrees; qute-essentials owns the mechanics.
+# This block only records which mechanism writers isolate with.
+worktree:
+  mechanism: qute-essentials
+  skill: qute-essentials:worktrees
+
+# ── Run limits ───────────────────────────────────────────────────────────────
+turns:
+  max: 20                   # max agent turns per run
+  stall_timeout_ms: 600000  # 10 min with no telemetry → stalled (#160 reaper)
+
+# ── Auto-classification signals (consumed by the #159 classifier) ────────────
+# The classifier reads these to bucket a change into a rigor tier. This repo's
+# risky surfaces are the release tooling, the plugin manifests (drift-enforced),
+# and the pre-commit hook.
+classify:
+  trivial_globs: ["**/*.md", "docs/**", "**/CHANGELOG*"]
+  complex_globs:
+    - "scripts/release-plugin.sh"
+    - "scripts/build-marketplace.py"
+    - ".claude-plugin/**"
+    - "plugins/*/.claude-plugin/plugin.json"
+    - ".githooks/**"
+  trivial_max_lines: 15
+
+# ── Wave 1a workflow-policy fields (obsidian-vaults#162) ─────────────────────
+# All ADDITIVE + OPTIONAL; every value reproduces today's qute-code-kit behavior.
+
+baseBranch: main            # single PR base + worktree fork point
+
+# Bot-app identity — author != reviewer holds BY CONSTRUCTION, so the
+# require-independent-reviewer gate passes without any human step. Live App ids.
+prIdentity:
+  coderAppId: 4172326       # qute-coder[bot]  — opens PRs via ~/bin/coder-pr
+  reviewAppId: 4172333      # qute-review[bot] — posts the independent verdict (must differ)
+  ghAppsDir: "$GHAPPS"
+
+# Shape of the open → review → assign chain, mirroring the committed
+# .github/qute-pr.yml (the single source of truth read by CI + the client hooks):
+# agents NEVER self-merge — the PR is assigned to Tom, who approves and merges.
+# enforce: false matches qute-pr.yml today (review-gate advisory, not hard-blocking).
+prFlow:
+  assignTo: tomlupo
+  reviewRequestFrom: tomlupo
+  allowAgentSelfMerge: false
+  independentReview: true
+  enforce: false
+
+# Cross-model review TUNING (the *how*). The review GATE — whether a tier needs
+# review at all — lives in rigor.<tier>.review above; this only tunes the
+# reviewer. mode: auto resolves to the dispatcher /review path on core and the
+# local gh-apps path elsewhere. riskyPaths mirror complex_globs.
+reviewEngine:
+  engine: codex
+  confidenceThreshold: 0.0
+  multiRun: 1
+  riskyPaths:
+    - "scripts/release-plugin.sh"
+    - ".claude-plugin/**"
+    - "plugins/*/.claude-plugin/plugin.json"
+  mode: auto
+  dispatcherUrl: ""
+  verdictPrefix: ""
+
+# Enumerated Blocked / ask-Tom triggers. Full canonical set kept as the default:
+# live_capital never fires here (no trading surface) but is retained so the set
+# stays complete; irreversible_op (destructive ops) and design_fork (an
+# architecture decision needing Tom) are the live ones for this repo.
+escalation:
+  block_on: [live_capital, irreversible_op, design_fork]
+
+taskThreshold: 12           # TASKS.md → GitHub Issues graduation threshold
+
+# Ship-verb release namespace. qute-code-kit ships the qute-essentials plugin via
+# scripts/release-plugin.sh, tagging off main as vX.Y.Z. forbiddenPaths guards
+# against committing skill artifacts (none tracked here today).
+release:
+  branch: main
+  tagPattern: "v*"
+  forbiddenPaths: []
+
+adrDir: docs/decisions      # decision-verb ADRs land here (qute-essentials:decision)
+adrTemplate: ""             # '' = built-in template
