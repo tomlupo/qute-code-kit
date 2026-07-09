@@ -177,6 +177,28 @@ def test_passthrough_value_not_mistaken_for_chain_flag(env):
     assert "--body --no-review" in env["calls"].read_text()
 
 
+def test_short_title_flag_value_not_stolen(env):
+    """gh's short `-t` (title) value that looks like a chain flag stays a value."""
+    r = _run(
+        env,
+        [
+            "--json",
+            "--repo",
+            "o/r",
+            "--head",
+            "feature",
+            "-t",
+            "--no-assign",
+            "--body",
+            "B",
+        ],
+    )
+    assert r.returncode == 0, r.stderr
+    j = _last_json(r.stdout)
+    assert j["assign"]["ran"] is True  # --no-assign was the -t title VALUE
+    assert "-t --no-assign" in env["calls"].read_text()
+
+
 def test_assign_to_override(env):
     r = _run(env, [*BASE_ARGS, "--assign-to", "alice"])
     assert r.returncode == 0, r.stderr

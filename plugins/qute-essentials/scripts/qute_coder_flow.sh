@@ -77,7 +77,7 @@ while [ $# -gt 0 ]; do
     --base=*)    BASE_ARG="${1#*=}"; PASS+=("$1"); shift ;;
     --head=*)    HEAD_ARG="${1#*=}"; PASS+=("$1"); shift ;;
     --repo=*)    REPO_ARG="${1#*=}"; PASS+=("$1"); shift ;;
-    --title|-T|--body|-b|--body-file|-F|--assignee|-a|--reviewer|-r|--label|-l|--milestone|-m|--project|-p|--template|--head-repo)
+    --title|-t|--body|-b|--body-file|-F|--assignee|-a|--reviewer|-r|--label|-l|--milestone|-m|--project|-p|--template|-T|--recover|--head-repo)
                  need2 "$#" "$1"; PASS+=("$1" "$2"); shift 2 ;;
     # ── chain-control flags (default to today's behavior) ────────────────
     --no-review)     OVR_NO_REVIEW=1; shift ;;
