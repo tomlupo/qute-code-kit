@@ -34,7 +34,7 @@ concurrency:
 # straight to main (matching the doc's generic example) — no PR, no review.
 rigor:
   trivial:                  # tiny docs/config nudge — commit straight to main
-    path: commit
+    path: commit-to-default
     review: []
     reviewers_min: 0
   standard:                 # the DEFAULT flow: coder-pr → codex → independent reviewer
