@@ -44,9 +44,15 @@ this skill carries both.
 4. **Fallback if codex is capped/unavailable** (usage limit, egress concern): `Agent(subagent_type:
    "Code Reviewer")` with the SAME adversarial prompt. Flag in the verdict that codex was unavailable
    (so it's Claude-on-Claude this round).
-5. **Synthesize the verdict:** `SHIP` / `SHIP-WITH-NITS` / `BLOCKER` + concrete findings, each with
-   `file:line` and a one-line fix. Real findings only; drop speculative noise.
-6. **POST it as a native GitHub review** (this is what satisfies the gate):
+5. **Confidence-gate, then verify before posting.** For each candidate finding, assign a confidence
+   score (0–100%) and drop anything below **80%** — pattern-matched hunches are noise, not findings.
+   Before it goes in the verdict, **verify each surviving finding against the actual code**: re-read
+   the relevant lines/context (not just the diff hunk in isolation) and confirm the issue really
+   holds — discard anything that doesn't survive that re-read (a helper defined two lines up, a guard
+   already applied earlier in the function, etc.).
+6. **Synthesize the verdict:** `SHIP` / `SHIP-WITH-NITS` / `BLOCKER` + concrete findings, each with
+   `file:line` and a one-line fix. Real, verified, >=80%-confidence findings only; drop speculative noise.
+7. **POST it as a native GitHub review** (this is what satisfies the gate):
    ```
    gh pr review <#> --repo <owner/repo> --comment --body "codex: <SHIP|SHIP-WITH-NITS|BLOCKER> — <findings>"
    ```
@@ -70,6 +76,20 @@ this skill carries both.
 >   finite outputs that pass a presence check.
 > - **Concurrency / resources** — races, leaks, unbounded growth.
 > - **(quant only)** — look-ahead / same-bar leakage, survivorship, wrong data path vs prod, fabricated values.
+> Also explicitly sweep these 6 lenses before you finish — they catch classes the list above under-covers:
+> - **Comment-analysis** — do comments/docstrings actually match what the code does (stale, aspirational,
+>   or contradicted by the implementation)?
+> - **Test-analysis** — do the tests assert the RIGHT thing, and do they actually cover this change (not
+>   just touch the function)?
+> - **Silent-failure** — swallowed exceptions, unchecked return values, no-op fallbacks that look like
+>   success.
+> - **Type-design** — do the types/shapes allow an invalid state to be represented that shouldn't be?
+> - **Correctness** — logic bugs, edge cases, off-by-one (restated as its own explicit pass, not just
+>   folded into the first bullet above).
+> - **Simplification** — unneeded complexity, dead code, an existing helper/pattern that should have been
+>   reused instead of re-implemented.
+> For every candidate finding: assign a confidence 0–100%, drop anything under 80%, and re-verify the
+> survivors against the actual code (not just the diff hunk) before including them.
 > Output: a verdict line SHIP / SHIP-WITH-NITS / BLOCKER, then concise bullets.
 
 ## Caveats
