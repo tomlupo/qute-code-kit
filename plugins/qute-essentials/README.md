@@ -158,6 +158,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/qute-review` | Independent adversarial multi-agent code review; posts gate verdict (approve / request-changes) as a structured report |
 | `/qute-coder` | Open a PR authored by the **qute-coder** GitHub App (qute-coder[bot]) — same args as `gh pr create`; makes the independent-reviewer gate pass by construction. Fail-loud if App creds are absent (never mis-attributes to your gh user) |
 | `/qute-reviewer` | Post an INDEPENDENT verdict authored by the **qute-review** GitHub App (qute-review[bot]) via the dispatcher `/review` service (fallback: `qute-review-verdict` helper), and confirm a native review **object** was created — the review the gate requires |
+| `/jimek-onboard` | Make a repo **Jimek-managed** in one command — detects its workflow conventions and stamps a schema-valid `jimek.yml` (validated against the real `dispatcher.jimek` loader on `origin/master`) + the `review-gate` CI. Idempotent; never clobbers (backs up + diffs) |
 
 ## PR-flow enforcement (opt-in, default OFF)
 
