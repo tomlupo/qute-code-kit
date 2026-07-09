@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -353,6 +354,8 @@ _SENSITIVE_NAMES = {
 }
 _SENSITIVE_SUFFIXES = (".pem", ".key", ".pfx", ".p12", ".keystore", ".jks")
 _SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".mypy_cache"}
+# Cap the hygiene walk so `--deep` on a huge tree/mount can't hang or OOM.
+_HYGIENE_FILE_CAP = 200_000
 
 
 def run_hygiene(root: Path) -> dict:
@@ -376,21 +379,35 @@ def run_hygiene(root: Path) -> dict:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             tracked = None
 
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        if any(part in _SKIP_DIRS for part in path.parts):
-            continue
-        name = path.name
-        hit = name in _SENSITIVE_NAMES or path.suffix.lower() in _SENSITIVE_SUFFIXES
-        if not hit:
-            continue
-        rel = str(path.relative_to(root))
-        # A private key / .env in the tree is high; if git-tracked it is critical.
-        is_tracked = tracked is not None and rel in tracked
-        sev = "critical" if is_tracked else "high"
-        severity[sev] += 1
-        details.append({"file": rel, "tracked": is_tracked, "severity": sev})
+    # os.walk with in-place dir pruning (so we never descend into vendor/cache
+    # trees) plus a file-count cap, so `--deep` on a huge mount can't hang or
+    # exhaust resources. followlinks stays False to avoid symlink cycles.
+    scanned = 0
+    capped = False
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        for fname in filenames:
+            scanned += 1
+            if scanned > _HYGIENE_FILE_CAP:
+                capped = True
+                break
+            hit = (
+                fname in _SENSITIVE_NAMES
+                or Path(fname).suffix.lower() in _SENSITIVE_SUFFIXES
+            )
+            if not hit:
+                continue
+            path = Path(dirpath) / fname
+            rel = str(path.relative_to(root))
+            # A private key / .env in the tree is high; if git-tracked it is critical.
+            is_tracked = tracked is not None and rel in tracked
+            sev = "critical" if is_tracked else "high"
+            severity[sev] += 1
+            details.append({"file": rel, "tracked": is_tracked, "severity": sev})
+        if capped:
+            break
+    if capped:
+        warn(f"hygiene: stopped after {_HYGIENE_FILE_CAP} files (traversal cap)")
 
     count = len(details)
     info(f"hygiene: {count} sensitive file(s)")
@@ -563,6 +580,16 @@ def main(argv: list[str] | None = None) -> int:
 
     _JSON_MODE = args.json
     root = Path(args.path).resolve() if args.path else Path.cwd()
+    mode_early = _mode_label(args.deep, args.secrets, args.static)
+
+    # Validate the target up front so a bad --path returns a structured exit 2
+    # instead of crashing inside a scanner's subprocess(cwd=root).
+    if not root.is_dir():
+        warn(f"path is not a readable directory: {root}")
+        if args.json:
+            counts = _empty_counts()
+            print(json.dumps(build_json({}, counts, 2, mode_early)))
+        return 2
 
     deps = not args.no_deps
     scanners, counts, exit_code = run_audit(

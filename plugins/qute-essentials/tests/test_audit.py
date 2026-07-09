@@ -269,6 +269,25 @@ def test_hygiene_flags_sensitive_files(tmp_path):
     assert res["severity"]["critical"] == 0
 
 
+def test_hygiene_respects_file_cap(monkeypatch, tmp_path):
+    (tmp_path / "a.txt").write_text("x")
+    (tmp_path / ".env").write_text("s")
+    monkeypatch.setattr(audit, "_HYGIENE_FILE_CAP", 1)
+    res = audit.run_hygiene(tmp_path)
+    # cap hit after the first file → the .env may not be reached, but it must
+    # not crash and must still return a well-formed result
+    assert res["ran"] is True and res["available"] is True
+
+
+def test_bad_path_returns_structured_exit_two(tmp_path, capsys):
+    missing = tmp_path / "nope"
+    code = audit.main(["--json", "--path", str(missing)])
+    assert code == 2
+    out = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+    obj = json.loads(out[-1])
+    assert obj["verb"] == "audit" and obj["exit_code"] == 2 and obj["ok"] is False
+
+
 def test_hygiene_skips_vendored_dirs(tmp_path):
     vendored = tmp_path / "node_modules" / "pkg"
     vendored.mkdir(parents=True)
