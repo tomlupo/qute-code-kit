@@ -27,24 +27,94 @@
 # FAIL-LOUD: if no path can post as the App, it errors non-zero — it never posts
 # as the default gh user (that would not be an independent review).
 #
-# Usage: qute_reviewer_post.sh <owner/repo> <pr#> [verdict body override]
+# ── VERB CONTRACT (for Jimek / any conductor) ────────────────────────────
+#   --json   emit ONE machine-readable JSON object as the final stdout line
+#            (human logs stay on stderr) so a conductor can branch on the verdict.
+#   --force  post a fresh review even if one already exists at the PR's head SHA.
+#
+# IDEMPOTENT (default): if a qute-review[bot] review OBJECT already exists for the
+# PR's CURRENT head SHA, this NO-OPS (does not post a duplicate) and reports the
+# existing verdict — re-running is safe. A new commit (new head SHA) re-reviews.
+#
+# EXIT CODES: 0 review present (posted OR idempotent-existing); non-zero if no
+# review could be posted (gate stays red).
+#
+# Usage: qute_reviewer_post.sh [--json] [--force] <owner/repo> <pr#> [verdict body]
 set -euo pipefail
 
-REPO="${1:?usage: qute_reviewer_post.sh <owner/repo> <pr#> [body]}"
-PR="${2:?usage: qute_reviewer_post.sh <owner/repo> <pr#> [body]}"
+OPT_JSON=0
+OPT_FORCE=0
+POS=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --json)  OPT_JSON=1; shift ;;
+    --force) OPT_FORCE=1; shift ;;
+    --)      shift; while [ $# -gt 0 ]; do POS+=("$1"); shift; done ;;
+    *)       POS+=("$1"); shift ;;
+  esac
+done
+set -- "${POS[@]}"
+REPO="${1:?usage: qute_reviewer_post.sh [--json] [--force] <owner/repo> <pr#> [body]}"
+PR="${2:?usage: qute_reviewer_post.sh [--json] [--force] <owner/repo> <pr#> [body]}"
 BODY_OVERRIDE="${3:-}"
 
 GHAPPS="${QUTE_GH_APPS_DIR:-$HOME/.config/gh-apps}"
 DISPATCHER="${QUTE_DISPATCHER_URL:-http://localhost:8001}"
 MODE="${QUTE_REVIEW_MODE:-auto}"
 
-die() { echo "qute-reviewer: $*" >&2; exit 1; }
 log() { echo "qute-reviewer: $*" >&2; }
+
+# ── structured JSON (contract) ───────────────────────────────────────────
+# emit_json <ok> <mode> <verdict> <posted> <idempotent_skip> <count>
+emit_json() {
+  [ "$OPT_JSON" = "1" ] || return 0
+  OK="$1" MODE="$2" VERDICT="$3" POSTED="$4" SKIP="$5" COUNT="$6" \
+  J_REPO="$REPO" J_PR="$PR" python3 - <<'PY'
+import json, os
+def b(x): return str(x).lower() in ("1", "true", "yes")
+print(json.dumps({
+    "verb": "qute-reviewer",
+    "ok": b(os.environ["OK"]),
+    "repo": os.environ["J_REPO"],
+    "pr": int(os.environ["J_PR"]) if os.environ["J_PR"].isdigit() else os.environ["J_PR"],
+    "mode": os.environ["MODE"] or None,
+    "verdict": os.environ["VERDICT"] or None,
+    "posted": b(os.environ["POSTED"]),
+    "idempotent_skip": b(os.environ["SKIP"]),
+    "review_count": int(os.environ["COUNT"] or 0),
+}))
+PY
+}
+# die: on --json, emit an ok=false object first so a conductor still gets a result.
+die() { echo "qute-reviewer: $*" >&2; emit_json false "${chosen:-}" "" false false "0"; exit 1; }
 
 count_bot_reviews() {
   gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
     --jq '[.[] | select(.user.login=="qute-review[bot]")] | length' 2>/dev/null \
     | awk '{s=$0} END{print (s==""?0:s)}'
+}
+
+pr_head_sha() {
+  gh api "repos/$REPO/pulls/$PR" --jq '.head.sha' 2>/dev/null || true
+}
+
+# Count qute-review[bot] review objects whose commit_id == the PR head SHA.
+count_bot_reviews_at_head() {
+  local sha="$1"
+  [ -n "$sha" ] || { echo 0; return; }
+  { gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+      --jq "[.[] | select(.user.login==\"qute-review[bot]\") | select(.commit_id==\"$sha\")] | length" 2>/dev/null \
+    || true; } | awk '{s=$0} END{print (s==""?0:s)}'
+}
+
+# Verdict text (SHIP / SHIP-WITH-NITS / BLOCKER) from the most recent
+# qute-review[bot] review object. Never fails (empty if none) — safe under set -e.
+latest_bot_verdict() {
+  { gh api "repos/$REPO/pulls/$PR/reviews" --paginate \
+      --jq '[.[] | select(.user.login=="qute-review[bot]")] | last | .body' 2>/dev/null \
+    | grep -oiE 'VERDICT:[[:space:]]*(SHIP-WITH-NITS|SHIP|BLOCKER)' \
+    | head -n1 \
+    | sed -E 's/^[Vv][Ee][Rr][Dd][Ii][Cc][Tt]:[[:space:]]*//'; } || true
 }
 
 dispatcher_reachable() {
@@ -145,6 +215,19 @@ run_local() {
 # ── main ─────────────────────────────────────────────────────────────────
 chosen="$(select_mode)"
 log "mode=$chosen (QUTE_REVIEW_MODE=$MODE)"
+
+# ── idempotency: skip if a bot review already exists at the PR head SHA ───
+HEAD_SHA="$(pr_head_sha)"
+if [ "$OPT_FORCE" != "1" ]; then
+  at_head="$(count_bot_reviews_at_head "$HEAD_SHA")"
+  if [ "${at_head:-0}" -gt 0 ]; then
+    verdict="$(latest_bot_verdict)"
+    log "idempotent: $at_head qute-review[bot] review object(s) already exist at head ${HEAD_SHA:0:7} — not posting a duplicate (use --force to override)."
+    emit_json true "$chosen" "$verdict" false true "$at_head"
+    exit 0
+  fi
+fi
+
 before="$(count_bot_reviews)"
 
 case "$chosen" in
@@ -154,7 +237,9 @@ esac
 
 after="$(count_bot_reviews)"
 if [ "$after" -gt "$before" ] || [ "$after" -gt 0 ]; then
-  log "CONFIRMED — $after native review object(s) by qute-review[bot] on $REPO#$PR (mode=$chosen)."
+  verdict="$(latest_bot_verdict)"
+  log "CONFIRMED — $after native review object(s) by qute-review[bot] on $REPO#$PR (mode=$chosen). verdict=${verdict:-<unparsed>}"
+  emit_json true "$chosen" "$verdict" true false "$after"
   exit 0
 fi
 die "no qute-review[bot] review object was created on $REPO#$PR (mode=$chosen). Gate stays RED."

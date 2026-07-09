@@ -8,7 +8,7 @@ description: >-
   Because the verdict is authored by a different identity than the PR author (qute-coder[bot]/a human),
   it satisfies require-independent-reviewer. Triggers: /qute-reviewer, "post the independent review",
   "green the review gate", "run the qute review bot".
-argument-hint: "<owner/repo> <pr#> [verdict body]"
+argument-hint: "[--json] [--force] <owner/repo> <pr#> [verdict body]"
 ---
 
 # /qute-reviewer — post the independent qute-review[bot] verdict
@@ -18,6 +18,28 @@ Run the helper and print stdout verbatim:
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/qute_reviewer_post.sh" $@
 ```
+
+## Verb contract (composable by Jimek / any conductor)
+
+| Flag | Effect |
+|------|--------|
+| `--json` | emit ONE machine-readable JSON result as the final stdout line (human logs stay on stderr) |
+| `--force` | post a fresh review even if one already exists at the PR's current head SHA |
+
+**Structured return (`--json`):**
+
+```json
+{"verb":"qute-reviewer","ok":true,"repo":"o/r","pr":7,"mode":"local",
+ "verdict":"SHIP-WITH-NITS","posted":true,"idempotent_skip":false,"review_count":1}
+```
+
+**Exit codes:** `0` a review object is present (freshly posted OR already existed) · non-zero if none
+could be posted (gate stays red).
+
+**Idempotent (default):** if a qute-review[bot] review object already exists for the PR's **current
+head SHA**, this NO-OPS (`idempotent_skip:true`, `posted:false`) and reports the existing verdict —
+re-running is safe, no duplicate review. A **new commit** (new head SHA) re-reviews. `--force`
+overrides. Full contract in `docs/playbooks/jimek-verb-contract.md`.
 
 ## Two modes (portable) — `QUTE_REVIEW_MODE=dispatcher|local|auto` (default `auto`)
 

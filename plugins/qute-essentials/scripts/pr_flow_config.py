@@ -15,6 +15,9 @@ Schema + defaults (``qutePrWorkflow`` policy, now homed in the YAML):
     | ``independentReview``  | bool | true      | run the auto independent review in the chain       |
     | ``allowAgentSelfMerge``| bool | false     | if false the agent must NOT merge (assign a human) |
     | ``enforce``            | bool | false     | whether the blocking PR-flow hooks + gate fire     |
+    | ``baseBranch``         | str  | ""        | default PR base; "" => let ``gh`` pick the repo    |
+    |                        |      |           | default (today's behavior). A caller ``--base``    |
+    |                        |      |           | always wins over this.                             |
 
 Example ``.github/qute-pr.yml``::
 
@@ -63,6 +66,7 @@ DEFAULTS: dict[str, object] = {
     "independentReview": True,
     "allowAgentSelfMerge": False,
     "enforce": False,
+    "baseBranch": "",
 }
 # Expected type per key — a value of the wrong type is ignored (default kept).
 _TYPES: dict[str, type] = {
@@ -70,6 +74,7 @@ _TYPES: dict[str, type] = {
     "independentReview": bool,
     "allowAgentSelfMerge": bool,
     "enforce": bool,
+    "baseBranch": str,
 }
 
 # Legacy per-repo settings files (only the enforce marker is read from these).

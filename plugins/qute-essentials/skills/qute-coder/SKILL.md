@@ -7,17 +7,49 @@ description: >-
   require-independent-reviewer gate pass BY CONSTRUCTION (author != reviewer). Policy comes from the
   repo's committed .github/qute-pr.yml. Same create args as `gh pr create`. Use whenever you (an agent)
   open a PR. Triggers: /qute-coder, "open a PR", "create the PR as the bot", "author this PR independently".
-argument-hint: "[gh pr create args — e.g. --repo o/r --base main --title \"…\" --body \"…\"]"
+argument-hint: "[chain flags] [gh pr create args — e.g. --repo o/r --base main --title \"…\" --body \"…\"]"
 ---
 
 # /qute-coder — open a PR as qute-coder[bot] and chain open → review → assign
 
-Run the chain helper, passing the user's args straight through (they are exactly `gh pr create`
-args), and print stdout verbatim:
+Run the chain helper, passing the user's args straight through (chain-control flags are consumed;
+everything else is exactly `gh pr create` args), and print stdout verbatim:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/qute_coder_flow.sh" $@
 ```
+
+## Verb contract (composable by Jimek / any conductor)
+
+This verb is machine-composable while **human defaults stay unchanged** — every chain-control flag
+defaults to today's behavior. See `docs/playbooks/jimek-verb-contract.md` for the full contract.
+
+| Flag | Effect | Default |
+|------|--------|---------|
+| `--base <b>` | PR base branch (native `gh` flag; also `baseBranch` in `.github/qute-pr.yml`) | `gh` repo default |
+| `--no-review` | skip the independent-review step | review ON (policy `independentReview`) |
+| `--no-assign` | skip assign + request-review | assign ON |
+| `--assign-to <login>` | override `assignTo` for this run | policy `assignTo` (`tomlupo`) |
+| `--review-mode <m>` | force reviewer mode (`dispatcher\|local\|auto`) | `auto` |
+| `--json` | emit ONE machine-readable JSON result as the final stdout line | off (human logs only) |
+
+**Precedence:** flag > `.github/qute-pr.yml` policy > built-in default. A caller `--base` always
+wins over policy `baseBranch`.
+
+**Structured return (`--json`)** — the conductor branches on this:
+
+```json
+{"verb":"qute-coder","ok":true,"pr_url":"…/pull/7","pr_number":7,"repo":"o/r","base":"main",
+ "head":"feature","created":true,
+ "review":{"ran":true,"ok":true,"verdict":"SHIP-WITH-NITS"},
+ "assign":{"ran":true,"ok":true,"to":"tomlupo"},"review_requested":true}
+```
+
+**Exit codes:** `0` PR open/reused + review ok-or-skipped · `2` PR could not be opened · `3` PR is
+open but the independent review FAILED (gate stays red).
+
+**Idempotent:** re-invoking for the same head branch REUSES an existing OPEN PR (`created:false`)
+instead of opening a second one; review + assign (both idempotent) then run against it.
 
 ## The chain (one command)
 

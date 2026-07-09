@@ -11,6 +11,11 @@
 # Who the /qute-coder chain assigns the PR to AND requests a review from.
 assignTo: tomlupo
 
+# Default base branch for /qute-coder PRs. Empty/omitted => let `gh` pick the repo
+# default branch (today's behavior). A caller-supplied `--base` always wins over
+# this. Set it (e.g. `dev`) to parameterize the base a conductor/human opens against.
+baseBranch: ""
+
 # Run the automatic independent review (qute-review[bot]) inside the /qute-coder chain.
 independentReview: true
 

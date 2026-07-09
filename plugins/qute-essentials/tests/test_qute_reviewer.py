@@ -176,3 +176,92 @@ def test_invalid_mode_errors(env):
     r = _run(env, {"QUTE_REVIEW_MODE": "bogus"})
     assert r.returncode != 0
     assert "invalid QUTE_REVIEW_MODE" in r.stderr
+
+
+# ── verb contract: --json structured return + head-SHA idempotency ───────
+import json as _json  # noqa: E402
+
+
+def _run_args(env, args, extra=None):
+    e = dict(env["path_env"])
+    if extra:
+        e.update(extra)
+    return subprocess.run(
+        ["bash", str(SCRIPT), *args],
+        capture_output=True,
+        text=True,
+        env=e,
+        timeout=30,
+    )
+
+
+def _last_json(stdout: str) -> dict:
+    line = [x for x in stdout.splitlines() if x.strip().startswith("{")][-1]
+    return _json.loads(line)
+
+
+def _add_head_sha(env, sha: str = "deadbeef"):
+    """Augment the gh stub so `gh api repos/o/r/pulls/42` (no /reviews) returns a
+    head SHA — required to exercise the idempotency path. Reviews endpoints keep
+    returning the marker count (so at-head count == marker)."""
+    marker = env["marker"]
+    calls = env["calls"]
+    env["write"](
+        env["bin"] / "gh",
+        f'''
+echo "gh $*" >> "{calls}"
+args="$*"
+case "$args" in
+  *"pulls/"*"/reviews"*)
+    if [[ "$args" == *"-X POST"* || "$args" == *"--method POST"* ]]; then
+      n=0; [ -f "{marker}" ] && n=$(cat "{marker}"); echo $((n+1)) > "{marker}"
+      echo "created"; exit 0
+    else
+      n=0; [ -f "{marker}" ] && n=$(cat "{marker}"); echo "$n"; exit 0
+    fi ;;
+  *"pulls/42"*) echo "{sha}"; exit 0 ;;
+  "pr diff"*) echo "diff --git a/x b/x"; echo "+changed"; exit 0 ;;
+  *) exit 0 ;;
+esac
+''',
+    )
+
+
+def test_json_output_on_success(env):
+    _add_curl(env, "000")
+    _add_codex(env)
+    r = _run_args(env, ["--json", "o/r", "42"], {"QUTE_REVIEW_MODE": "local"})
+    assert r.returncode == 0, r.stderr
+    j = _last_json(r.stdout)
+    assert j["verb"] == "qute-reviewer"
+    assert j["ok"] is True
+    assert j["posted"] is True
+    assert j["idempotent_skip"] is False
+    assert j["repo"] == "o/r" and j["pr"] == 42
+
+
+def test_idempotent_skip_when_review_exists(env):
+    _add_curl(env, "000")
+    _add_codex(env)
+    _add_head_sha(env)
+    env["marker"].write_text("1")  # a bot review already exists at head SHA
+    r = _run_args(env, ["--json", "o/r", "42"], {"QUTE_REVIEW_MODE": "local"})
+    assert r.returncode == 0, r.stderr
+    assert "idempotent" in r.stderr
+    j = _last_json(r.stdout)
+    assert j["idempotent_skip"] is True
+    assert j["posted"] is False
+    # no NEW review object posted (marker unchanged)
+    assert env["marker"].read_text().strip() == "1"
+    assert "-X POST" not in env["calls"].read_text()
+
+
+def test_force_posts_even_when_review_exists(env):
+    _add_curl(env, "000")
+    _add_codex(env)
+    _add_head_sha(env)
+    env["marker"].write_text("1")
+    r = _run_args(env, ["--force", "o/r", "42"], {"QUTE_REVIEW_MODE": "local"})
+    assert r.returncode == 0, r.stderr
+    # --force bypasses idempotency and posts anyway (marker incremented)
+    assert env["marker"].read_text().strip() == "2"
