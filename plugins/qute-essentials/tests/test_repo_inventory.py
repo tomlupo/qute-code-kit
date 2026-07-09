@@ -160,6 +160,20 @@ def test_remote_host_degrades_gracefully(tmp_path, monkeypatch):
     assert out["hosts"]["forge"]["error"]  # reported, not crashed
 
 
+def test_remote_host_empty_roots_refused(tmp_path, monkeypatch):
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(json.dumps({"hosts": {"forge": {"roots": [], "ssh": "forge"}}}))
+    monkeypatch.delenv("QUTE_AUDIT_ROOTS", raising=False)
+
+    def boom(*a, **k):  # ssh must never be invoked with no roots
+        raise AssertionError("ssh should not run with empty roots")
+
+    monkeypatch.setattr(inv.subprocess, "run", boom)
+    out = inv.build_inventory(config_path=cfg)
+    assert out["count"] == 0
+    assert "no roots" in out["hosts"]["forge"]["error"]
+
+
 def test_json_cli(tmp_path, monkeypatch, capsys):
     _make_repo(tmp_path, "alpha")
     monkeypatch.delenv("QUTE_AUDIT_ROOTS", raising=False)

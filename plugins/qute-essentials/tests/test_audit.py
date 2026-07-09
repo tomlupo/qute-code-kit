@@ -162,6 +162,32 @@ def test_run_secrets_counts_findings_critical(monkeypatch, tmp_path):
     assert res["severity"]["critical"] == 1
 
 
+def test_run_secrets_nonzero_exit_is_failure_not_clean(monkeypatch, tmp_path):
+    monkeypatch.setattr(audit.shutil, "which", lambda _: "/usr/bin/gitleaks")
+
+    def fake_run(cmd, *a, **k):
+        # operational failure: non-zero, no report written
+        return subprocess.CompletedProcess(cmd, 2, "", "fatal: bad flag")
+
+    monkeypatch.setattr(audit.subprocess, "run", fake_run)
+    res = audit.run_secrets(tmp_path)
+    assert res["ran"] is False and res["ok"] is False
+    assert "gitleaks exit 2" in res["reason"]
+
+
+def test_run_static_fatal_exit_is_failure_not_clean(monkeypatch, tmp_path):
+    monkeypatch.setattr(audit.shutil, "which", lambda _: "/usr/bin/semgrep")
+
+    def fake_run(cmd, *a, **k):
+        # exit >=2 is a semgrep fatal error, even with partial/empty JSON
+        return subprocess.CompletedProcess(cmd, 2, "{}", "config error")
+
+    monkeypatch.setattr(audit.subprocess, "run", fake_run)
+    res = audit.run_static(tmp_path)
+    assert res["ran"] is False and res["ok"] is False
+    assert "semgrep exit 2" in res["reason"]
+
+
 def test_run_static_maps_semgrep_severity(monkeypatch, tmp_path):
     monkeypatch.setattr(audit.shutil, "which", lambda _: "/usr/bin/semgrep")
     out = {

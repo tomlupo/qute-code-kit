@@ -205,11 +205,22 @@ def run_secrets(root: Path, deep: bool = False) -> dict:
         scope = "history + working tree" if deep else "working tree"
         info(f"secrets: running gitleaks ({scope})")
         try:
-            subprocess.run(cmd, capture_output=True, text=True, timeout=300, cwd=root)
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=300, cwd=root
+            )
         except subprocess.TimeoutExpired:
             return _scanner_result(
                 available=True, ran=False, ok=False, reason="gitleaks timed out (300s)"
             )
+        # We pass `--exit-code 0`, so gitleaks returns 0 whether or not it finds
+        # leaks; any non-zero code is a genuine operational failure that must NOT
+        # be reported as a clean scan.
+        if proc.returncode != 0:
+            tail = (proc.stderr or "").strip().splitlines()
+            reason = f"gitleaks exit {proc.returncode}"
+            if tail:
+                reason += f": {tail[-1]}"
+            return _scanner_result(available=True, ran=False, ok=False, reason=reason)
         try:
             raw = report.read_text() or "[]"
             findings = json.loads(raw) if raw.strip() else []
@@ -275,6 +286,15 @@ def run_static(root: Path, deep: bool = False) -> dict:
         return _scanner_result(
             available=True, ran=False, ok=False, reason="semgrep timed out (600s)"
         )
+
+    # semgrep exits 0 (clean) or 1 (findings); >=2 is a fatal error whose partial
+    # JSON must not be parsed as a clean scan.
+    if result.returncode not in (0, 1):
+        tail = (result.stderr or "").strip().splitlines()
+        reason = f"semgrep exit {result.returncode}"
+        if tail:
+            reason += f": {tail[-1]}"
+        return _scanner_result(available=True, ran=False, ok=False, reason=reason)
 
     try:
         data = json.loads(result.stdout or "{}")

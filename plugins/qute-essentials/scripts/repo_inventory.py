@@ -115,6 +115,10 @@ def discover_remote(
     ssh_target: str, roots: list[str], max_depth: int
 ) -> tuple[list[dict], str]:
     """Enumerate repos on a remote host via ssh. Returns (repos, error)."""
+    # Guard: a rootless `find` would default to the remote's cwd and scan an
+    # unbounded, unintended scope. Refuse instead.
+    if not roots:
+        return [], "no roots configured for remote host"
     expanded = " ".join(_shq(_expand(r)) for r in roots)
     # -prune stops find from descending into a repo once .git is seen.
     remote_cmd = (
