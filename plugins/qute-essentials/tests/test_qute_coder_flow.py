@@ -152,6 +152,31 @@ def test_no_review_no_assign_flags(env):
     assert "add-assignee" not in env["calls"].read_text()
 
 
+def test_passthrough_value_not_mistaken_for_chain_flag(env):
+    """A gh value that looks like a chain flag (--body '--no-review') must NOT be
+    consumed as the chain flag — review must still run."""
+    r = _run(
+        env,
+        [
+            "--json",
+            "--repo",
+            "o/r",
+            "--head",
+            "feature",
+            "--title",
+            "T",
+            "--body",
+            "--no-review",
+        ],
+    )
+    assert r.returncode == 0, r.stderr
+    j = _last_json(r.stdout)
+    assert j["review"]["ran"] is True  # --no-review was a body VALUE, not a flag
+    assert j["assign"]["ran"] is True
+    # the literal value reached gh pr create
+    assert "--body --no-review" in env["calls"].read_text()
+
+
 def test_assign_to_override(env):
     r = _run(env, [*BASE_ARGS, "--assign-to", "alice"])
     assert r.returncode == 0, r.stderr

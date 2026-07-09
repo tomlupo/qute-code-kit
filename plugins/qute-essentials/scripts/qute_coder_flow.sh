@@ -62,8 +62,24 @@ REPO_ARG=""
 # requires a value operand for a two-token flag; guards against `shift 2` on a
 # dangling flag (which under `set -u` w/o `set -e` would spin forever).
 need2() { [ "$1" -ge 2 ] || { echo "qute-coder-flow: flag '$2' requires a value" >&2; exit 2; }; }
+# Parse chain-control flags out of the `gh pr create` arg stream. To avoid
+# MIS-CLAIMING a passthrough VALUE that happens to look like a chain flag (e.g.
+# `--body "--no-review"`), every VALUE-TAKING `gh pr create` flag consumes its
+# next token OPAQUELY (flag + value straight into PASS, never re-interpreted).
+# Only a bare chain flag that is NOT the operand of a preceding value-flag is
+# treated as a chain flag. Use `--` to force everything after it to passthrough.
 while [ $# -gt 0 ]; do
   case "$1" in
+    # ── value-taking gh pr create flags: consume the value opaquely ──────
+    --base|-B)   need2 "$#" "$1"; BASE_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
+    --head|-H)   need2 "$#" "$1"; HEAD_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
+    --repo|-R)   need2 "$#" "$1"; REPO_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
+    --base=*)    BASE_ARG="${1#*=}"; PASS+=("$1"); shift ;;
+    --head=*)    HEAD_ARG="${1#*=}"; PASS+=("$1"); shift ;;
+    --repo=*)    REPO_ARG="${1#*=}"; PASS+=("$1"); shift ;;
+    --title|-T|--body|-b|--body-file|-F|--assignee|-a|--reviewer|-r|--label|-l|--milestone|-m|--project|-p|--template|--head-repo)
+                 need2 "$#" "$1"; PASS+=("$1" "$2"); shift 2 ;;
+    # ── chain-control flags (default to today's behavior) ────────────────
     --no-review)     OVR_NO_REVIEW=1; shift ;;
     --no-assign)     OVR_NO_ASSIGN=1; shift ;;
     --assign-to)     need2 "$#" "$1"; OVR_ASSIGN_TO="$2"; shift 2 ;;
@@ -71,12 +87,6 @@ while [ $# -gt 0 ]; do
     --review-mode)   need2 "$#" "$1"; OVR_REVIEW_MODE="$2"; shift 2 ;;
     --review-mode=*) OVR_REVIEW_MODE="${1#*=}"; shift ;;
     --json)          OPT_JSON=1; shift ;;
-    --base)          need2 "$#" "$1"; BASE_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
-    --base=*)        BASE_ARG="${1#*=}"; PASS+=("$1"); shift ;;
-    --head)          need2 "$#" "$1"; HEAD_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
-    --head=*)        HEAD_ARG="${1#*=}"; PASS+=("$1"); shift ;;
-    --repo)          need2 "$#" "$1"; REPO_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
-    --repo=*)        REPO_ARG="${1#*=}"; PASS+=("$1"); shift ;;
     --)              shift; while [ $# -gt 0 ]; do PASS+=("$1"); shift; done ;;
     *)               PASS+=("$1"); shift ;;
   esac
