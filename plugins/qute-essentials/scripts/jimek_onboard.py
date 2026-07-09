@@ -648,7 +648,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     repo = Path(args.repo).resolve()
-    if not (repo / ".git").exists() and not repo.is_dir():
+    if not repo.is_dir() or not (repo / ".git").exists():
         print(f"error: {repo} is not a git repo", file=sys.stderr)
         return 2
 
