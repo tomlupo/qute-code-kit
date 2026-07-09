@@ -1,6 +1,6 @@
 ---
 name: repo-status
-description: Pure git/worktree dashboard. Walks `git worktree list`, surfaces latest release, per-subsystem last change (when CLAUDE.md has a Subsystems table), orphan stashes, and worktrees with merged PRs. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what branches are live", "what's stale".
+description: Pure git/worktree dashboard. Walks `git worktree list`, surfaces latest release, per-subsystem last change (when CLAUDE.md has a Subsystems table), orphan stashes, worktrees with merged PRs, and OPEN PRs awaiting review/merge. Pure bash, no LLM, sub-second. Use when user says "status", "where are we", "what branches are live", "what's stale", "any open PRs".
 argument-hint: "[alias]"
 ---
 
@@ -54,6 +54,10 @@ Latest release: vX.Y.Z (YYYY-MM-DD)  ·  N commits ahead on dev
 
 ⚠ Worktrees with merged PRs (when present, requires `gh`):
   some-name  [feat/x]  PR #123 merged
+
+Open PRs (awaiting review/merge):
+  #58  feat/audit-modes → main  feat(audit): multi-scanner modes
+  #56  docs/review-prompt → main  docs(review-prompt): confidence-gating
 
 Subsystem    Last change                                        Active branch
   taa        2026-04-29 b12a6a0 docs(taa): mark v6/v7 super...  research/taa-v6
