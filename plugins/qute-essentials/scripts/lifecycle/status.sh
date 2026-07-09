@@ -160,7 +160,7 @@ if command -v gh >/dev/null 2>&1; then
   open_pr_lines=()
   while IFS= read -r pr_line; do
     [ -n "$pr_line" ] && open_pr_lines+=("  $pr_line")
-  done < <(gh pr list --state open \
+  done < <(gh pr list --state open --limit 50 \
              --json number,headRefName,baseRefName,isDraft,title \
              --jq '.[] | "#\(.number)  \(.headRefName) → \(.baseRefName)\(if .isDraft then " (draft)" else "" end)  \(.title)"' \
              2>/dev/null)
