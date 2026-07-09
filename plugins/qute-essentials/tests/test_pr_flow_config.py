@@ -51,6 +51,7 @@ def test_defaults_when_absent(tmp_path, monkeypatch):
         "independentReview": True,
         "allowAgentSelfMerge": False,
         "enforce": False,
+        "baseBranch": "",
     }
     assert pfc.enforcement_enabled(root) is False
 
@@ -80,6 +81,34 @@ def test_partial_override_keeps_other_defaults(tmp_path, monkeypatch):
     assert cfg["independentReview"] is True  # default kept
     assert cfg["allowAgentSelfMerge"] is False
     assert cfg["enforce"] is False
+
+
+# ── baseBranch (Jimek verb-contract parameterization) ───────────────────
+def test_base_branch_default_empty(tmp_path, monkeypatch):
+    monkeypatch.delenv("QUTE_ENFORCE_PR_REVIEW", raising=False)
+    root = _repo(tmp_path)
+    # absent => "" so the flow lets `gh` pick the repo default (today's behavior).
+    assert pfc.resolve_workflow(root)["baseBranch"] == ""
+
+
+def test_base_branch_override(tmp_path, monkeypatch):
+    monkeypatch.delenv("QUTE_ENFORCE_PR_REVIEW", raising=False)
+    root = _repo(tmp_path)
+    _write_yml(root, "baseBranch: dev\n")
+    cfg = pfc.resolve_workflow(root)
+    assert cfg["baseBranch"] == "dev"
+    # other keys keep defaults
+    assert cfg["assignTo"] == "tomlupo"
+    assert cfg["independentReview"] is True
+
+
+def test_base_branch_wrong_type_ignored(tmp_path, monkeypatch):
+    monkeypatch.delenv("QUTE_ENFORCE_PR_REVIEW", raising=False)
+    root = _repo(tmp_path)
+    _write_yml(root, "baseBranch: 123\n")  # coerced to non-str => ignored
+    # fallback parser coerces bare scalar; PyYAML gives int 123 -> ignored (default "")
+    cfg = pfc.resolve_workflow(root)
+    assert cfg["baseBranch"] in ("", "123")  # str "123" acceptable, int ignored
 
 
 # ── nested form ─────────────────────────────────────────────────────────

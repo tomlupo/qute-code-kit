@@ -40,10 +40,16 @@ def env(tmp_path: Path):
     ghapps.mkdir()
     (ghapps / "review.env").write_text("REVIEW_APP_ID=4172333\n")
     (ghapps / "review.pem").write_text("dummy-pem\n")
-    marker = tmp_path / "posted.count"
     calls = tmp_path / "calls.log"
+    # Faithful model: `reviews` holds one head-SHA per posted qute-review[bot]
+    # review object; `headsha` is the PR's current head SHA. The stub honors the
+    # `commit_id==<sha>` jq filter so head-SHA idempotency/confirmation is really
+    # exercised (a stale review on a different SHA does NOT count as current).
+    reviews = tmp_path / "reviews.shas"
+    reviews.write_text("")
+    headsha = tmp_path / "head.sha"
+    headsha.write_text("H1")
 
-    # gh stub: emulate `gh api .../reviews` (GET count + POST create) and `gh pr diff`.
     _write(
         bind / "gh",
         f'''
@@ -51,13 +57,15 @@ echo "gh $*" >> "{calls}"
 args="$*"
 case "$args" in
   *"pulls/"*"/reviews"*)
-    # a POST carries -X POST; a GET does not.
     if [[ "$args" == *"-X POST"* || "$args" == *"--method POST"* ]]; then
-      n=0; [ -f "{marker}" ] && n=$(cat "{marker}"); echo $((n+1)) > "{marker}"
-      echo "created"; exit 0
+      cat "{headsha}" >> "{reviews}"; echo "created"; exit 0
+    elif [[ "$args" == *'commit_id=="'* ]]; then
+      want="${{args#*commit_id==\\"}}"; want="${{want%%\\"*}}"
+      awk -v w="$want" '$0==w{{n++}} END{{print n+0}}' "{reviews}"; exit 0
     else
-      n=0; [ -f "{marker}" ] && n=$(cat "{marker}"); echo "$n"; exit 0
+      awk 'END{{print NR+0}}' "{reviews}"; exit 0
     fi ;;
+  *"pulls/42"*) cat "{headsha}"; exit 0 ;;
   "pr diff"*) echo "diff --git a/x b/x"; echo "+changed"; exit 0 ;;
   *) exit 0 ;;
 esac
@@ -77,18 +85,23 @@ esac
         "path_env": base,
         "bin": bind,
         "ghapps": ghapps,
-        "marker": marker,
+        "reviews": reviews,
+        "headsha": headsha,
         "calls": calls,
         "write": _write,
     }
 
 
-def _run(env, extra=None):
+def _review_count(env) -> int:
+    return len([x for x in env["reviews"].read_text().splitlines() if x.strip()])
+
+
+def _run(env, extra=None, args=("o/r", "42")):
     e = dict(env["path_env"])
     if extra:
         e.update(extra)
     return subprocess.run(
-        ["bash", str(SCRIPT), "o/r", "42"],
+        ["bash", str(SCRIPT), *args],
         capture_output=True,
         text=True,
         env=e,
@@ -97,11 +110,13 @@ def _run(env, extra=None):
 
 
 def _add_curl(env, health_code: str):
-    """Add a curl stub whose /health returns the given HTTP code."""
+    """curl stub: /health returns the code; a reachable dispatcher /review POST
+    simulates the dispatcher creating a review at the current head SHA."""
     env["write"](
         env["bin"] / "curl",
         f'if [[ "$*" == *"/health"* ]]; then printf "{health_code}"; exit 0; fi\n'
-        'if [[ "$*" == *"/review"* ]]; then echo "{}"; exit 0; fi\nexit 0\n',
+        f'if [[ "$*" == *"/review"* ]]; then cat "{env["headsha"]}" >> "{env["reviews"]}"; echo "{{}}"; exit 0; fi\n'
+        "exit 0\n",
     )
 
 
@@ -127,21 +142,20 @@ def test_auto_selects_local_when_dispatcher_down(env):
     assert r.returncode == 0, r.stderr
     assert "mode=local" in r.stderr
     # posted a review object via the app token + gh api
-    assert int(env["marker"].read_text()) == 1
+    assert _review_count(env) == 1
     calls = env["calls"].read_text()
     assert "gh-app-token 4172333" in calls
     assert "-X POST" in calls  # native review object create
 
 
 def test_auto_selects_dispatcher_when_up(env):
-    _add_curl(env, "200")  # reachable
-    # pre-seed one existing bot review so the confirm passes without a local post
-    env["marker"].write_text("1")
+    _add_curl(env, "200")  # reachable — the /review POST simulates the dispatcher post
     r = _run(env)
     assert r.returncode == 0, r.stderr
     assert "mode=dispatcher" in r.stderr
     # dispatcher mode must NOT mint the app token / post via gh api itself
     assert "gh-app-token" not in env["calls"].read_text()
+    assert _review_count(env) == 1  # the dispatcher created exactly one
 
 
 def test_explicit_local_overrides_probe(env):
@@ -150,7 +164,7 @@ def test_explicit_local_overrides_probe(env):
     r = _run(env, {"QUTE_REVIEW_MODE": "local"})
     assert r.returncode == 0, r.stderr
     assert "mode=local" in r.stderr
-    assert int(env["marker"].read_text()) == 1
+    assert _review_count(env) == 1
 
 
 def test_local_uses_separate_process_codex(env):
@@ -168,7 +182,7 @@ def test_local_falls_back_to_claude_when_no_codex(env):
     r = _run(env, {"QUTE_REVIEW_MODE": "local"})
     assert r.returncode == 0, r.stderr
     assert "fresh 'claude -p'" in r.stderr
-    assert int(env["marker"].read_text()) == 1
+    assert _review_count(env) == 1
 
 
 def test_invalid_mode_errors(env):
@@ -176,3 +190,63 @@ def test_invalid_mode_errors(env):
     r = _run(env, {"QUTE_REVIEW_MODE": "bogus"})
     assert r.returncode != 0
     assert "invalid QUTE_REVIEW_MODE" in r.stderr
+
+
+# ── verb contract: --json structured return + head-SHA idempotency ───────
+import json as _json  # noqa: E402
+
+
+def _last_json(stdout: str) -> dict:
+    line = [x for x in stdout.splitlines() if x.strip().startswith("{")][-1]
+    return _json.loads(line)
+
+
+def test_json_output_on_success(env):
+    _add_curl(env, "000")
+    _add_codex(env)
+    r = _run(env, {"QUTE_REVIEW_MODE": "local"}, args=("--json", "o/r", "42"))
+    assert r.returncode == 0, r.stderr
+    j = _last_json(r.stdout)
+    assert j["verb"] == "qute-reviewer"
+    assert j["ok"] is True
+    assert j["posted"] is True
+    assert j["idempotent_skip"] is False
+    assert j["repo"] == "o/r" and j["pr"] == 42
+
+
+def test_idempotent_skip_when_review_at_head_exists(env):
+    _add_curl(env, "000")
+    _add_codex(env)
+    env["reviews"].write_text("H1\n")  # a bot review already exists at head SHA H1
+    r = _run(env, {"QUTE_REVIEW_MODE": "local"}, args=("--json", "o/r", "42"))
+    assert r.returncode == 0, r.stderr
+    assert "idempotent" in r.stderr
+    j = _last_json(r.stdout)
+    assert j["idempotent_skip"] is True
+    assert j["posted"] is False
+    assert _review_count(env) == 1  # no NEW review posted
+    assert "-X POST" not in env["calls"].read_text()
+
+
+def test_stale_review_on_old_sha_does_not_skip(env):
+    """A review on an OLDER head SHA must NOT count as current — re-review posts."""
+    _add_curl(env, "000")
+    _add_codex(env)
+    env["reviews"].write_text("OLDSHA\n")  # stale review, PR head is H1
+    r = _run(env, {"QUTE_REVIEW_MODE": "local"}, args=("--json", "o/r", "42"))
+    assert r.returncode == 0, r.stderr
+    assert "idempotent" not in r.stderr  # did NOT skip
+    j = _last_json(r.stdout)
+    assert j["idempotent_skip"] is False
+    assert j["posted"] is True
+    # posted a fresh review at the current head SHA H1 (2 total now: OLDSHA + H1)
+    assert _review_count(env) == 2
+
+
+def test_force_posts_even_when_review_at_head_exists(env):
+    _add_curl(env, "000")
+    _add_codex(env)
+    env["reviews"].write_text("H1\n")
+    r = _run(env, {"QUTE_REVIEW_MODE": "local"}, args=("--force", "o/r", "42"))
+    assert r.returncode == 0, r.stderr
+    assert _review_count(env) == 2  # --force bypasses idempotency and posts anyway
