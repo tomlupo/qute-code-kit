@@ -59,20 +59,23 @@ OVR_REVIEW_MODE=""
 BASE_ARG=""
 HEAD_ARG=""
 REPO_ARG=""
+# requires a value operand for a two-token flag; guards against `shift 2` on a
+# dangling flag (which under `set -u` w/o `set -e` would spin forever).
+need2() { [ "$1" -ge 2 ] || { echo "qute-coder-flow: flag '$2' requires a value" >&2; exit 2; }; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-review)     OVR_NO_REVIEW=1; shift ;;
     --no-assign)     OVR_NO_ASSIGN=1; shift ;;
-    --assign-to)     OVR_ASSIGN_TO="${2:-}"; shift 2 ;;
+    --assign-to)     need2 "$#" "$1"; OVR_ASSIGN_TO="$2"; shift 2 ;;
     --assign-to=*)   OVR_ASSIGN_TO="${1#*=}"; shift ;;
-    --review-mode)   OVR_REVIEW_MODE="${2:-}"; shift 2 ;;
+    --review-mode)   need2 "$#" "$1"; OVR_REVIEW_MODE="$2"; shift 2 ;;
     --review-mode=*) OVR_REVIEW_MODE="${1#*=}"; shift ;;
     --json)          OPT_JSON=1; shift ;;
-    --base)          BASE_ARG="${2:-}"; PASS+=("$1" "${2:-}"); shift 2 ;;
+    --base)          need2 "$#" "$1"; BASE_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
     --base=*)        BASE_ARG="${1#*=}"; PASS+=("$1"); shift ;;
-    --head)          HEAD_ARG="${2:-}"; PASS+=("$1" "${2:-}"); shift 2 ;;
+    --head)          need2 "$#" "$1"; HEAD_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
     --head=*)        HEAD_ARG="${1#*=}"; PASS+=("$1"); shift ;;
-    --repo)          REPO_ARG="${2:-}"; PASS+=("$1" "${2:-}"); shift 2 ;;
+    --repo)          need2 "$#" "$1"; REPO_ARG="$2"; PASS+=("$1" "$2"); shift 2 ;;
     --repo=*)        REPO_ARG="${1#*=}"; PASS+=("$1"); shift ;;
     --)              shift; while [ $# -gt 0 ]; do PASS+=("$1"); shift; done ;;
     *)               PASS+=("$1"); shift ;;
@@ -159,7 +162,8 @@ if [ -z "$PR_URL" ]; then
     printf '%s\n' "$CODER_OUT" >&2
     FAIL_CODE=2 die "PR creation failed (qute_coder_pr.sh). Aborting chain."
   fi
-  echo "$CODER_OUT"
+  # keep stdout a single JSON line under --json; otherwise echo the URL as before.
+  if [ "$OPT_JSON" = "1" ]; then printf '%s\n' "$CODER_OUT" >&2; else echo "$CODER_OUT"; fi
   PR_URL="$(printf '%s\n' "$CODER_OUT" | grep -oE 'https://github\.com/[^ ]+/pull/[0-9]+' | tail -n1)"
   [ -n "$PR_URL" ] || FAIL_CODE=2 die "could not parse the created PR URL. Chain stops."
   CREATED=true

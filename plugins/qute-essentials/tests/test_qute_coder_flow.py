@@ -65,7 +65,7 @@ case "$args" in
     else
       n=0; [ -f "{marker}" ] && n=$(cat "{marker}"); echo "$n"; exit 0
     fi ;;
-  *"pulls/7") echo "beef7"; exit 0 ;;
+  *"pulls/7"*) echo "beef7"; exit 0 ;;
   *"assignees"*|*"requested_reviewers"*) exit 0 ;;
   *) exit 0 ;;
 esac

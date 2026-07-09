@@ -235,11 +235,17 @@ case "$chosen" in
   local)      run_local ;;
 esac
 
-after="$(count_bot_reviews)"
-if [ "$after" -gt "$before" ] || [ "$after" -gt 0 ]; then
+# CONFIRM by the CURRENT head SHA (what the gate actually needs) — a stale review
+# on an older SHA must NOT count as success. When the head SHA is unknown (older
+# gh / API hiccup) fall back to "a new review object appeared THIS run" (after >
+# before), which is still strictly better than the old any-review-exists check.
+after_head="$(count_bot_reviews_at_head "$HEAD_SHA")"
+after_total="$(count_bot_reviews)"
+if { [ -n "$HEAD_SHA" ] && [ "${after_head:-0}" -gt 0 ]; } || [ "$after_total" -gt "$before" ]; then
   verdict="$(latest_bot_verdict)"
-  log "CONFIRMED — $after native review object(s) by qute-review[bot] on $REPO#$PR (mode=$chosen). verdict=${verdict:-<unparsed>}"
-  emit_json true "$chosen" "$verdict" true false "$after"
+  count="$after_total"; [ -n "$HEAD_SHA" ] && count="$after_head"
+  log "CONFIRMED — $count qute-review[bot] review object(s) at head ${HEAD_SHA:0:7} on $REPO#$PR (mode=$chosen). verdict=${verdict:-<unparsed>}"
+  emit_json true "$chosen" "$verdict" true false "$count"
   exit 0
 fi
-die "no qute-review[bot] review object was created on $REPO#$PR (mode=$chosen). Gate stays RED."
+die "no qute-review[bot] review object was created at the current head SHA on $REPO#$PR (mode=$chosen). Gate stays RED."
