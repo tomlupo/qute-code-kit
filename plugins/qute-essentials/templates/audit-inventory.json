@@ -1,0 +1,8 @@
+{
+  "_comment": "Cross-host repo inventory for the weekly deep audit sweep (obsidian-vaults#167 Layer 3). Install to ~/.config/qute/audit-inventory.json. repo_inventory.py reads `hosts`/`max_depth`; deep_sweep.py additionally reads `priority` (live-capital repos swept FIRST). A host with an `ssh` target is enumerated remotely and graceful-degrades if unreachable.",
+  "priority": ["quantbox-live", "dm-evo"],
+  "max_depth": 3,
+  "hosts": {
+    "core": { "roots": ["$HOME/workspace/projects"] }
+  }
+}
