@@ -64,9 +64,8 @@ Print stdout verbatim.
 - **github add:** `gh issue create` → prints the new issue URL. With
   `--type`/`--structure` it also applies the label taxonomy after create
   (see below). No flags → no labels (back-compat).
-- **github close:** `gh issue close <number>` (optionally with a comment). A
-  close comment is auto-prefixed with `[agent:<name>] ` unless it already
-  starts with `[agent:` (see "Agent comment prefix" below).
+- **github close:** `gh issue close <number>` (optionally with a comment). The
+  comment is posted as-is — no attribution prefix (see "Agent attribution" below).
 
 ## Label taxonomy (TYPE + STRUCTURE only)
 
@@ -92,13 +91,13 @@ pulse.sh add --type feature --structure epic "Payments v2"
 pulse.sh add --type fix "Login 500 on empty password"
 ```
 
-## Agent comment prefix
+## Agent attribution
 
-On `github close` with a comment, the body is auto-prefixed with
-`[agent:<name>] ` so board/issue history attributes the action to the acting
-agent. `<name>` resolves as `$AGENT_NAME` → `$DISPATCHER_SESSION_NAME` →
-`basename "$PWD"`. Already-prefixed comments (starting `[agent:`) are left
-untouched; an empty comment adds no prefix and posts nothing.
+The `task` verb does **not** add an `[agent:<name>]` comment prefix. Attribution
+is owned by **gh-track** (the fleet board verb, obsidian-vaults#177): agent
+GitHub writes flow through gh-track, which applies the prefix. The `task` verb is
+a general consumer tool — humans included — so it stays attribution-neutral
+rather than stamping a misleading `[agent:<cwd>]` on non-agent sessions.
 
 ## Migration (Tier 1 → Tier 2)
 

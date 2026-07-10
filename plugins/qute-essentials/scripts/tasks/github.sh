@@ -136,30 +136,14 @@ tasks_github_create() {
   fi
 }
 
-# Resolve the acting agent's name, mirroring the agents-shared-log convention:
-# $AGENT_NAME -> $DISPATCHER_SESSION_NAME -> basename "$PWD".
-task_agent_prefix() {
-  local name="${AGENT_NAME:-${DISPATCHER_SESSION_NAME:-$(basename "$PWD")}}"
-  printf '[agent:%s] ' "$name"
-}
-
-# Prepend the [agent:<name>] prefix to a comment body unless empty or already
-# prefixed. Prints the (possibly prefixed) body. Empty in -> empty out.
-task_agent_prefix_comment() {
-  local body="${1:-}"
-  [[ -n "$body" ]] || { printf '%s' ""; return 0; }
-  case "$body" in
-    '[agent:'*) printf '%s' "$body" ;;
-    *) printf '%s%s' "$(task_agent_prefix)" "$body" ;;
-  esac
-}
-
 # Close an issue.  Args: <number> [comment...]
+# The [agent:<name>] comment prefix is NOT applied here: agent GitHub writes flow
+# through gh-track, which owns the prefix (#177). The task verb is a general
+# consumer tool (humans included), so it stays attribution-neutral.
 tasks_github_close() {
   local num="$1"; shift || true
   local comment="${*:-}"
   if [[ -n "$comment" ]]; then
-    comment=$(task_agent_prefix_comment "$comment")
     gh issue close "$num" --comment "$comment"
   else
     gh issue close "$num"
