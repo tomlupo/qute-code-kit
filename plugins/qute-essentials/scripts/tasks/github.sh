@@ -67,6 +67,31 @@ PY
   fi
 }
 
+# True (exit 0) iff <value> is a known value under taxonomy <dimension>.
+# A value is "known" iff it carries a color in task-taxonomy.json.
+tasks_github_taxonomy_has() {
+  local dim="$1" val="$2"
+  [[ -n "$val" ]] || return 1
+  [[ -n "$(tasks_github_taxonomy_field "$dim" "$val" color)" ]]
+}
+
+# Validate --type/--structure against the taxonomy. Prints an error naming the
+# valid values and returns non-zero on an unknown value. Empty args pass (the
+# dimension is optional). Kept separate so callers can validate BEFORE creating
+# the issue — an unknown value must fail loudly, never silently drop the label.
+tasks_github_validate_taxonomy() {
+  local type="${1:-}" structure="${2:-}" rc=0
+  if [[ -n "$type" ]] && ! tasks_github_taxonomy_has type "$type"; then
+    echo "pulse: unknown --type '$type' (valid: feature fix infra refactor research docs chore)" >&2
+    rc=2
+  fi
+  if [[ -n "$structure" ]] && ! tasks_github_taxonomy_has structure "$structure"; then
+    echo "pulse: unknown --structure '$structure' (valid: epic task)" >&2
+    rc=2
+  fi
+  return $rc
+}
+
 # Ensure a label exists (create-or-update via --force) from the taxonomy, then
 # echo the label name so the caller can --add-label it. Args: <dimension> <value>
 # No-op (returns non-zero) if the value isn't in the taxonomy.
@@ -119,6 +144,10 @@ tasks_github_create() {
       *) break ;;
     esac
   done
+  # Validate taxonomy values BEFORE creating the issue — an unknown --type/
+  # --structure must fail loudly rather than create an unlabeled issue and drop
+  # the classification silently.
+  tasks_github_validate_taxonomy "$type" "$structure" || return 2
   local title="$1"; shift || true
   local body="${*:-}"
   local url; url=$(gh issue create --title "$title" --body "$body") || return 1
