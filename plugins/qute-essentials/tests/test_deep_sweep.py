@@ -145,6 +145,22 @@ def test_limit_caps_repos(monkeypatch, tmp_path):
     assert summary["swept"] == 2
 
 
+def test_mixed_clean_and_unscannable_is_exit_2(monkeypatch, tmp_path):
+    # One clean repo + one that could not be scanned must NOT report all-clear.
+    _mkrepos(tmp_path, "ok", "bad")
+    _fake_run_audit(monkeypatch, {"ok": (_counts(0), 0), "bad": (_counts(0), 2)})
+    summary = deep_sweep.run_sweep(
+        config_path=None,
+        cli_roots=[str(tmp_path)],
+        only_host=None,
+        priority=[],
+        limit=None,
+    )
+    assert summary["exit_code"] == 2
+    assert summary["unscannable"] == 1
+    assert summary["findings_total"] == 0
+
+
 def test_remote_repo_reported_unscanned_not_clean():
     # A repo on a remote ssh host has a non-local path that won't resolve here.
     rec = deep_sweep.sweep_one(

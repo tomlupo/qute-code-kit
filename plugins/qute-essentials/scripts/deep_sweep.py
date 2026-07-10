@@ -56,22 +56,31 @@ def sweep_one(repo: dict) -> dict:
     sweeping remote hosts is a follow-up: run this same sweep ON each host (the
     verb is portable), or teach it to `ssh <host> audit --deep`.
     """
+    host = repo.get("host", "local")
+    # Decide remote-vs-local from the INVENTORY (host identity), before touching the
+    # filesystem — a remote path that happens to also exist locally must NOT be
+    # scanned as if it were the remote repo (that would silently scan the wrong tree).
+    if host and host != "local":
+        return {
+            "name": repo["name"],
+            "path": repo["path"],
+            "host": host,
+            "exit_code": 2,
+            "counts": audit._empty_counts(),
+            "error": (
+                "remote host — deep_sweep v1 scans the local filesystem only; "
+                "run the sweep on that host"
+            ),
+        }
     root = Path(repo["path"]).resolve()
     if not root.is_dir():
-        remote = bool(repo.get("host") and repo.get("host") != "local")
-        reason = (
-            "remote host — deep_sweep v1 scans the local filesystem only; "
-            "run the sweep on that host"
-            if remote
-            else "path not readable"
-        )
         return {
             "name": repo["name"],
             "path": str(root),
-            "host": repo.get("host", "local"),
+            "host": host,
             "exit_code": 2,
             "counts": audit._empty_counts(),
-            "error": reason,
+            "error": "path not readable",
         }
     scanners, counts, exit_code = audit.run_audit(root, deep=True)
     return {
@@ -107,18 +116,22 @@ def run_sweep(
 
     results = [sweep_one(r) for r in repos]
     findings = sum(r["counts"]["total"] for r in results)
-    scanned = [r for r in results if r["exit_code"] != 2]
+    unscannable = sum(1 for r in results if r["exit_code"] == 2)
 
+    # Precedence: findings dominate (1); otherwise ANY repo we could not scan is a
+    # non-clean outcome (2) — a security sweep must not report "all clear" while a
+    # repo was silently skipped; only an all-scanned, finding-free run is 0.
     if findings > 0:
         exit_code = 1
-    elif not scanned:
-        exit_code = 2  # nothing scanned (empty inventory) or every repo errored
+    elif unscannable > 0:
+        exit_code = 2
     else:
         exit_code = 0
 
     return {
         "verb": "deep_sweep",
         "swept": len(results),
+        "unscannable": unscannable,
         "priority": prio,
         "findings_total": findings,
         "exit_code": exit_code,
