@@ -7,6 +7,10 @@ round-robin (one project/run, core-only, ~$6/run LLM) with a single cheap
 deterministic pass — the audit *verb* owns all the scanning logic, this file
 only picks the order and writes a report.
 
+SCOPE (v1): scans repos on the LOCAL host. Remote (ssh) hosts in the inventory
+are enumerated but reported unscanned with a reason — run this sweep on each host
+(the verb is portable) rather than expecting one host to scan another.
+
 Priority (Tom-approved 2026-07-10): live-capital repos are swept FIRST so a
 finding on money-moving code surfaces before the long tail. The order comes from
 the `priority` key in audit-inventory.json (or --priority); everything else
@@ -44,14 +48,30 @@ def order_repos(repos: list[dict], priority: list[str]) -> list[dict]:
 
 
 def sweep_one(repo: dict) -> dict:
-    """Run `audit --deep` on one repo path; return a compact per-repo record."""
+    """Run `audit --deep` on one repo path; return a compact per-repo record.
+
+    LOCAL-HOST ONLY (v1): the audit verb scans the local filesystem, so a repo
+    discovered on a REMOTE ssh host in the inventory cannot be scanned from here
+    and is reported unscanned with an explicit reason (never a clean pass). Deep
+    sweeping remote hosts is a follow-up: run this same sweep ON each host (the
+    verb is portable), or teach it to `ssh <host> audit --deep`.
+    """
     root = Path(repo["path"]).resolve()
     if not root.is_dir():
+        remote = bool(repo.get("host") and repo.get("host") != "local")
+        reason = (
+            "remote host — deep_sweep v1 scans the local filesystem only; "
+            "run the sweep on that host"
+            if remote
+            else "path not readable"
+        )
         return {
-            **repo,
+            "name": repo["name"],
+            "path": str(root),
+            "host": repo.get("host", "local"),
             "exit_code": 2,
             "counts": audit._empty_counts(),
-            "error": "path not readable",
+            "error": reason,
         }
     scanners, counts, exit_code = audit.run_audit(root, deep=True)
     return {

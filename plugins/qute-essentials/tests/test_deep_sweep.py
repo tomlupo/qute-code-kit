@@ -145,6 +145,15 @@ def test_limit_caps_repos(monkeypatch, tmp_path):
     assert summary["swept"] == 2
 
 
+def test_remote_repo_reported_unscanned_not_clean():
+    # A repo on a remote ssh host has a non-local path that won't resolve here.
+    rec = deep_sweep.sweep_one(
+        {"name": "quantbox-live", "path": "/nonexistent/x", "host": "forge"}
+    )
+    assert rec["exit_code"] == 2  # never a clean pass
+    assert "remote host" in rec["error"]
+
+
 def test_render_report_is_markdown_table():
     summary = {
         "swept": 1,

@@ -214,10 +214,11 @@ The `audit` verb is wired to run by *change*, not by calendar (obsidian-vaults#1
 
 1. **On-change** — `auto_audit.py` runs the fast deps-only scan after `uv add/remove/sync/lock` + `pip install/uninstall`.
 2. **On-PR** — the `audit-sensitive-paths` CI job above (`--secrets` hard-fail, `--static` advisory).
-3. **Weekly deep sweep** — `scripts/deep_sweep.py` runs `audit --deep` over the live
+3. **Weekly deep sweep** — `scripts/deep_sweep.py` runs `audit --deep` over the **local-host**
    repos from `templates/audit-inventory.json` (install to `~/.config/qute/audit-inventory.json`),
    **live-capital first** (`priority` key), and writes a one-table report. LLM-free; a
-   single cron replaces the old daily round-robin.
+   single cron replaces the old daily round-robin. (Remote ssh hosts are reported unscanned —
+   run the sweep on each host; the verb is portable.)
 
 ```bash
 # weekly sweep, priority repos first, report to a dir
