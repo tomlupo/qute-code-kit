@@ -112,7 +112,6 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 /guard secrets off          # disable secrets guard (session override)
 /guard destructive off      # disable destructive command blocking
 /guard audit off            # disable auto pip-audit
-/guard gh-verbs off         # stop warning on raw gh issue/label create
 /guard all on               # re-enable everything
 ```
 
@@ -129,7 +128,6 @@ effect immediately.
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Skill/agent activity logging |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
 | `pr-flow-guard.py` | PreToolUse (Bash) | **Opt-in, default OFF** (`.github/qute-pr.yml` `enforce:true`; legacy `quteEnforcePrReview` marker still honored). Blocks `gh pr create` → `/qute-coder`; gates `gh pr merge` on `allowAgentSelfMerge`. Inert unless the repo opts in — see "PR-flow enforcement" below |
-| `gh-verb-guard.py` | PreToolUse (Bash) | `gh-verbs` guard (toggleable, default ON, fails OPEN). **Warns, never blocks** on raw `gh issue create` / `gh label create` — steers repo issue ops to the `task` verb (applies the TYPE+STRUCTURE label taxonomy + `[agent:]` comment prefix) and board ops to `gh-track` (#177). Suppressed when the command comes from `pulse.sh`/`gh-track` |
 
 ## Notifications
 

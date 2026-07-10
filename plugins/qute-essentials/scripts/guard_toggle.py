@@ -114,10 +114,6 @@ GUARDS = {
         "display": "Destructive Guard",
         "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE)",
     },
-    "gh-verbs": {
-        "display": "GH-verbs Guard",
-        "description": "Warn on raw `gh issue create` / `gh label create` that bypass the task/gh-track verbs",
-    },
 }
 
 
