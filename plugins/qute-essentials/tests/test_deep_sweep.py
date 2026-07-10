@@ -161,6 +161,22 @@ def test_mixed_clean_and_unscannable_is_exit_2(monkeypatch, tmp_path):
     assert summary["findings_total"] == 0
 
 
+def test_empty_inventory_is_exit_2_not_false_clean(monkeypatch, tmp_path):
+    # Zero repos swept (misconfigured/empty roots) must NOT report all-clear.
+    # (codex BLOCKER, PR #64 — contract: 2 = nothing swept.)
+    empty = tmp_path / "no-repos-here"
+    empty.mkdir()
+    summary = deep_sweep.run_sweep(
+        config_path=None,
+        cli_roots=[str(empty)],
+        only_host=None,
+        priority=[],
+        limit=None,
+    )
+    assert summary["swept"] == 0
+    assert summary["exit_code"] == 2
+
+
 def test_remote_repo_reported_unscanned_not_clean():
     # Remoteness is the caller's decision (from ssh metadata), passed explicitly.
     rec = deep_sweep.sweep_one(

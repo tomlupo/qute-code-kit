@@ -124,12 +124,13 @@ def run_sweep(
     findings = sum(r["counts"]["total"] for r in results)
     unscannable = sum(1 for r in results if r["exit_code"] == 2)
 
-    # Precedence: findings dominate (1); otherwise ANY repo we could not scan is a
-    # non-clean outcome (2) — a security sweep must not report "all clear" while a
-    # repo was silently skipped; only an all-scanned, finding-free run is 0.
+    # Precedence: findings dominate (1); otherwise a non-clean outcome (2) if we
+    # swept NOTHING (empty/misconfigured inventory — a false "all clear" is the
+    # dangerous case) OR any repo could not be scanned; only an all-scanned,
+    # finding-free run over ≥1 repo is a genuine clean 0.
     if findings > 0:
         exit_code = 1
-    elif unscannable > 0:
+    elif not results or unscannable > 0:
         exit_code = 2
     else:
         exit_code = 0
