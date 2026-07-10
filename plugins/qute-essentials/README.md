@@ -200,6 +200,32 @@ mkdir -p .github/workflows && cp "$(claude plugin path qute-essentials)/template
 
 (or copy the file from the plugin's `templates/` directory).
 
+The same workflow carries a second job, **`audit-sensitive-paths`** — on a PR that
+touches security-sensitive files (`pyproject.toml`, `uv.lock`, `requirements*.txt`,
+`.github/workflows/**`, `**/hooks/**`, `Dockerfile*`, `.env*`, `**/*.py`) it runs the
+deterministic `audit` verb: **gitleaks (`--secrets`) hard-fails** the check (a leaked
+secret must block merge) while **semgrep (`--static`) is annotate-only** (advisory, to
+avoid false-positive merge blocks). It shares the `enforce` policy — a repo that
+hasn't opted in is a no-op green.
+
+### Event-driven security audit (3 layers)
+
+The `audit` verb is wired to run by *change*, not by calendar (obsidian-vaults#167):
+
+1. **On-change** — `auto_audit.py` runs the fast deps-only scan after `uv add/remove/sync/lock` + `pip install/uninstall`.
+2. **On-PR** — the `audit-sensitive-paths` CI job above (`--secrets` hard-fail, `--static` advisory).
+3. **Weekly deep sweep** — `scripts/deep_sweep.py` runs `audit --deep` over the **local-host**
+   repos from `templates/audit-inventory.json` (install to `~/.config/qute/audit-inventory.json`),
+   **live-capital first** (`priority` key), and writes a one-table report. LLM-free; a
+   single cron replaces the old daily round-robin. (Remote ssh hosts are reported unscanned —
+   run the sweep on each host; the verb is portable.)
+
+```bash
+# weekly sweep, priority repos first, report to a dir
+python3 "$(claude plugin path qute-essentials)/scripts/deep_sweep.py" \
+  --config ~/.config/qute/audit-inventory.json --report ~/audit-reports
+```
+
 ## Setup
 
 ```bash

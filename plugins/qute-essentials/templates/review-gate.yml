@@ -16,6 +16,17 @@
 # This plan has no branch protection, so the check cannot HARD-block a merge — it
 # turns a missing independent review into a visible RED check (the closing step is
 # still on the agent). Enable branch protection requiring "review-gate" to hard-gate.
+#
+# ── SECOND JOB: audit-sensitive-paths (obsidian-vaults#167, Layer 2 "ON-PR") ──
+# When a PR touches security-sensitive paths, run the deterministic qute-essentials
+# `audit` verb: gitleaks (--secrets) is a HARD-FAIL (a leaked secret must block a
+# merge); semgrep (--static) is ANNOTATE-ONLY (advisory, avoids false-positive merge
+# blocks). Both are gated on the SAME `enforce` policy as the reviewer job — a repo
+# that hasn't opted into PR-flow enforcement is a no-op green. The audit script is
+# fetched from qute-code-kit at QUTE_AUDIT_REF (portable: CI runners don't carry the
+# plugin). NOTE: /jimek-onboard currently stamps its OWN embedded review-gate (a
+# separate single-job template in jimek_onboard.py), so onboarded repos do NOT yet
+# inherit this audit job — unifying the two templates is a tracked follow-up.
 name: review-gate
 on:
   pull_request:
@@ -104,3 +115,131 @@ jobs:
               const who = [...new Set(independent.map(r => r.user.login))].join(", ");
               core.info(`Independent review present from: ${who}`);
             }
+
+  # ── Layer 2: deterministic security audit on security-sensitive PRs ──────────
+  audit-sensitive-paths:
+    # Only on PR events (not on pull_request_review re-fires — nothing to re-scan).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      # Ref of tomlupo/qute-code-kit to fetch the self-contained `audit.py` from.
+      # Pin to a tag/SHA in a hardened repo; `main` tracks the latest verb.
+      QUTE_AUDIT_REF: main
+    steps:
+      - name: Check out PR head (full history for base-diff + trusted policy read)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gate — enforce policy (trusted base) + sensitive-path filter
+        id: gate
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Policy from the TRUSTED BASE commit, never the PR head (a PR must not be
+          # able to disable the gate policing it). FAITHFUL mirror of the JS reviewer
+          # parser / pr_flow_config.py: `enforce` is honoured ONLY at the top level or
+          # nested directly under `qutePrWorkflow:` — an `enforce:` under any OTHER key
+          # is ignored, so the audit job can't be switched on by an unrelated stanza.
+          policy="$(git show "$BASE_SHA:.github/qute-pr.yml" 2>/dev/null \
+                 || git show "$BASE_SHA:.github/qute-pr.yaml" 2>/dev/null || true)"
+          # awk mirror (runner default awk = mawk-compatible): track nesting so an
+          # `enforce:` under any key OTHER than top-level or qutePrWorkflow is ignored.
+          enforce="$(printf '%s\n' "$policy" | awk '
+            function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
+            { line=$0; sub(/#.*/,"",line)
+              if (line ~ /^[ \t]*$/) next
+              if (line !~ /:/) next
+              lead=line; sub(/[^ ].*/,"",lead); indent=length(lead)
+              rest=line; sub(/^[ \t]*/,"",rest)
+              key=rest; sub(/[ \t]*:.*/,"",key)
+              val=rest; sub(/^[^:]*:[ \t]*/,"",val); val=trim(val)
+              if (indent==0) inwf=(key=="qutePrWorkflow" && val=="")
+              if (!(indent==0 || inwf)) next
+              if (val=="") next
+              if (key=="enforce"){ v=tolower(val); gsub(/["]/,"",v); gsub(/'"'"'/,"",v)
+                if (v=="true"||v=="yes"||v=="on") found=1 } }
+            END{ print (found?"true":"false") }
+          ')"
+          if [ "$enforce" != "true" ]; then
+            echo "qute-pr.yml enforce=false (or absent) — audit gate is a no-op. Passing."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # FAIL-CLOSED: if the changed-file set can't be computed (missing refs,
+          # shallow clone, git error) a security gate must NOT silently skip — scan
+          # the full tree instead of treating "unknown" as "nothing sensitive".
+          if ! changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA" 2>/dev/null)"; then
+            echo "::warning title=Audit gate::could not compute changed files — running audit fail-closed (full-tree scan)."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Changed files:"; printf '%s\n' "$changed"
+          # Sensitive-path glob (obsidian-vaults#167 Q4, Tom-confirmed 2026-07-10):
+          #   pyproject.toml · uv.lock · requirements*.txt · Dockerfile* · .env* ·
+          #   .github/workflows/** · **/hooks/** · **/*.py
+          if printf '%s\n' "$changed" | grep -qE \
+             '(^|/)(pyproject\.toml|uv\.lock|requirements[^/]*\.txt|Dockerfile[^/]*|\.env[^/]*)$|^\.github/workflows/|(^|/)hooks/|\.py$'; then
+            echo "Sensitive paths touched — audit will run."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No sensitive paths touched — skipping audit."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch the qute-essentials audit verb
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            "https://raw.githubusercontent.com/tomlupo/qute-code-kit/${QUTE_AUDIT_REF}/plugins/qute-essentials/scripts/audit.py" \
+            -o /tmp/audit.py
+          test -s /tmp/audit.py
+
+      - name: Install scanners (gitleaks + semgrep)
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          GITLEAKS_VERSION=8.18.4
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+          python3 -m pip install --quiet semgrep
+          semgrep --version
+
+      - name: Secrets scan (gitleaks) — HARD FAIL
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set +e
+          out="$(python3 /tmp/audit.py --secrets --no-deps --json)"; code=$?
+          set -e
+          printf '%s\n' "$out"
+          findings="$(printf '%s' "$out" | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["scanners"].get("secrets",{}).get("findings",0))' \
+            2>/dev/null || echo '?')"
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=Secret scan::gitleaks blocked this PR (exit $code, findings=$findings). A leaked secret or a failed scan must not merge — see the log above."
+            exit 1
+          fi
+          echo "gitleaks: clean."
+
+      - name: Static analysis (semgrep) — ANNOTATE ONLY
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set +e
+          out="$(python3 /tmp/audit.py --static --no-deps --json)"; code=$?
+          set -e
+          printf '%s\n' "$out"
+          findings="$(printf '%s' "$out" | python3 -c \
+            'import json,sys; print(json.load(sys.stdin)["scanners"].get("static",{}).get("findings",0))' \
+            2>/dev/null || echo 0)"
+          if [ "${findings:-0}" != "0" ] && [ "${findings:-0}" != "?" ]; then
+            echo "::warning title=Static analysis::semgrep flagged $findings finding(s) — advisory, not blocking. Review before merge."
+          else
+            echo "semgrep: no findings (or scanner unavailable) — advisory pass."
+          fi
+          # Annotate-only: never fail the job on static findings/errors.
+          exit 0
