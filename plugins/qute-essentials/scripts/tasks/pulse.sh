@@ -96,10 +96,21 @@ cmd_report() {
 # --- add / close (/task) ---
 
 cmd_add() {
-  local backend=""
+  local backend="" type="" structure=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --to) backend="${2:-}"; shift 2 ;;
+      --to|--type|--structure)
+        # Value-taking flags: require a value so a trailing `--type` (no value)
+        # can't spin the loop forever (shift 2 fails when only one arg remains).
+        if [[ $# -lt 2 ]]; then
+          echo "pulse: $1 requires a value" >&2; return 2
+        fi
+        case "$1" in
+          --to) backend="$2" ;;
+          --type) type="$2" ;;
+          --structure) structure="$2" ;;
+        esac
+        shift 2 ;;
       --) shift; break ;;
       *) break ;;
     esac
@@ -107,15 +118,27 @@ cmd_add() {
   local title="${1:-}"; shift || true
   local body="${*:-}"
   if [[ -z "$title" ]]; then
-    echo 'usage: pulse.sh add [--to <github|tasks-md>] "title" [body...]' >&2
+    echo 'usage: pulse.sh add [--to <github|tasks-md>] [--type <t>] [--structure <s>] "title" [body...]' >&2
     return 2
   fi
   [[ -n "$backend" ]] || backend=$(tasks_active_store)
 
+  # TYPE/STRUCTURE are GitHub labels — they have no meaning on the tasks-md
+  # (Tier 1) checklist. Reject rather than silently drop them, so a user asking
+  # for taxonomy on the default Tier 1 path gets told to use `--to github`.
+  if [[ "$backend" != "github" && ( -n "$type" || -n "$structure" ) ]]; then
+    echo "pulse: --type/--structure are GitHub-label flags; they require the github backend." >&2
+    echo "       Re-run with \`--to github\` (or graduate the repo to Tier 2)." >&2
+    return 2
+  fi
+
   case "$backend" in
     github)
       tasks_github_available || { echo "pulse: gh unavailable or not a GitHub repo" >&2; return 1; }
-      tasks_github_create "$title" "$body"
+      local -a create_opts=()
+      [[ -n "$type" ]] && create_opts+=(--type "$type")
+      [[ -n "$structure" ]] && create_opts+=(--structure "$structure")
+      tasks_github_create ${create_opts[@]+"${create_opts[@]}"} "$title" "$body"
       ;;
     tasks-md)
       local file="$ROOT/TASKS.md"

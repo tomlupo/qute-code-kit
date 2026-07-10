@@ -30,14 +30,145 @@ tasks_github_open_count() {
   gh issue list --state open --limit 500 --json number -q 'length' 2>/dev/null || echo 0
 }
 
-# Create an issue.  Args: <title> [body...]   Prints the new issue URL.
+# Path to the label taxonomy (config/task-taxonomy.json). Resolved from
+# CLAUDE_PLUGIN_ROOT when set, else relative to this script (scripts/tasks/ ->
+# ../../config/). Prints the path (may not exist).
+tasks_github_taxonomy_path() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" && -f "$CLAUDE_PLUGIN_ROOT/config/task-taxonomy.json" ]]; then
+    printf '%s\n' "$CLAUDE_PLUGIN_ROOT/config/task-taxonomy.json"
+    return 0
+  fi
+  local here; here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+  printf '%s\n' "$here/../../config/task-taxonomy.json"
+}
+
+# Read one field (color|description) for a taxonomy value.
+# Args: <dimension type|structure> <value> <field color|description>
+# Prints the field or nothing. Degrades gracefully if jq/python are missing.
+tasks_github_taxonomy_field() {
+  local dim="$1" val="$2" field="$3" path
+  path=$(tasks_github_taxonomy_path)
+  [[ -f "$path" ]] || return 1
+  if command -v jq >/dev/null 2>&1; then
+    jq -r --arg d "$dim" --arg v "$val" --arg f "$field" \
+      '.[$d].values[$v][$f] // empty' "$path" 2>/dev/null
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 - "$path" "$dim" "$val" "$field" <<'PY' 2>/dev/null
+import json, sys
+path, dim, val, field = sys.argv[1:5]
+try:
+    d = json.load(open(path))
+    print(d.get(dim, {}).get("values", {}).get(val, {}).get(field, "") or "")
+except Exception:
+    pass
+PY
+  else
+    return 1
+  fi
+}
+
+# True (exit 0) iff <value> is a known value under taxonomy <dimension>.
+# A value is "known" iff it carries a color in task-taxonomy.json.
+tasks_github_taxonomy_has() {
+  local dim="$1" val="$2"
+  [[ -n "$val" ]] || return 1
+  [[ -n "$(tasks_github_taxonomy_field "$dim" "$val" color)" ]]
+}
+
+# Validate --type/--structure against the taxonomy. Prints an error naming the
+# valid values and returns non-zero on an unknown value. Empty args pass (the
+# dimension is optional). Kept separate so callers can validate BEFORE creating
+# the issue — an unknown value must fail loudly, never silently drop the label.
+tasks_github_validate_taxonomy() {
+  local type="${1:-}" structure="${2:-}" rc=0
+  if [[ -n "$type" ]] && ! tasks_github_taxonomy_has type "$type"; then
+    echo "pulse: unknown --type '$type' (valid: feature fix infra refactor research docs chore)" >&2
+    rc=2
+  fi
+  if [[ -n "$structure" ]] && ! tasks_github_taxonomy_has structure "$structure"; then
+    echo "pulse: unknown --structure '$structure' (valid: epic task)" >&2
+    rc=2
+  fi
+  return $rc
+}
+
+# Ensure a label exists (create-or-update via --force) from the taxonomy, then
+# echo the label name so the caller can --add-label it. Args: <dimension> <value>
+# No-op (returns non-zero) if the value isn't in the taxonomy.
+tasks_github_ensure_label() {
+  local dim="$1" val="$2" color desc
+  [[ -n "$val" ]] || return 1
+  color=$(tasks_github_taxonomy_field "$dim" "$val" color)
+  desc=$(tasks_github_taxonomy_field "$dim" "$val" description)
+  # Unknown value (not in taxonomy) -> skip rather than invent a label.
+  [[ -n "$color" ]] || return 1
+  gh label create "$val" --color "$color" --description "${desc:-}" --force >/dev/null 2>&1 || true
+  printf '%s\n' "$val"
+}
+
+# Apply TYPE + STRUCTURE labels to an issue, creating them first from the
+# taxonomy. Args: <issue-number> <type> <structure>. Either label may be empty.
+tasks_github_apply_labels() {
+  local num="$1" type="${2:-}" structure="${3:-}"
+  local -a add=()
+  local lbl
+  if [[ -n "$type" ]]; then
+    lbl=$(tasks_github_ensure_label type "$type") && [[ -n "$lbl" ]] && add+=(--add-label "$lbl")
+  fi
+  if [[ -n "$structure" ]]; then
+    lbl=$(tasks_github_ensure_label structure "$structure") && [[ -n "$lbl" ]] && add+=(--add-label "$lbl")
+  fi
+  [[ ${#add[@]} -gt 0 ]] || return 0
+  gh issue edit "$num" "${add[@]}" >/dev/null 2>&1
+}
+
+# Create an issue.  Args: [--type <t>] [--structure <s>] <title> [body...]
+# Prints the new issue URL. Back-compat: with no --type/--structure it behaves
+# exactly as before (no labels applied).
 tasks_github_create() {
+  local type="" structure=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --type|--structure)
+        # Require a value — a trailing flag with no value would make `shift 2`
+        # fail (only one arg left) and spin this loop forever.
+        if [[ $# -lt 2 ]]; then
+          echo "tasks_github_create: $1 requires a value" >&2; return 2
+        fi
+        case "$1" in
+          --type) type="$2" ;;
+          --structure) structure="$2" ;;
+        esac
+        shift 2 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+  # Validate taxonomy values BEFORE creating the issue — an unknown --type/
+  # --structure must fail loudly rather than create an unlabeled issue and drop
+  # the classification silently.
+  tasks_github_validate_taxonomy "$type" "$structure" || return 2
   local title="$1"; shift || true
   local body="${*:-}"
-  gh issue create --title "$title" --body "$body"
+  local url; url=$(gh issue create --title "$title" --body "$body") || return 1
+  printf '%s\n' "$url"
+  if [[ -n "$type" || -n "$structure" ]]; then
+    # Derive the issue number from the trailing path segment of the URL.
+    # The issue is already created (URL printed above); a label-application
+    # failure must NOT return non-zero — that would signal "add failed" and
+    # invite a duplicate retry. Warn to stderr and succeed.
+    local num="${url##*/}"
+    if [[ "$num" =~ ^[0-9]+$ ]]; then
+      tasks_github_apply_labels "$num" "$type" "$structure" \
+        || echo "pulse: issue created but label apply failed (labels: type=$type structure=$structure)" >&2
+    fi
+  fi
 }
 
 # Close an issue.  Args: <number> [comment...]
+# The [agent:<name>] comment prefix is NOT applied here: agent GitHub writes flow
+# through gh-track, which owns the prefix (#177). The task verb is a general
+# consumer tool (humans included), so it stays attribution-neutral.
 tasks_github_close() {
   local num="$1"; shift || true
   local comment="${*:-}"

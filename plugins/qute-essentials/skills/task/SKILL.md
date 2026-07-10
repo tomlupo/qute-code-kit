@@ -45,6 +45,7 @@ Add (auto-routes to the active store when `--to` is omitted):
 ```bash
 bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" add "<title>" [body...]
 bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" add --to <github|tasks-md> "<title>" [body...]
+bash "$CLAUDE_PLUGIN_ROOT/scripts/tasks/pulse.sh" add --type <t> [--structure <s>] "<title>" [body...]
 ```
 
 Complete:
@@ -60,8 +61,48 @@ Print stdout verbatim.
   `- [ ] **<title>** - <body>`.
 - **tasks-md close:** there's no API — check the box directly in the file
   (`- [ ]` → `- [x]`); the engine reminds you of this.
-- **github add:** `gh issue create` → prints the new issue URL.
-- **github close:** `gh issue close <number>` (optionally with a comment).
+- **github add:** `gh issue create` → prints the new issue URL. With
+  `--type`/`--structure` it also applies the label taxonomy after create
+  (see below). No flags → no labels (back-compat).
+- **github close:** `gh issue close <number>` (optionally with a comment). The
+  comment is posted as-is — no attribution prefix (see "Agent attribution" below).
+
+## Label taxonomy (TYPE + STRUCTURE only)
+
+The `github` backend applies labels from `config/task-taxonomy.json`, which has
+**exactly two dimensions** (per obsidian-vaults#177):
+
+- **TYPE** (pick one): `feature`, `fix`, `infra`, `refactor`, `research`,
+  `docs`, `chore` — via `--type <t>`.
+- **STRUCTURE** (pick one, optional): `epic`, `task` — via `--structure <s>`.
+
+Each value carries a hex color + description; labels are created (idempotently,
+via `gh label create --force`) before being applied with `gh issue edit`.
+
+`--type`/`--structure` are **GitHub-label flags** — they require the `github`
+backend. On the Tier 1 `tasks-md` checklist they have no meaning, so `add`
+rejects them with a hint to pass `--to github` rather than silently dropping the
+classification.
+
+**Deliberately NOT label dimensions:** status, priority, and owner. `owner` is
+the board's **Agent** field; `status`/`priority` are board fields managed via
+**gh-track**. Keeping them off issue labels avoids two sources of truth — adding
+a status/priority/owner label is a design violation, not a missing feature.
+
+```bash
+# feature epic (taxonomy flags require the github backend)
+pulse.sh add --to github --type feature --structure epic "Payments v2"
+# bug fix, no structure
+pulse.sh add --to github --type fix "Login 500 on empty password"
+```
+
+## Agent attribution
+
+The `task` verb does **not** add an `[agent:<name>]` comment prefix. Attribution
+is owned by **gh-track** (the fleet board verb, obsidian-vaults#177): agent
+GitHub writes flow through gh-track, which applies the prefix. The `task` verb is
+a general consumer tool — humans included — so it stays attribution-neutral
+rather than stamping a misleading `[agent:<cwd>]` on non-agent sessions.
 
 ## Migration (Tier 1 → Tier 2)
 
