@@ -162,12 +162,35 @@ def test_mixed_clean_and_unscannable_is_exit_2(monkeypatch, tmp_path):
 
 
 def test_remote_repo_reported_unscanned_not_clean():
-    # A repo on a remote ssh host has a non-local path that won't resolve here.
+    # Remoteness is the caller's decision (from ssh metadata), passed explicitly.
     rec = deep_sweep.sweep_one(
-        {"name": "quantbox-live", "path": "/nonexistent/x", "host": "forge"}
+        {"name": "quantbox-live", "path": "/nonexistent/x", "host": "forge"},
+        remote=True,
     )
     assert rec["exit_code"] == 2  # never a clean pass
     assert "remote host" in rec["error"]
+
+
+def test_local_host_named_core_is_scanned_not_skipped(monkeypatch, tmp_path):
+    # Regression: a LOCAL host may be named anything ("core"); only an ssh target
+    # makes it remote. build_inventory tags local repos with host="core" — they
+    # must still scan, not be reported "remote host". (codex BLOCKER, PR #64.)
+    import json
+
+    _mkrepos(tmp_path, "quantbox-live")
+    cfg = tmp_path / "audit-inventory.json"
+    cfg.write_text(json.dumps({"hosts": {"core": {"roots": [str(tmp_path)]}}}))
+    _fake_run_audit(monkeypatch, {"quantbox-live": (_counts(0), 0)})
+    summary = deep_sweep.run_sweep(
+        config_path=cfg,
+        cli_roots=None,
+        only_host=None,
+        priority=[],
+        limit=None,
+    )
+    assert summary["exit_code"] == 0
+    assert summary["unscannable"] == 0
+    assert summary["repos"][0]["host"] == "core"
 
 
 def test_render_report_is_markdown_table():

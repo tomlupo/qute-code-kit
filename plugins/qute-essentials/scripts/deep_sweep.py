@@ -47,7 +47,7 @@ def order_repos(repos: list[dict], priority: list[str]) -> list[dict]:
     return prioritized + rest
 
 
-def sweep_one(repo: dict) -> dict:
+def sweep_one(repo: dict, *, remote: bool = False) -> dict:
     """Run `audit --deep` on one repo path; return a compact per-repo record.
 
     LOCAL-HOST ONLY (v1): the audit verb scans the local filesystem, so a repo
@@ -55,12 +55,14 @@ def sweep_one(repo: dict) -> dict:
     and is reported unscanned with an explicit reason (never a clean pass). Deep
     sweeping remote hosts is a follow-up: run this same sweep ON each host (the
     verb is portable), or teach it to `ssh <host> audit --deep`.
+
+    `remote` is decided by the caller from the inventory's ssh metadata — NOT from
+    the host's display name (a LOCAL host is free to be named "core"/"forge"; only
+    an `ssh` target makes it remote). Deciding it here, before touching the disk,
+    also stops a remote path that happens to exist locally from being mis-scanned.
     """
     host = repo.get("host", "local")
-    # Decide remote-vs-local from the INVENTORY (host identity), before touching the
-    # filesystem — a remote path that happens to also exist locally must NOT be
-    # scanned as if it were the remote repo (that would silently scan the wrong tree).
-    if host and host != "local":
+    if remote:
         return {
             "name": repo["name"],
             "path": repo["path"],
@@ -114,7 +116,11 @@ def run_sweep(
     if limit:
         repos = repos[:limit]
 
-    results = [sweep_one(r) for r in repos]
+    # A host is REMOTE iff the resolved inventory gave it an ssh target — the host's
+    # display name (e.g. a local "core") says nothing about locality.
+    remote_hosts = {n for n, h in inv.get("hosts", {}).items() if h.get("ssh")}
+
+    results = [sweep_one(r, remote=r.get("host") in remote_hosts) for r in repos]
     findings = sum(r["counts"]["total"] for r in results)
     unscannable = sum(1 for r in results if r["exit_code"] == 2)
 
