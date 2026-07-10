@@ -79,16 +79,21 @@ The `github` backend applies labels from `config/task-taxonomy.json`, which has
 Each value carries a hex color + description; labels are created (idempotently,
 via `gh label create --force`) before being applied with `gh issue edit`.
 
+`--type`/`--structure` are **GitHub-label flags** — they require the `github`
+backend. On the Tier 1 `tasks-md` checklist they have no meaning, so `add`
+rejects them with a hint to pass `--to github` rather than silently dropping the
+classification.
+
 **Deliberately NOT label dimensions:** status, priority, and owner. `owner` is
 the board's **Agent** field; `status`/`priority` are board fields managed via
 **gh-track**. Keeping them off issue labels avoids two sources of truth — adding
 a status/priority/owner label is a design violation, not a missing feature.
 
 ```bash
-# feature epic
-pulse.sh add --type feature --structure epic "Payments v2"
+# feature epic (taxonomy flags require the github backend)
+pulse.sh add --to github --type feature --structure epic "Payments v2"
 # bug fix, no structure
-pulse.sh add --type fix "Login 500 on empty password"
+pulse.sh add --to github --type fix "Login 500 on empty password"
 ```
 
 ## Agent attribution

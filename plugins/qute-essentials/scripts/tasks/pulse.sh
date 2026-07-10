@@ -123,6 +123,15 @@ cmd_add() {
   fi
   [[ -n "$backend" ]] || backend=$(tasks_active_store)
 
+  # TYPE/STRUCTURE are GitHub labels — they have no meaning on the tasks-md
+  # (Tier 1) checklist. Reject rather than silently drop them, so a user asking
+  # for taxonomy on the default Tier 1 path gets told to use `--to github`.
+  if [[ "$backend" != "github" && ( -n "$type" || -n "$structure" ) ]]; then
+    echo "pulse: --type/--structure are GitHub-label flags; they require the github backend." >&2
+    echo "       Re-run with \`--to github\` (or graduate the repo to Tier 2)." >&2
+    return 2
+  fi
+
   case "$backend" in
     github)
       tasks_github_available || { echo "pulse: gh unavailable or not a GitHub repo" >&2; return 1; }
