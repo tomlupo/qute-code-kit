@@ -180,9 +180,9 @@ def test_review_gate_triggers_on_detected_master_base():
     doc = yaml.safe_load(text)
     branches = doc[True]["pull_request"]["branches"]  # YAML `on:` parses to True
     assert branches == ["master"]
-    # And the GitHub Actions expressions survived intact (not mangled).
-    assert "${{ github.token }}" in text
-    assert "${COUNT:-0}" in text
+    # And the GitHub Actions expressions from the canonical template survived
+    # intact (not mangled by the substitution).
+    assert "${{ github.event.pull_request.base.sha }}" in text
 
 
 def test_review_gate_covers_base_and_release_for_dev_repos():
@@ -192,9 +192,23 @@ def test_review_gate_covers_base_and_release_for_dev_repos():
     assert doc[True]["pull_request"]["branches"] == ["dev", "main"]
 
 
-def test_review_gate_is_valid_yaml_and_single_job():
-    doc = yaml.safe_load(jo.render_review_gate_yml(_render_conv()))
+def test_review_gate_renders_from_canonical_template():
+    # #65 — jimek-onboard must render FROM templates/review-gate.yml (single
+    # source of truth), not an embedded/divergent copy. Both canonical jobs
+    # (the reviewer gate AND the audit-sensitive-paths job added in #167 /
+    # PR #64) must be present in what jimek-onboard stamps.
+    text = jo.render_review_gate_yml(_render_conv())
+    canonical = jo._read_text(jo._CANONICAL_REVIEW_GATE_PATH)
+    # The rendered text is the canonical template with only the branch line
+    # inserted — strip that one added line and it must match verbatim.
+    rendered_minus_branches = "\n".join(
+        line for line in text.splitlines() if not line.strip().startswith("branches:")
+    )
+    assert rendered_minus_branches == canonical.rstrip("\n")
+
+    doc = yaml.safe_load(text)
     assert "require-independent-reviewer" in doc["jobs"]
+    assert "audit-sensitive-paths" in doc["jobs"]
 
 
 def test_builtin_validate_skips_when_pyyaml_absent(monkeypatch):
