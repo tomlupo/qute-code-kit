@@ -24,9 +24,9 @@
 # blocks). Both are gated on the SAME `enforce` policy as the reviewer job — a repo
 # that hasn't opted into PR-flow enforcement is a no-op green. The audit script is
 # fetched from qute-code-kit at QUTE_AUDIT_REF (portable: CI runners don't carry the
-# plugin). NOTE: /jimek-onboard currently stamps its OWN embedded review-gate (a
-# separate single-job template in jimek_onboard.py), so onboarded repos do NOT yet
-# inherit this audit job — unifying the two templates is a tracked follow-up.
+# plugin). /jimek-onboard renders its stamped review-gate.yml FROM this file (only
+# substituting the branch trigger on top — see jimek_onboard.render_review_gate_yml),
+# so onboarded repos inherit this audit job too, by construction (#65).
 name: review-gate
 on:
   pull_request:

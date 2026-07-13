@@ -387,61 +387,47 @@ def _review_gate_branches(conv: dict) -> list[str]:
     return branches or ["main"]
 
 
-# Template with a __BRANCHES__ sentinel (NOT an f-string — the body is full of
-# GitHub Actions ${{ … }} expressions and shell ${VAR:-default} that an f-string
-# would mangle). render_review_gate_yml() substitutes the detected branch set.
-_REVIEW_GATE_TEMPLATE = """\
-name: review-gate
+# The single source of truth for review-gate.yml is the canonical template
+# committed at ``templates/review-gate.yml`` (repo root, sibling of
+# ``plugins/``). jimek-onboard used to stamp its OWN embedded, divergent copy
+# here — a drift trap surfaced in #167 / PR #64: the canonical template gained
+# a second job (audit-sensitive-paths: gitleaks/semgrep on security-sensitive
+# PRs) and onboarded repos silently never inherited it, because this script
+# rendered a different file entirely. Fixed in #65: render FROM the canonical
+# template and apply only the branch-trigger substitution on top, so onboarded
+# repos inherit the canonical gate (incl. future jobs) by construction.
+_CANONICAL_REVIEW_GATE_PATH = (
+    Path(__file__).resolve().parent.parent / "templates" / "review-gate.yml"
+)
 
-# Fails a PR until an INDEPENDENT reviewer (a party other than the author) posts
-# a verdict as a native GitHub review object. The standardized independent
-# reviewer is qute-review[bot] (posted by the local cross-model review: codex /
-# Code Reviewer / qute-review); a human reviewer who isn't the author also
-# satisfies it. A self-review by the author never counts — so a builder cannot
-# self-certify. Stamped by qute-essentials:jimek-onboard.
-on:
-  pull_request:
-    types: [opened, reopened, synchronize, ready_for_review]
-    branches: __BRANCHES__
-  pull_request_review:
-    types: [submitted, dismissed]
-
-permissions:
-  contents: read
-  pull-requests: read
-
-concurrency:
-  group: review-gate-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
-jobs:
-  require-independent-reviewer:
-    name: require-independent-reviewer
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check for an independent (non-author) reviewer verdict
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: |
-          COUNT=$(gh api "repos/$REPO/pulls/$PR/reviews" \\
-            | jq --arg a "$AUTHOR" '[.[] | select((.state=="COMMENTED" or .state=="APPROVED" or .state=="CHANGES_REQUESTED") and .user.login != $a)] | length')
-          echo "Independent (non-author) review objects on PR #$PR: $COUNT"
-          if [ "${COUNT:-0}" -ge 1 ]; then
-            echo "Gate satisfied — an independent reviewer (not the author) posted a verdict."
-          else
-            echo "::error::No INDEPENDENT reviewer verdict. A party other than the author must post one (qute-review[bot] via the local cross-model review, or another reviewer): gh pr review $PR --repo $REPO --comment --body \\"codex: SHIP / SHIP-WITH-NITS / blocker …\\""
-            exit 1
-          fi
-"""
+# The exact `on:` trigger block in the canonical template — matched verbatim so
+# a drift in the canonical file (e.g. a changed event list) fails LOUD instead
+# of silently skipping the branch-trigger substitution.
+_CANONICAL_PR_TRIGGER = (
+    "  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review]\n"
+)
 
 
 def render_review_gate_yml(conv: dict) -> str:
-    """Render review-gate.yml with the branch trigger set from detected conventions."""
+    """Render review-gate.yml FROM the canonical templates/review-gate.yml.
+
+    Applies only the branch-trigger substitution on top (repos with a non-`main`
+    base/release branch need the gate to actually fire on their PRs — regression
+    2026-07-09). Everything else — including any future job added to the
+    canonical template — passes through untouched, so onboarded repos can never
+    drift from the canonical gate again.
+    """
+    text = _read_text(_CANONICAL_REVIEW_GATE_PATH)
+    if _CANONICAL_PR_TRIGGER not in text:
+        raise ValueError(
+            "canonical templates/review-gate.yml's pull_request trigger block "
+            "has drifted from the expected shape — jimek-onboard's branch "
+            "substitution can no longer find its anchor. Update "
+            "_CANONICAL_PR_TRIGGER in jimek_onboard.py to match."
+        )
     branches = _yaml_list(_review_gate_branches(conv))
-    return _REVIEW_GATE_TEMPLATE.replace("__BRANCHES__", branches)
+    replacement = _CANONICAL_PR_TRIGGER + f"    branches: {branches}\n"
+    return text.replace(_CANONICAL_PR_TRIGGER, replacement, 1)
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
