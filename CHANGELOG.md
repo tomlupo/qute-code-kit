@@ -1,3 +1,21 @@
+## v2.10.0 (2026-07-13)
+
+### Feat
+
+- event-driven wiring — on-PR gate + weekly deep sweep (#167) (#64)
+- label-write taxonomy + [agent:] prefix + anti-raw-gh guard (#177) (#61)
+- jimek-onboard — one command to make a repo Jimek-managed (#63)
+- multi-scanner modes (--secrets/--static/--deep) + inventory + --json contract (#58)
+- add Open PRs (awaiting review/merge) section (#59)
+- Jimek verb contract for qute-coder/qute-reviewer (#57)
+- qute-coder chains open→review→assign + .github/qute-pr.yml policy (#55)
+- opt-in PR-flow enforcement (qute-coder/qute-reviewer + gated hook) (#54)
+
+### Fix
+
+- render review-gate from canonical template, not embedded copy
+- trivial tier path 'commit' → 'commit-to-default' (schema-valid) (#62)
+
 ## v2.7.0 (2026-07-07)
 
 ### Feat
