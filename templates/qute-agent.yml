@@ -1,0 +1,60 @@
+# qute-agent.yml
+#
+# Repo-level policy for qute-essentials when used together with Matt Pocock-style skills.
+#
+# Intent:
+# - Matt owns planning: clarification, specs, ticket decomposition, implementation flow.
+# - qute owns runtime: guards, observability, task store, ADRs, review, release.
+# - docs/agents owns repo-specific operating rules.
+
+agentWorkflow:
+  # matt | qute | custom
+  planningOwner: matt
+
+  # github-issues | tasks-md | custom
+  taskStore: github-issues
+
+  # When planningOwner=matt, qute must not create a parallel generic spec/ticket flow.
+  allowQuteSpecFlow: false
+  allowQuteRoadmapFlow: false
+
+  # Require repo-local operating rules when material work is being done.
+  requireDocsAgents: true
+
+qute:
+  role: runtime
+  owns:
+    - guards
+    - observability
+    - task-store-operations
+    - handoff-pickup
+    - adr-writing
+    - tests
+    - audits
+    - local-review
+    - release
+  doesNotOwn:
+    - generic-planning
+    - generic-spec-generation
+    - generic-ticket-decomposition
+    - architecture-planning
+    - implementation-methodology
+
+matt:
+  owns:
+    - grilling
+    - domain-modeling
+    - specs
+    - tickets
+    - implementation-loop
+    - tdd
+    - code-review
+    - codebase-design
+
+jimek:
+  # GitHub transport/orchestration is intentionally not part of qute-essentials core.
+  owns:
+    - github-pr-creation
+    - github-bot-identities
+    - github-review-posting
+    - review-gate-orchestration
