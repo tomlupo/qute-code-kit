@@ -4,16 +4,18 @@ This document defines the target organization for `qute-code-kit` after adopting
 
 ## Goal
 
-Make qute feel like a small, dependable runtime layer rather than a competing workflow framework.
+Make qute feel like a small, dependable local runtime layer rather than a competing workflow framework.
 
 Target mental model:
 
 ```text
-Matt skills        = planning, spec, tickets, implementation discipline
-qute-essentials   = safety, observability, task-store operations, test/audit, review, release
-Jimek             = GitHub transport, bot identities, native review objects, orchestration
+Matt skills        = interactive planning, spec, tickets, implementation discipline
+qute-essentials   = local safety, observability, task-store operations, test/audit, review, release
+Jimek             = declarative agentic workflow orchestration from jimek.yml / jimek.yaml
 qute personal kit = optional specialist tools copied into repos only when needed
 ```
+
+GitHub PR/review posting is a Jimek verb family, not Jimek's entire identity.
 
 ## Keep qute-essentials core small
 
@@ -56,14 +58,14 @@ These remain available for backward compatibility but should not be treated as q
 - `/qute-reviewer`
 - `/jimek-onboard`
 
-Target owner: Jimek.
+Target owner: Jimek, as part of declarative workflow orchestration.
 
 Transition approach:
 
 1. Keep them in qute until Jimek has working replacements.
 2. Mark them as compatibility bridges in docs and plugin description.
-3. Move GitHub App token logic, PR creation, native review-object posting, and review-gate orchestration into Jimek.
-4. Leave small qute wrappers only if useful, for example `/jimek-open-pr` that calls Jimek.
+3. Move GitHub App token logic, PR creation, native review-object posting, and review-gate orchestration into Jimek workflow verbs.
+4. Leave small qute wrappers only if useful, for example `/jimek-open-pr` or `/jimek-run` that calls Jimek.
 
 ## Personal kit should become bundles, not a grab bag
 
@@ -100,8 +102,9 @@ Avoid adding qute-native versions of:
 - product discovery
 - implementation process
 - long-form roadmap management
+- autonomous multi-agent workflow orchestration
 
-Those belong to Matt skills or repo-local `docs/agents` rules.
+Those belong to Matt skills, repo-local `docs/agents` rules, or Jimek workflows.
 
 ## Reduce duplicate review concepts
 
@@ -115,7 +118,7 @@ qute /qute-review
   = independent local review before merge/release, optionally domain-aware
 
 Jimek github.post-review
-  = post a native GitHub review object using bot identity
+  = workflow verb that posts a native GitHub review object using bot identity
 ```
 
 `/gbu` should either:
@@ -133,6 +136,7 @@ qute may operate the task store, but it should not invent the plan.
 Matt may draft specs/tickets.
 qute publishes or updates the canonical task store.
 GitHub Issues or TASKS.md are the source of truth.
+Jimek may own task state only for a declared autonomous workflow run.
 ```
 
 Small repo:
@@ -146,6 +150,13 @@ Production/advisory repo:
 ```text
 GitHub Issues are canonical.
 TASKS.md is absent or a pointer.
+```
+
+Autonomous Jimek workflow:
+
+```text
+jimek.yml / jimek.yaml declares workflow steps and dependencies.
+Repo task store still records durable work unless the workflow is intentionally ephemeral.
 ```
 
 ## Documentation target
@@ -181,7 +192,7 @@ templates/
 ## Recommended cleanup sequence
 
 1. Merge the Matt-compatible mode PR.
-2. Merge the Jimek GitHub-flow ownership PR.
+2. Merge the Jimek workflow/GitHub-verb ownership PR.
 3. Add bundle manifests for the personal kit.
 4. Mark `/qute-coder`, `/qute-reviewer`, and `/jimek-onboard` as transitional in plugin docs.
 5. Adjust `/task`, `/repo-status`, `/handoff`, and `/pickup` docs to obey `qute-agent.yml`.
