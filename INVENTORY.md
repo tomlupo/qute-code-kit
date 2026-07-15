@@ -1,6 +1,20 @@
 # Kit inventory
 
-Full contents of `claude/` and `templates/`. Use as a map — copy the bits you want into target repos. See [`README.md`](README.md) for the high-level intro and copy commands.
+Full contents of `claude/` and `templates/`. Use this as the complete catalog, not as an install-all recommendation. For lean target repos, copy only the bundle or individual tools you need.
+
+## Recommended bundles
+
+These are conceptual bundles for choosing from the personal kit. They do not duplicate files yet; they define the target grouping.
+
+| Bundle | Use when | Likely components |
+|---|---|---|
+| `quant-research` | Research/lab repos | `investment-research`, `investment-research-formal`, `paper-reading`, `market-datasets`, `backtest`, `qrd`, `investment-research-dashboard` |
+| `advisory-production` | Model portfolio / fund-selection / advisory production repos | `pipeline-docs`, `qrd`, `analizy-pl-data`, `investment-research-formal`, `brand-dm-evo`, selected review/reporting tools |
+| `python-engineering` | Python libraries, pipelines, tools | `python-patterns`, `sql-patterns`, `code-quality`, `llm-external-review`, `gist-report` |
+| `web-product` | Web apps and dashboards | `ui-ux-pro-max`, `architecture-diagram`, `excalidraw`, browser/devtools MCP configs |
+| `visual-design` | Presentation, diagram, UI, brand work | `architecture-diagram`, `excalidraw`, `image-generator`, brand skills |
+
+Default rule: do not copy the whole kit into a repo. Install `qute-essentials`, install Matt skills, then copy only the specialist bundle pieces that match the repo.
 
 ## Skills (24)
 
@@ -74,6 +88,8 @@ Full contents of `claude/` and `templates/`. Use as a map — copy the bits you 
 
 | Path | Use case |
 |---|---|
+| `templates/qute-agent.yml` | Repo policy for Matt-compatible qute runtime mode |
+| `templates/docs/agents-task-tracking.md` | Repo-local `docs/agents/task-tracking.md` starter |
 | `templates/docs/adr-template.md` | ADR (architectural decision record) starter |
 | `templates/docs/prd-template.md` | Product requirements doc starter |
 | `templates/docs/tech-spec-template.md` | Technical specification starter |
