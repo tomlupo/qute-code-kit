@@ -1,7 +1,7 @@
 {
   "name": "qute-essentials",
   "version": "2.10.0",
-  "description": "Essential hooks (ruff, notifications, auto-audit, langfuse-trace, opt-in PR-flow enforcement) + 5 security guards (destructive, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, qute-coder, qute-reviewer, jimek-onboard, repo-status, task",
+  "description": "Essential Claude Code runtime: hooks (ruff, notifications, auto-audit, langfuse-trace), 5 security guards, Matt-compatible agent-regime checks, and universal runtime skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, adopt-matt-workflow, check-agent-regime, jimek-onboard, repo-status, task. Transitional GitHub-flow bridges remain for now: qute-coder, qute-reviewer.",
   "author": {
     "name": "twilc"
   }
