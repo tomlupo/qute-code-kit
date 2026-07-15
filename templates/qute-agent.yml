@@ -1,17 +1,25 @@
 # qute-agent.yml
 #
-# Repo-level policy for qute-essentials when used together with Matt Pocock-style skills.
+# Repo-level policy for qute-essentials when used together with Matt Pocock-style skills
+# and Jimek declarative workflows.
 #
 # Intent:
-# - Matt owns planning: clarification, specs, ticket decomposition, implementation flow.
-# - qute owns runtime: guards, observability, task store, ADRs, review, release.
+# - Matt owns interactive engineering method: clarification, specs, ticket decomposition,
+#   implementation discipline, TDD, code review.
+# - qute owns local runtime: guards, observability, task-store operations, ADRs,
+#   local review, tests/audits, release hygiene.
+# - Jimek owns autonomous workflow orchestration when work is declared in jimek.yml
+#   or jimek.yaml. GitHub PR/review operations are one verb family inside Jimek,
+#   not Jimek's whole identity.
 # - docs/agents owns repo-specific operating rules.
 
 agentWorkflow:
-  # matt | qute | custom
+  # matt | qute | jimek | custom
+  # matt = interactive human-in-the-loop planning
+  # jimek = declarative autonomous workflow from jimek.yml / jimek.yaml
   planningOwner: matt
 
-  # github-issues | tasks-md | custom
+  # github-issues | tasks-md | jimek | custom
   taskStore: github-issues
 
   # When planningOwner=matt, qute must not create a parallel generic spec/ticket flow.
@@ -22,7 +30,7 @@ agentWorkflow:
   requireDocsAgents: true
 
 qute:
-  role: runtime
+  role: local-runtime
   owns:
     - guards
     - observability
@@ -39,8 +47,11 @@ qute:
     - generic-ticket-decomposition
     - architecture-planning
     - implementation-methodology
+    - autonomous-workflow-orchestration
+    - github-bot-identity-orchestration
 
 matt:
+  role: interactive-engineering-method
   owns:
     - grilling
     - domain-modeling
@@ -52,9 +63,22 @@ matt:
     - codebase-design
 
 jimek:
-  # GitHub transport/orchestration is intentionally not part of qute-essentials core.
+  role: declarative-agentic-workflow-orchestrator
+  configFiles:
+    - jimek.yml
+    - jimek.yaml
   owns:
-    - github-pr-creation
+    - workflow-graph
+    - agent-assignment
+    - dependency-ordering
+    - parallel-work
+    - run-status
+    - multi-agent-handoff
+    - github-pr-verbs
     - github-bot-identities
     - github-review-posting
     - review-gate-orchestration
+  note: >-
+    GitHub PR creation/review posting is a Jimek verb family used by agentic
+    workflows. Jimek is not merely GitHub transport; it is the conductor for
+    declared autonomous workflows.
