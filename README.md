@@ -32,6 +32,38 @@ Full plugin reference (including the guard architecture diagram and per-hook eve
 
 API keys for the optional integrations (`LAKERA_GUARD_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`) go in your `~/.claude/settings.json` env block; the plugin works without them (those two guards just disable themselves).
 
+## Hybrid with Matt Pocock skills
+
+qute is intended to be complementary to Matt-style engineering skills, not a competing planning framework.
+
+Use Matt-style skills for:
+
+- clarification and grilling
+- domain modeling
+- specs
+- ticket decomposition
+- implementation orchestration
+- TDD and architecture review
+
+Use qute for:
+
+- safety guards
+- task tracking and repo status
+- handoff/pickup
+- test/audit execution
+- ADR creation
+- independent PR review
+- releases
+
+Reference docs:
+
+- [`docs/architecture/matt-qute-hybrid-stack.md`](docs/architecture/matt-qute-hybrid-stack.md) — layer model and command ownership
+- [`docs/playbooks/matt-qute-hybrid-workflow.md`](docs/playbooks/matt-qute-hybrid-workflow.md) — target-repo operating workflow
+- [`claude/root-files/hybrid-AGENTS.md`](claude/root-files/hybrid-AGENTS.md) — starter `AGENTS.md` for hybrid repos
+- [`templates/docs/agents-task-tracking.md`](templates/docs/agents-task-tracking.md) — `docs/agents/task-tracking.md` template
+
+The intended rule is simple: **Matt creates the plan; qute makes execution safe, observable, reviewable, and shippable.**
+
 ## The personal kit: `claude/`
 
 23 skills (quant research, engineering quality, visual/UX, workflow), 2 agents, 7 MCP server configs, 3 settings profiles. Browse [`INVENTORY.md`](INVENTORY.md) for the full map.
