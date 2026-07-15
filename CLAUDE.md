@@ -12,6 +12,37 @@ This repo serves two roles in one tree:
 There is no bundle, scaffold, or setup-script flow. The plugin half ships
 itself via the marketplace; the kit half is plain files you copy by hand.
 
+## Hybrid philosophy
+
+qute is complementary to Matt Pocock-style skills.
+
+Do not grow qute into a competing planning framework. Use qute as the agent runtime and operating layer:
+
+- guards and safety enforcement
+- observability and notifications
+- task tracking and repo status
+- handoff/pickup
+- tests and audits
+- ADR creation
+- independent review
+- release/version/tag hygiene
+
+Use Matt-style skills for the organizing engineering loop:
+
+- grilling / clarification
+- domain modeling
+- spec creation
+- ticket decomposition
+- implementation orchestration
+- TDD
+- architecture cleanup
+- spec-aware code review
+
+Canonical reference: `docs/architecture/matt-qute-hybrid-stack.md`.
+Target-repo playbook: `docs/playbooks/matt-qute-hybrid-workflow.md`.
+
+When adding a new qute skill, check whether it duplicates a Matt-style generic engineering role. If yes, prefer documenting how qute integrates with Matt instead of adding another qute skill.
+
 ## Layout
 
 | Path | Contents |
@@ -24,7 +55,7 @@ itself via the marketplace; the kit half is plain files you copy by hand.
 | `plugins/qute-essentials/` | Distributable plugin (its own README + SKILL.md files) |
 | `.claude-plugin/marketplace.json` | Marketplace manifest (regenerated from plugin manifest) |
 | `templates/docs/`, `templates/pyproject/` | Doc / pyproject templates (used by `/ship`'s first-time-setup) |
-| `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/` | Workflows, references, reusable prompts |
+| `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/`, `docs/architecture/` | Workflows, references, reusable prompts, architecture notes |
 | `scripts/build-marketplace.py`, `scripts/release-plugin.sh` | Release tooling |
 | `.githooks/pre-commit` | Plugin-version drift detector (enable: `git config core.hooksPath .githooks`) |
 
@@ -35,6 +66,7 @@ itself via the marketplace; the kit half is plain files you copy by hand.
 - `marketplace.json` is generated, not hand-edited. Edit the plugin manifest; run `python3 scripts/build-marketplace.py`.
 - Skills are directories containing `SKILL.md`. Agents can be single `.md` files or directories with `AGENT.md`.
 - No hardcoded secrets — use `${ENV_VAR}` placeholders in MCP configs.
+- For hybrid target repos, prefer `docs/agents/*.md` over ever-growing `CLAUDE.md` files.
 
 ## Releasing the plugin
 
@@ -50,10 +82,12 @@ This bumps `plugins/qute-essentials/.claude-plugin/plugin.json`, regenerates `ma
 This is a curated tree, not a generated one. To add a skill / agent / MCP config:
 
 1. Create the file(s) under the appropriate `claude/<type>/` directory.
-2. Add a row to the relevant table in `README.md`.
+2. Add a row to the relevant table in `README.md` or `INVENTORY.md`.
 3. Commit with Conventional Commits (`feat(skill-name): ...`).
 
 Promotion path: when a personal-kit component proves universally useful, move it into `plugins/qute-essentials/skills/` and bump the plugin via `scripts/release-plugin.sh`.
+
+Do not promote repo/domain-specific planning workflows into `qute-essentials` if they are better represented as Matt skills plus repo-local `docs/agents/` rules.
 
 ## Skill frontmatter properties
 
