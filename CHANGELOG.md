@@ -1,3 +1,9 @@
+## v2.11.0 (2026-07-18)
+
+### Feat
+
+- Matt-compatible regime + standard research skills (#69)
+
 ## v2.10.0 (2026-07-13)
 
 ### Feat
