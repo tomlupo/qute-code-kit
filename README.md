@@ -66,6 +66,7 @@ For new repos that need release tooling, install the plugin and use `/ship` (it 
 - [`docs/playbooks/`](docs/playbooks/) — multi-step workflows (compound engineering, multi-agent review, investment research, session continuity, …)
 - [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
+- [`docs/playbooks/skill-router.md`](docs/playbooks/skill-router.md) — which skill, when (the discipline one-pager)
 - [`docs/adr/`](docs/adr/) — architecture decision records (Matt spine, research regime, tracking tiers)
 - [`docs/architecture/jimek-migration.md`](docs/architecture/jimek-migration.md) — GitHub-verb relocation plan
 - [`docs/resources.md`](docs/resources.md) — curated external links (interesting repos, tools, reading)
