@@ -33,16 +33,18 @@ tiers, nothing project-specific:
   list outgrows a flat file — open-task count past the threshold (default 12,
   tunable), or a task needs what a checklist can't give: labels, assignees,
   sub-issues, or durability across sessions.
-- **Tier 3 (planning board):** **Linear**, declared via
-  `docs/agents/issue-tracker.md` (see binding below). Linear is the human
-  planning board and the agent-assignment surface (Jimek monitors it);
-  **GitHub Issues remain the repo-local backlog** — a Linear task may be
-  "do issue #X". `pulse.sh` has no Linear backend yet: route Linear
-  reads/writes through the Linear MCP/API per the binding file, and keep using
-  the `github` backend for the backlog issues themselves.
+- **Tier 3 (task source = Linear):** declared via
+  `docs/agents/issue-tracker.md` (see binding below). **Linear is the task
+  source** — all work items live there (Jimek monitors it for assigned tasks).
+  **GitHub Issues track issues, not tasks**: bugs/defects/debt records attached
+  to the code; an issue becomes work only when a Linear task references it
+  ("fix issue #X") — never treat the Issues list as a queue. `pulse.sh` has no
+  Linear backend yet: route Linear reads/writes through the Linear MCP/API per
+  the binding file; keep the `github` backend for filing/closing issue records.
 
-A repo has exactly **one live task store** — TASKS.md OR Issues OR Linear (with
-Issues as its backlog), never parallel boards. After Tier 1→2 migration TASKS.md
+A repo has exactly **one live task source** — TASKS.md OR GitHub Issues OR
+Linear (where Issues are then only an issue record, not a queue), never
+parallel boards. After Tier 1→2 migration TASKS.md
 becomes a tombstone pointing at the Issues tab; the engine reads that tombstone
 to know the live store is now GitHub.
 

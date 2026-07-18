@@ -1,6 +1,6 @@
 # ADR-0003: Task-tracking tiers — TASKS.md or Linear, with GitHub Issues as backlog
 
-**Status:** Accepted
+**Status:** Partially superseded by [ADR-0004](0004-linear-task-source-github-issues-record.md) (GitHub-Issues-as-backlog clause; tiers + Jimek monitoring stand)
 **Date:** 2026-07-18
 
 ## Context
