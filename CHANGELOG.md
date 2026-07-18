@@ -1,3 +1,9 @@
+## v2.12.1 (2026-07-18)
+
+### Feat
+
+- Symphony/Elixir compatibility — WORKFLOW.md template + orchestrated-mode awareness
+
 ## v2.12.0 (2026-07-18)
 
 ### Feat
