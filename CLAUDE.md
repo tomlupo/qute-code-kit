@@ -12,6 +12,16 @@ This repo serves two roles in one tree:
 There is no bundle, scaffold, or setup-script flow. The plugin half ships
 itself via the marketplace; the kit half is plain files you copy by hand.
 
+## Regime (ADR-0001..0003, `docs/adr/`)
+
+Matt Pocock's skills are the planning spine (assumed installed, never required);
+qute-essentials is the runtime + research regime. Do not add qute skills that
+duplicate Matt's generic planning roles (grilling, specs, tickets, implementation
+orchestration) — qute skills must be runtime (safety/release/continuity), research
+regime, or domain-specific. ADRs go to `docs/adr/`. GitHub PR/bot skills
+(`qute-coder`, `qute-reviewer`, `jimek-onboard`) are Jimek infrastructure pending
+relocation — see `docs/architecture/jimek-migration.md`; don't grow them.
+
 ## Layout
 
 | Path | Contents |
@@ -25,6 +35,7 @@ itself via the marketplace; the kit half is plain files you copy by hand.
 | `.claude-plugin/marketplace.json` | Marketplace manifest (regenerated from plugin manifest) |
 | `templates/docs/`, `templates/pyproject/` | Doc / pyproject templates (used by `/ship`'s first-time-setup) |
 | `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/` | Workflows, references, reusable prompts |
+| `docs/adr/`, `docs/architecture/` | Decision records, architecture/migration notes |
 | `scripts/build-marketplace.py`, `scripts/release-plugin.sh` | Release tooling |
 | `.githooks/pre-commit` | Plugin-version drift detector (enable: `git config core.hooksPath .githooks`) |
 
