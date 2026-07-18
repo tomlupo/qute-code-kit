@@ -26,10 +26,13 @@ configuration — this skill runs *around* it.
    - Not installed → offer `npx skills@latest add mattpocock/skills`, or proceed in
      **standalone mode** (`--standalone`): qute-only, no Matt command references stamped
      anywhere. Standalone is a healthy mode for small repos, not a defect.
-2. **Tracker tier** (ADR-0003) — confirm what `docs/agents/issue-tracker.md` declares, or
-   help pick: `TASKS.md` (simple/personal) or **Linear** (serious; GitHub Issues stay as
-   the repo-local backlog — a Linear task may be "do issue #X"; Jimek monitors Linear for
-   assigned tasks and reads `jimek.yml` for how to run them).
+2. **Tracker tier** (ADR-0003/0004) — confirm what `docs/agents/issue-tracker.md`
+   declares, or help pick: `TASKS.md` (simple/personal) or **Linear as the task source**
+   (serious repos; GitHub Issues then track issues only — bugs/defects/debt records — and
+   an issue becomes work when a Linear task references it; Jimek monitors Linear).
+   Ensure the binding carries the machine marker
+   `<!-- qute-tracker: <linear|github|tasks-md> [team=ABC] -->` so the `/task` engine
+   routes on it (template: `templates/docs/agents-issue-tracker.md`).
 3. **qute deltas** — add only what Matt's setup doesn't cover:
    - `docs/agents/research-workflow.md` from the qute template when `--research` or the
      repo has a `research/` dir (research-repo mode: lines + `/finding` + generated index)

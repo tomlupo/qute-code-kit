@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # tasks/pulse.sh — the tiered task engine behind /repo-status and /task.
 #
-# Part of qute-essentials. Generic and project-agnostic: TWO tiers only.
+# Part of qute-essentials. Generic and project-agnostic:
 #   Tier 1 (default)  — TASKS.md in the repo root (managed directly here).
 #   Tier 2 (graduate) — plain GitHub Issues via the `gh` CLI.
+#   Tier 3 (fleet)    — Linear as the task source (linear.py; ADR-0004). Under
+#                       Tier 3, GitHub Issues are only an issue record, never a
+#                       queue — `add --to github` files a record; the queue is Linear.
 # A repo has ONE live store at a time (TASKS.md OR Issues), told apart by the
 # migration tombstone in TASKS.md. See lib.sh for the detection rules.
 #
@@ -11,9 +14,9 @@
 #   pulse.sh                      read the ACTIVE store (default)
 #   pulse.sh report               same as above           (<- /repo-status)
 #   pulse.sh add "title" [body...]            create in the active store (<- /task)
-#   pulse.sh add --to <github|tasks-md> ...   create in a named store
+#   pulse.sh add --to <linear|github|tasks-md> ...  create in a named store
 #   pulse.sh close <ref> [comment...]         complete in the active store (<- /task)
-#   pulse.sh close --in <github|tasks-md> ... complete in a named store
+#   pulse.sh close --in <linear|github|tasks-md> .. complete in a named store
 #   pulse.sh migrate              move open TASKS.md items -> GitHub Issues + tombstone
 #   pulse.sh decline              write the keep-local marker so migration stops nagging
 
@@ -50,6 +53,14 @@ cmd_report() {
   echo "pulse · $(basename "$ROOT")  [store: $store]"
 
   case "$store" in
+    linear)
+      # Linear is the task source (ADR-0004): the work queue lives there.
+      if [[ -z "${LINEAR_API_KEY:-}" ]]; then
+        echo "pulse: store is Linear but LINEAR_API_KEY is not set — work queue unknown." >&2
+        return 1
+      fi
+      tasks_linear list || return 1
+      ;;
     github)
       # Distinguish "could not reach GitHub" from "genuinely 0 open issues":
       # if gh/auth/network is broken we must NOT render an empty board.
@@ -118,7 +129,7 @@ cmd_add() {
   local title="${1:-}"; shift || true
   local body="${*:-}"
   if [[ -z "$title" ]]; then
-    echo 'usage: pulse.sh add [--to <github|tasks-md>] [--type <t>] [--structure <s>] "title" [body...]' >&2
+    echo 'usage: pulse.sh add [--to <linear|github|tasks-md>] [--type <t>] [--structure <s>] "title" [body...]' >&2
     return 2
   fi
   [[ -n "$backend" ]] || backend=$(tasks_active_store)
@@ -133,6 +144,11 @@ cmd_add() {
   fi
 
   case "$backend" in
+    linear)
+      # Work items go to the task source. (--type/--structure are GitHub-label
+      # flags and were rejected above for non-github backends.)
+      tasks_linear add "$title" "$body"
+      ;;
     github)
       tasks_github_available || { echo "pulse: gh unavailable or not a GitHub repo" >&2; return 1; }
       local -a create_opts=()
@@ -161,7 +177,7 @@ cmd_add() {
       _emit_proposal
       ;;
     *)
-      echo "pulse: unknown backend '$backend' (expected github|tasks-md)" >&2; return 2 ;;
+      echo "pulse: unknown backend '$backend' (expected linear|github|tasks-md)" >&2; return 2 ;;
   esac
 }
 
@@ -177,12 +193,15 @@ cmd_close() {
   local id="${1:-}"; shift || true
   local comment="${*:-}"
   if [[ -z "$id" ]]; then
-    echo 'usage: pulse.sh close [--in <github|tasks-md>] <ref> [comment...]' >&2
+    echo 'usage: pulse.sh close [--in <linear|github|tasks-md>] <ref> [comment...]' >&2
     return 2
   fi
   [[ -n "$backend" ]] || backend=$(tasks_active_store)
 
   case "$backend" in
+    linear)
+      tasks_linear close "$id" "$comment"
+      ;;
     github)
       tasks_github_available || { echo "pulse: gh unavailable or not a GitHub repo" >&2; return 1; }
       tasks_github_close "${id#\#}" "$comment"
@@ -192,7 +211,7 @@ cmd_close() {
       return 2
       ;;
     *)
-      echo "pulse: unknown backend '$backend' (expected github|tasks-md)" >&2; return 2 ;;
+      echo "pulse: unknown backend '$backend' (expected linear|github|tasks-md)" >&2; return 2 ;;
   esac
 }
 

@@ -23,7 +23,8 @@
 #   tasks_is_tombstone            true if TASKS.md exists and is a migration tombstone
 #   tasks_is_keep_local           true if TASKS.md carries the "keep local" decline marker
 #   tasks_open_count_md           number of open `- [ ]` items in TASKS.md (0 if absent)
-#   tasks_active_store            prints "tasks-md" | "github"  (the live store)
+#   tasks_active_store            prints "tasks-md" | "github" | "linear"
+#   tasks_linear                  invoke the Linear backend (linear.py) with args
 #   tasks_should_propose          true if a Tier-1 -> Tier-2 migration should be offered
 #   tasks_threshold               the open-task threshold (default 12, tunable)
 
@@ -45,6 +46,22 @@ tasks_repo_root() {
 
 tasks_tasksmd_path() {
   echo "$(tasks_repo_root)/TASKS.md"
+}
+
+# ---------------------------------------------------------------------------
+# Linear backend (Tier 3 — Linear is the task source; ADR-0004)
+# ---------------------------------------------------------------------------
+#
+# Delegates to linear.py (stdlib-only; LINEAR_API_KEY auth; team bound via the
+# `<!-- qute-tracker: linear team=ABC -->` marker in docs/agents/issue-tracker.md).
+
+tasks_linear() {
+  local dir; dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  python3 "$dir/linear.py" "$@"
+}
+
+tasks_linear_available() {
+  [[ -n "${LINEAR_API_KEY:-}" ]] && tasks_linear check >/dev/null 2>&1
 }
 
 # ---------------------------------------------------------------------------
@@ -112,23 +129,35 @@ tasks_open_count_md() {
 # ---------------------------------------------------------------------------
 #
 # Precedence:
-#   1. CLAUDE.md `## Task source: <github|tasks-md>`     -> explicit override
+#   0. docs/agents/issue-tracker.md marker               -> binding file wins
+#      `<!-- qute-tracker: <linear|github|tasks-md> ... -->`
+#      (Matt Pocock's setup-matt-pocock-skills convention; qute's
+#      /adopt-matt-workflow stamps the same file with this marker)
+#   1. CLAUDE.md `## Task source: <linear|github|tasks-md>` -> explicit override
 #   2. TASKS.md present AND tombstoned                   -> github
 #   3. TASKS.md present (live)                           -> tasks-md
 #   4. TASKS.md absent, gh remote reachable with >=1 open issue -> github
 #   5. otherwise                                         -> tasks-md (Tier-1 default)
 #
-# Prints exactly one of: tasks-md | github
+# Prints exactly one of: tasks-md | github | linear
 tasks_active_store() {
-  local root claude_md decl
+  local root claude_md decl binding
   root=$(tasks_repo_root)
+
+  binding="$root/docs/agents/issue-tracker.md"
+  if [[ -f "$binding" ]]; then
+    decl=$(grep -oE '<!--[[:space:]]*qute-tracker:[[:space:]]*[a-z-]+' "$binding" 2>/dev/null \
+      | head -1 | sed -E 's/.*qute-tracker:[[:space:]]*//')
+    case "$decl" in github|tasks-md|linear) echo "$decl"; return 0 ;; esac
+  fi
+
   claude_md="$root/CLAUDE.md"
   if [[ -f "$claude_md" ]]; then
     decl=$(grep -E '^## Task source:' "$claude_md" 2>/dev/null | head -1 \
       | sed -E 's/^## Task source:[[:space:]]*//; s/[[:space:]].*$//' \
       | tr '[:upper:]' '[:lower:]')
     [[ "$decl" == tasks_md ]] && decl=tasks-md
-    case "$decl" in github|tasks-md) echo "$decl"; return 0 ;; esac
+    case "$decl" in github|tasks-md|linear) echo "$decl"; return 0 ;; esac
   fi
 
   if [[ -f "$(tasks_tasksmd_path)" ]]; then

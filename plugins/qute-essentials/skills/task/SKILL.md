@@ -38,9 +38,11 @@ tiers, nothing project-specific:
   source** — all work items live there (Jimek monitors it for assigned tasks).
   **GitHub Issues track issues, not tasks**: bugs/defects/debt records attached
   to the code; an issue becomes work only when a Linear task references it
-  ("fix issue #X") — never treat the Issues list as a queue. `pulse.sh` has no
-  Linear backend yet: route Linear reads/writes through the Linear MCP/API per
-  the binding file; keep the `github` backend for filing/closing issue records.
+  ("fix issue #X") — never treat the Issues list as a queue. The engine has a
+  native Linear backend (`linear.py`, stdlib-only): auth via `LINEAR_API_KEY`,
+  team bound by the `<!-- qute-tracker: linear team=ABC -->` marker in
+  `docs/agents/issue-tracker.md`. `add`/`close`/`report` route to Linear
+  automatically; keep `--to github` for filing/closing issue records.
 
 A repo has exactly **one live task source** — TASKS.md OR GitHub Issues OR
 Linear (where Issues are then only an issue record, not a queue), never
@@ -52,9 +54,10 @@ to know the live store is now GitHub.
 
 If the repo has `docs/agents/issue-tracker.md` (Matt Pocock's
 `setup-matt-pocock-skills` convention, also stamped by `/adopt-matt-workflow`),
-that file **wins over auto-detection** — read it first and route accordingly.
-It declares the system (TASKS.md / GitHub / Linear / other), auth notes, and
-any workflow specifics. Ideas never live in the tree (`RESEARCH_IDEAS.md`,
+that file **wins over auto-detection**. The engine routes on its machine-readable
+marker — `<!-- qute-tracker: <linear|github|tasks-md> [team=ABC] -->` — and the
+prose declares auth notes and workflow specifics for agents. Template:
+`templates/docs/agents-issue-tracker.md` in qute-code-kit. Ideas never live in the tree (`RESEARCH_IDEAS.md`,
 `docs/tasks/`, TODO lists in handoffs) — they go to the declared store.
 
 ## Behavior

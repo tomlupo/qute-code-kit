@@ -76,6 +76,7 @@ Full contents of `claude/` and `templates/`. Use as a map — copy the bits you 
 |---|---|
 | `templates/docs/adr-template.md` | ADR (architectural decision record) starter |
 | `templates/docs/agents-research-workflow.md` | Standard research regime for lab repos (`docs/agents/research-workflow.md` starter) |
+| `templates/docs/agents-issue-tracker.md` | Tracker binding starter (`docs/agents/issue-tracker.md`; machine marker + Linear/GitHub division) |
 | `templates/docs/prd-template.md` | Product requirements doc starter |
 | `templates/docs/tech-spec-template.md` | Technical specification starter |
 | `templates/docs/user-flows-template.md` | User flows / journey starter |
