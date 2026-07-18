@@ -1,6 +1,6 @@
 {
   "name": "qute-essentials",
-  "version": "2.11.1",
+  "version": "2.12.0",
   "description": "Claude Code runtime layer (Matt-compatible): hooks (ruff, notifications, auto-audit, langfuse-trace, opt-in PR-flow enforcement) + 5 security guards (destructive, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, repo-status, task + research regime: research-line, finding, research-status, promote + regime setup: adopt-matt-workflow, check-agent-regime + GitHub-flow bridges relocating to Jimek: qute-coder, qute-reviewer, jimek-onboard",
   "author": {
     "name": "twilc"

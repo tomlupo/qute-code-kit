@@ -1,3 +1,9 @@
+## v2.12.0 (2026-07-18)
+
+### Feat
+
+- native Linear backend for the task engine
+
 ## v2.11.1 (2026-07-18)
 
 ### Fix
