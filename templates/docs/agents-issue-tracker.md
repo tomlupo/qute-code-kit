@@ -20,8 +20,11 @@ priority, agent assignment — live in Linear (team `CHANGEME`). Jimek monitors 
 assigned tasks; `jimek.yml` declares how declared workflows run. Humans and agents pull
 work from Linear only.
 
-- Auth: `LINEAR_API_KEY` env var (personal API key).
+- Auth: `LINEAR_API_KEY` env var (personal API key) — interactive/local sessions only.
 - qute `/task` and `/repo-status` route here automatically via the marker above.
+- **Orchestrated workspaces** (Jimek / Symphony-Elixir style): the API key is held
+  host-side and stripped from your environment by design — use the orchestrator's
+  advertised `linear` tool for state changes and comments, not the qute backend.
 
 ## GitHub Issues — issue record only
 

@@ -39,7 +39,11 @@ def die(msg: str, code: int = 1) -> "NoReturn":  # noqa: F821
 def gql(query: str, variables: dict | None = None) -> dict:
     key = os.environ.get("LINEAR_API_KEY", "")
     if not key:
-        die("LINEAR_API_KEY not set — cannot reach Linear")
+        die(
+            "LINEAR_API_KEY not set — cannot reach Linear. In an orchestrated "
+            "workspace (Jimek/Symphony-Elixir) the key is stripped by design: "
+            "use the orchestrator's 'linear' tool instead of this backend."
+        )
     req = urllib.request.Request(
         API,
         data=json.dumps({"query": query, "variables": variables or {}}).encode(),

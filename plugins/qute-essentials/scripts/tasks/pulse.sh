@@ -56,7 +56,10 @@ cmd_report() {
     linear)
       # Linear is the task source (ADR-0004): the work queue lives there.
       if [[ -z "${LINEAR_API_KEY:-}" ]]; then
-        echo "pulse: store is Linear but LINEAR_API_KEY is not set — work queue unknown." >&2
+        echo "pulse: store is Linear but LINEAR_API_KEY is not set." >&2
+        echo "       Interactive session: add the key to your env to read the queue." >&2
+        echo "       Orchestrated workspace (Jimek/Symphony): the key is stripped by design —" >&2
+        echo "       use the orchestrator's advertised 'linear' tool, not this backend." >&2
         return 1
       fi
       tasks_linear list || return 1

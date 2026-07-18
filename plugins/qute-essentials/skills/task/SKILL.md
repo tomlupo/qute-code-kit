@@ -43,6 +43,10 @@ tiers, nothing project-specific:
   team bound by the `<!-- qute-tracker: linear team=ABC -->` marker in
   `docs/agents/issue-tracker.md`. `add`/`close`/`report` route to Linear
   automatically; keep `--to github` for filing/closing issue records.
+  **Orchestrated workspaces** (Jimek / Symphony-Elixir style): the API key is
+  held host-side and stripped from the agent env by design — use the
+  orchestrator's advertised `linear` tool for state changes/comments; the qute
+  backend is the interactive/local path.
 
 A repo has exactly **one live task source** — TASKS.md OR GitHub Issues OR
 Linear (where Issues are then only an issue record, not a queue), never

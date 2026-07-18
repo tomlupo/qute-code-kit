@@ -17,10 +17,32 @@ qute-essentials (stays)          jimek (receives)
   guards/hooks  — safety           GitHub App token logic (gh-apps creds)
 ```
 
-Jimek's operating model: reads `jimek.yml`/`jimek.yaml` for *how* to run a declared
+Jimek's operating model: reads the repo workflow contract for *how* to run a declared
 agentic workflow; **monitors Linear for assigned tasks** for *what* to pick up (the fleet
 board moves from GitHub to Linear). GitHub PR/review posting is one verb family inside
 that conductor, not its identity.
+
+## Symphony/Elixir alignment
+
+Jimek's shape should match [OpenAI Symphony's Elixir](https://github.com/openai/symphony/tree/main/elixir)
+orchestrator, which validates the same architecture:
+
+- **Poll Linear** (project slug + active states + optional assignee/label routing) →
+  claim → per-issue workspace (`hooks.after_create` bootstraps) → agent runs turns →
+  terminal Linear state ends the run. This is exactly ADR-0004's "agents pull work only
+  from Linear."
+- **Repo contract = `WORKFLOW.md`**: YAML frontmatter (tracker/workspace/hooks/agent
+  limits) + a markdown body that becomes the agent's session prompt. Jimek's
+  `jimek.yml` should converge on this shape (frontmatter-equivalent config; the prompt
+  body is where `docs/agents/`, Matt-style flow, and qute runtime get injected).
+  Template: `templates/WORKFLOW.md` in this repo.
+- **Credential hygiene**: the orchestrator holds `LINEAR_API_KEY` host-side, strips it
+  from the agent env, and advertises a `linear` tool for GraphQL ops. qute's `linear.py`
+  is the *interactive/local* path; orchestrated agents use the advertised tool instead —
+  the engine tells them so when the key is absent.
+- Elixir ships repo skills (`commit`, `push`, `land`, `linear`); Matt + qute skills
+  coexist with these — ownership doesn't overlap (Elixir's are transport verbs, exactly
+  the family this migration moves out of qute).
 
 ## Order
 
