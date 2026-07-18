@@ -23,7 +23,7 @@ Do NOT invoke for:
 ## The tiered model (generic, project-agnostic)
 
 This skill is part of the public qute-essentials plugin, so it stays generic —
-two tiers, nothing project-specific:
+tiers, nothing project-specific:
 
 - **Tier 1 (default):** `TASKS.md` in the repo root — a plain markdown
   checklist. Zero setup. Used for small/new/just-init repos, or any repo with
@@ -33,10 +33,27 @@ two tiers, nothing project-specific:
   list outgrows a flat file — open-task count past the threshold (default 12,
   tunable), or a task needs what a checklist can't give: labels, assignees,
   sub-issues, or durability across sessions.
+- **Tier 3 (planning board):** **Linear**, declared via
+  `docs/agents/issue-tracker.md` (see binding below). Linear is the human
+  planning board and the agent-assignment surface (Jimek monitors it);
+  **GitHub Issues remain the repo-local backlog** — a Linear task may be
+  "do issue #X". `pulse.sh` has no Linear backend yet: route Linear
+  reads/writes through the Linear MCP/API per the binding file, and keep using
+  the `github` backend for the backlog issues themselves.
 
-A repo has exactly **one live store** — TASKS.md OR Issues, never both. After
-migration TASKS.md becomes a tombstone pointing at the Issues tab; the engine
-reads that tombstone to know the live store is now GitHub.
+A repo has exactly **one live task store** — TASKS.md OR Issues OR Linear (with
+Issues as its backlog), never parallel boards. After Tier 1→2 migration TASKS.md
+becomes a tombstone pointing at the Issues tab; the engine reads that tombstone
+to know the live store is now GitHub.
+
+## Tracker binding (`docs/agents/issue-tracker.md`)
+
+If the repo has `docs/agents/issue-tracker.md` (Matt Pocock's
+`setup-matt-pocock-skills` convention, also stamped by `/adopt-matt-workflow`),
+that file **wins over auto-detection** — read it first and route accordingly.
+It declares the system (TASKS.md / GitHub / Linear / other), auth notes, and
+any workflow specifics. Ideas never live in the tree (`RESEARCH_IDEAS.md`,
+`docs/tasks/`, TODO lists in handoffs) — they go to the declared store.
 
 ## Behavior
 
@@ -133,6 +150,8 @@ sub-issues. That's a call you make from the task text, not the counter.
 
 ## Routing precedence (active store)
 
+0. `docs/agents/issue-tracker.md` present → its declaration wins (may be
+   `linear`, in which case route per that file, not `pulse.sh`).
 1. `## Task source: <github|tasks-md>` in CLAUDE.md → explicit override.
 2. TASKS.md present and tombstoned → **github**.
 3. TASKS.md present (live) → **tasks-md**.

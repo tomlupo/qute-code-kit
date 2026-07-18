@@ -1,10 +1,12 @@
 # qute-code-kit
 
-Home for **qute-essentials** — a Claude Code plugin focused on security guards, observability, and release tooling — plus a curated personal library of skills, agents, MCP configs, and settings that you can copy into target repos.
+Home for **qute-essentials** — a Claude Code plugin providing the agent **runtime layer** (security guards, observability, task-store ops, review, release tooling) plus **research-regime skills** for quant/lab repos — and a curated personal library of skills, agents, MCP configs, and settings that you can copy into target repos.
+
+qute is **Matt-compatible by design**: [Matt Pocock's skills](https://github.com/mattpocock/skills) own the planning spine (grill → spec → tickets → implement → TDD → code review) and the repo-binding conventions (`docs/agents/*.md`, `docs/adr/`, `CONTEXT.md`); qute keeps that work safe, tracked, reviewed, and shippable — and works standalone when Matt isn't installed. See [ADR-0001](docs/adr/0001-matt-planning-spine-qute-runtime.md).
 
 ## The plugin: `qute-essentials`
 
-Essential hooks, guards, and skills for Claude Code. Five toggleable security guards (block destructive commands, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs), a notification layer (ntfy push for blocks/detections), and 16 universal skills covering the full release-and-handoff lifecycle.
+Essential hooks, guards, and skills for Claude Code. Five toggleable security guards (block destructive commands, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs), a notification layer (ntfy push for blocks/detections), and universal skills covering the release-and-handoff lifecycle plus the standard research regime.
 
 ```bash
 claude plugin marketplace add tomlupo/qute-code-kit
@@ -18,8 +20,10 @@ claude plugin install qute-essentials@qute-marketplace
 | **Hooks** | ruff-formatter, skill-use-logger, ntfy notifications, auto-audit, langfuse-trace |
 | **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability) |
 | **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/task`, `/repo-status` (git dashboard + Open tasks glance) |
-| **Workflow** | `/audit`, `/test`, `/decision`, `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
-| **PR flow** (opt-in enforcement, default OFF) | `/qute-coder` (open a PR as qute-coder[bot]), `/qute-reviewer` (post an independent qute-review[bot] verdict); a per-repo `quteEnforcePrReview` marker arms the gated `pr-flow-guard` hook + optional `review-gate.yml` CI template |
+| **Workflow** | `/audit`, `/test`, `/decision` (ADRs → `docs/adr/`), `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
+| **Research regime** ([ADR-0002](docs/adr/0002-standard-research-regime.md)) | `/research-line` (open/register a line), `/finding` (verdict-forced results + atomic index update), `/research-status` (drift detector + index regenerator), `/promote` (finding → ADR + prod PR / wiki / plugin) |
+| **Regime setup** | `/adopt-matt-workflow` (stamp the standard regime; thin wrapper around Matt's own setup), `/check-agent-regime` (audit for competing regimes / duplicate task stores) |
+| **PR flow** (opt-in enforcement, default OFF; relocating to Jimek — see [migration plan](docs/architecture/jimek-migration.md)) | `/qute-coder` (open a PR as qute-coder[bot]), `/qute-reviewer` (post an independent qute-review[bot] verdict); a per-repo `quteEnforcePrReview` marker arms the gated `pr-flow-guard` hook + optional `review-gate.yml` CI template |
 
 Full plugin reference (including the guard architecture diagram and per-hook event table): [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md).
 
@@ -62,6 +66,8 @@ For new repos that need release tooling, install the plugin and use `/ship` (it 
 - [`docs/playbooks/`](docs/playbooks/) — multi-step workflows (compound engineering, multi-agent review, investment research, session continuity, …)
 - [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
+- [`docs/adr/`](docs/adr/) — architecture decision records (Matt spine, research regime, tracking tiers)
+- [`docs/architecture/jimek-migration.md`](docs/architecture/jimek-migration.md) — GitHub-verb relocation plan
 - [`docs/resources.md`](docs/resources.md) — curated external links (interesting repos, tools, reading)
 
 ## Releasing the plugin

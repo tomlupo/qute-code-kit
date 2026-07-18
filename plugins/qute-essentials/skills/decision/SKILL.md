@@ -1,12 +1,12 @@
 ---
 name: decision
-description: Record an architecture, methodology, or design decision as an ADR (Architecture Decision Record). Use when a non-trivial design choice has been finalized in conversation — triggers include phrases like "let's lock in", "we've decided", "the decision is", "let's go with option X", "supersede ADR-NNNN", or when a methodology discussion concludes with a concrete chosen approach, or when the user explicitly asks to record a decision. Creates docs/decisions/NNNN-title.md with auto-numbering and supports superseding existing ADRs by updating their Status field. Do NOT trigger on routine code choices, variable names, minor refactors, one-off experiments, or reversible exploratory choices.
+description: Record an architecture, methodology, or design decision as an ADR (Architecture Decision Record). Use when a non-trivial design choice has been finalized in conversation — triggers include phrases like "let's lock in", "we've decided", "the decision is", "let's go with option X", "supersede ADR-NNNN", or when a methodology discussion concludes with a concrete chosen approach, or when the user explicitly asks to record a decision. Creates docs/adr/NNNN-title.md with auto-numbering and supports superseding existing ADRs by updating their Status field. Do NOT trigger on routine code choices, variable names, minor refactors, one-off experiments, or reversible exploratory choices.
 argument-hint: "[--supersedes NNNN] <title>"
 ---
 
 # /decision
 
-Record an architecture, methodology, or design decision as an ADR (Architecture Decision Record) in `docs/decisions/`.
+Record an architecture, methodology, or design decision as an ADR (Architecture Decision Record) in `docs/adr/`.
 
 ## When to use
 
@@ -29,21 +29,23 @@ Do NOT invoke for:
 
 ## Behavior
 
-1. **Auto-number the ADR**: scan `docs/decisions/*.md` for the highest existing NNNN, compute next (zero-padded 4-digit, e.g. `0004`). If `docs/decisions/` doesn't exist, create it.
+1. **Resolve the ADR dir**: `docs/adr/` is the standard (Matt-compatible) location. **Legacy:** if the repo has an existing `docs/decisions/` and no `docs/adr/`, keep writing to `docs/decisions/` (don't split a series) and suggest a one-time rename to `docs/adr/`. Never maintain both.
 
-2. **Derive a slug** from the title: lowercase, non-alphanumeric → dashes, collapse repeats, trim to ~50 chars.
+2. **Auto-number the ADR**: scan the resolved dir for the highest existing NNNN, compute next (zero-padded 4-digit, e.g. `0004`). If the dir doesn't exist, create `docs/adr/`.
 
-3. **Create the new ADR** at `docs/decisions/<NNNN>-<slug>.md` using the **ADR template** below:
+3. **Derive a slug** from the title: lowercase, non-alphanumeric → dashes, collapse repeats, trim to ~50 chars.
+
+4. **Create the new ADR** at `docs/adr/<NNNN>-<slug>.md` using the **ADR template** below:
    - Populate frontmatter: `Status: Accepted`, `Date: <today ISO>`
    - Include the template sections (Context, Options Considered, Decision, Consequences)
    - If `--supersedes NNNN` was passed, add a `## Supersedes` section pointing to the old ADR
 
-4. **Update the superseded ADR** (if `--supersedes` provided):
-   - Find `docs/decisions/<NNNN>-*.md` matching the provided number
+5. **Update the superseded ADR** (if `--supersedes` provided):
+   - Find `docs/adr/<NNNN>-*.md` matching the provided number
    - Update its `## Status` section **only** to: `Superseded by [ADR-<new-NNNN>](<new-filename>) (<today ISO>)`
    - Preserve all other sections — ADRs are **immutable once Accepted**, only the Status field may be edited
 
-5. **Report** to the user:
+6. **Report** to the user:
    - Path of the new ADR file
    - If supersede: confirm the old ADR's Status was updated
    - Prompt the user to fill in Context / Options Considered / Decision / Consequences (the skill creates the scaffold; the user/agent fills the content)
@@ -85,7 +87,7 @@ State the choice and the core reason. 1-3 sentences.
 - **Keep it short** — target under 50 lines; longer decisions may need splitting
 - **Immutable once Accepted** — never edit Context/Options/Decision on an accepted ADR; create a new one to reverse (this skill handles supersede via `--supersedes`)
 - **Link from code** when the decision directly affects implementation: add a comment `# See ADR-NNNN`
-- **Sequential numbering** — always check existing `docs/decisions/` before creating (this skill does it automatically)
+- **Sequential numbering** — always check existing `docs/adr/` before creating (this skill does it automatically)
 
 ## Example
 
@@ -93,4 +95,4 @@ State the choice and the core reason. 1-3 sentences.
 /decision "futures decomposition via treatment C" --supersedes 0003
 ```
 
-Creates `docs/decisions/0004-futures-decomposition-via-treatment-c.md` with `Status: Accepted`, adds a `## Supersedes` section pointing to ADR-0003, and updates `docs/decisions/0003-*.md` Status to `Superseded by ADR-0004`.
+Creates `docs/adr/0004-futures-decomposition-via-treatment-c.md` with `Status: Accepted`, adds a `## Supersedes` section pointing to ADR-0003, and updates `docs/adr/0003-*.md` Status to `Superseded by ADR-0004`.
