@@ -1,3 +1,9 @@
+## v2.11.1 (2026-07-18)
+
+### Fix
+
+- Linear is the task source — GitHub Issues are an issue record (ADR-0004)
+
 ## v2.11.0 (2026-07-18)
 
 ### Feat
