@@ -67,9 +67,7 @@ def test_expected_max_sr_rejects_nonpositive_trials():
 def test_dsr_normal_returns_matches_hand_derivation():
     """skew=0, kurtosis=3 (normal): sr_std = sqrt((1 + 0.5*sr^2)/(T-1))."""
     sr, T, n_trials = 0.1, 500, 10
-    result = deflated_sharpe_ratio(
-        sr=sr, T=T, skew=0.0, kurtosis=3.0, n_trials=n_trials
-    )
+    result = deflated_sharpe_ratio(sr=sr, T=T, skew=0.0, kurtosis=3.0, n_trials=n_trials)
     expected_sr_std = math.sqrt((1 - 0.0 * sr + (3.0 - 1) / 4 * sr**2) / (T - 1))
     assert result.sr_std == pytest.approx(expected_sr_std, rel=1e-9)
     expected_sr0 = expected_sr_std * expected_max_sr(n_trials)
@@ -221,13 +219,9 @@ def test_cli_rejects_empty_n_trials_range():
 
 def test_cli_returns_and_summary_mutually_exclusive(tmp_path):
     returns_file = tmp_path / "returns.csv"
-    pd.Series(np.random.default_rng(1).normal(0.001, 0.01, 300), name="return").to_csv(
-        returns_file, index=False
-    )
+    pd.Series(np.random.default_rng(1).normal(0.001, 0.01, 300), name="return").to_csv(returns_file, index=False)
     with pytest.raises(SystemExit):
-        dsr_gate_cli.main(
-            ["--returns", str(returns_file), "--sharpe", "0.4", "--n-trials", "10"]
-        )
+        dsr_gate_cli.main(["--returns", str(returns_file), "--sharpe", "0.4", "--n-trials", "10"])
 
 
 # ---------------------------------------------------------------------------
@@ -252,9 +246,7 @@ def test_cli_returns_path_end_to_end(tmp_path):
     r = rng.normal(0.0015, 0.012, 1000)
     returns_file = tmp_path / "returns.csv"
     pd.Series(r, name="return").to_csv(returns_file, index=False)
-    out = _run_cli(
-        ["--returns", str(returns_file), "--n-trials", "1,5,20", "--periods", "365"]
-    )
+    out = _run_cli(["--returns", str(returns_file), "--n-trials", "1,5,20", "--periods", "365"])
     assert out["T"] == 1000
     assert set(out["by_n_trials"].keys()) == {"1", "5", "20"}
     assert out["n_trials_conservative"] == 20
@@ -291,9 +283,7 @@ def test_cli_reports_range_and_gates_on_max_n_trials():
 def test_cli_default_n_trials_range_matches_carver_convention():
     """Default range mirrors scripts/analysis/carver_prelive_gauntlet.py's
     sensitivity sweep (1, 5, 10, 20, 50, 100)."""
-    out = _run_cli(
-        ["--sharpe", "1.0", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500"]
-    )
+    out = _run_cli(["--sharpe", "1.0", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500"])
     assert set(int(n) for n in out["by_n_trials"]) == {1, 5, 10, 20, 50, 100}
     assert out["n_trials_conservative"] == 100
 
@@ -343,9 +333,7 @@ def test_cli_summary_path_end_to_end():
 def test_false_pass_band_now_fails_under_real_dsr(z_naive, expected_dsr):
     T = 365
     sr_period = z_naive / math.sqrt(T)  # so sr_annualized == z_naive with periods=365
-    result = deflated_sharpe_ratio(
-        sr=sr_period, T=T, skew=0.0, kurtosis=3.0, n_trials=20
-    )
+    result = deflated_sharpe_ratio(sr=sr_period, T=T, skew=0.0, kurtosis=3.0, n_trials=20)
 
     # Sanity: this IS the band the old gate would have passed.
     old_style_pvalue = 2 * (1 - stats.norm.cdf(abs(z_naive)))

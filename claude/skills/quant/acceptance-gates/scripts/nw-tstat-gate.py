@@ -69,9 +69,7 @@ def _newey_west_auto_lags(n: int) -> int:
     return int(math.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
 
 
-def _finite_returns(
-    raw: np.ndarray, *, allow_nonfinite_drop: bool
-) -> tuple[np.ndarray, int]:
+def _finite_returns(raw: np.ndarray, *, allow_nonfinite_drop: bool) -> tuple[np.ndarray, int]:
     """Validate a raw return array: FAIL LOUDLY on NaN/Inf unless explicitly opted out.
 
     Returns (finite_returns, n_dropped). Raises ValueError when non-finite values
@@ -178,20 +176,14 @@ def _read_returns(path: str, column: str | None) -> np.ndarray:
     for cand in _RETURN_COL_CANDIDATES:
         if cand in df.columns:
             return df[cand].to_numpy(dtype=float)
-    raise SystemExit(
-        f"could not infer return column from {list(df.columns)}; pass --column"
-    )
+    raise SystemExit(f"could not infer return column from {list(df.columns)}; pass --column")
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--returns", required=True, help="OOS return series (parquet/csv/txt)"
-    )
+    ap.add_argument("--returns", required=True, help="OOS return series (parquet/csv/txt)")
     ap.add_argument("--column", default=None, help="return column name (else auto)")
-    ap.add_argument(
-        "--t-threshold", type=float, default=2.0, help="min |Newey-West t| to pass"
-    )
+    ap.add_argument("--t-threshold", type=float, default=2.0, help="min |Newey-West t| to pass")
     ap.add_argument(
         "--min-oos-periods",
         type=int,
@@ -225,9 +217,7 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if args.min_oos_periods <= 0:
-        raise ValueError(
-            f"--min-oos-periods must be positive, got {args.min_oos_periods!r}"
-        )
+        raise ValueError(f"--min-oos-periods must be positive, got {args.min_oos_periods!r}")
 
     raw = _read_returns(args.returns, args.column)
     r, n_dropped = _finite_returns(raw, allow_nonfinite_drop=args.allow_nonfinite_drop)
@@ -252,9 +242,7 @@ def main(argv: list[str]) -> int:
                 f"({n_finite}) — cannot claim a longer OOS window than the data supports"
             )
         if args.oos_periods <= 0:
-            raise ValueError(
-                f"--oos-periods must be positive, got {args.oos_periods!r}"
-            )
+            raise ValueError(f"--oos-periods must be positive, got {args.oos_periods!r}")
         oos_window = args.oos_periods
     else:
         oos_window = n_finite

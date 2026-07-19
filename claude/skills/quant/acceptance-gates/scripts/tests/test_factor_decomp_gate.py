@@ -23,9 +23,7 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 
-_SPEC = importlib.util.spec_from_file_location(
-    "factor_decomp_gate_cli", SCRIPTS / "factor-decomp-gate.py"
-)
+_SPEC = importlib.util.spec_from_file_location("factor_decomp_gate_cli", SCRIPTS / "factor-decomp-gate.py")
 fd_gate_cli = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(fd_gate_cli)
 

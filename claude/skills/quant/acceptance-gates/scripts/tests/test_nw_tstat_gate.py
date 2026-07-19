@@ -31,9 +31,7 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parent.parent
 
 # nw-tstat-gate.py is hyphenated (CLI convention) -> load it explicitly.
-_SPEC = importlib.util.spec_from_file_location(
-    "nw_tstat_gate_cli", SCRIPTS / "nw-tstat-gate.py"
-)
+_SPEC = importlib.util.spec_from_file_location("nw_tstat_gate_cli", SCRIPTS / "nw-tstat-gate.py")
 nw_gate_cli = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(nw_gate_cli)
 

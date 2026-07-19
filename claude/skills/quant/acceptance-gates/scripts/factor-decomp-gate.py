@@ -110,9 +110,7 @@ def factor_regression(
     responsible for refusing an empty factor list before this is called.
     """
     if not factor_names:
-        raise ValueError(
-            "factor_regression requires at least one factor column, got an empty factor_names list"
-        )
+        raise ValueError("factor_regression requires at least one factor column, got an empty factor_names list")
 
     y = np.asarray(y, dtype=float).ravel()
     F = np.asarray(factors, dtype=float)
@@ -120,9 +118,7 @@ def factor_regression(
         F = F.reshape(-1, 1)
     n, k_f = F.shape
     if k_f == 0:
-        raise ValueError(
-            "factor panel has zero columns — cannot run a factor decomposition"
-        )
+        raise ValueError("factor panel has zero columns — cannot run a factor decomposition")
     k = k_f + 1  # +1 for the intercept
 
     base = {
@@ -180,9 +176,7 @@ def factor_regression(
     ss_tot = float(((y - y.mean()) ** 2).sum())
     r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
 
-    betas = {
-        name: round(float(b), 8) for name, b in zip(factor_names, beta[1:], strict=True)
-    }
+    betas = {name: round(float(b), 8) for name, b in zip(factor_names, beta[1:], strict=True)}
     return {
         "n_obs": int(n),
         "n_factors": int(k_f),
@@ -226,19 +220,13 @@ def _pick_return_column(df, column: str | None):
     for cand in _RETURN_COL_CANDIDATES:
         if cand in df.columns:
             return cand
-    raise SystemExit(
-        f"could not infer return column from {list(df.columns)}; pass --column"
-    )
+    raise SystemExit(f"could not infer return column from {list(df.columns)}; pass --column")
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--returns", required=True, help="strategy return series (parquet/csv)"
-    )
-    ap.add_argument(
-        "--factors", required=True, help="factor return panel (parquet/csv)"
-    )
+    ap.add_argument("--returns", required=True, help="strategy return series (parquet/csv)")
+    ap.add_argument("--factors", required=True, help="factor return panel (parquet/csv)")
     ap.add_argument("--column", default=None, help="strategy return column (else auto)")
     ap.add_argument(
         "--factor-columns",
@@ -294,9 +282,7 @@ def main(argv: list[str]) -> int:
     # Inner-join strategy + factors on their common dates, then drop any row with a
     # missing value so the design matrix is complete. This trims (never pads) the
     # sample — a factor panel that starts later just shortens n_obs.
-    joined = pd.concat(
-        [sdf[[scol]].rename(columns={scol: "__y__"}), fdf[fcols]], axis=1
-    )
+    joined = pd.concat([sdf[[scol]].rename(columns={scol: "__y__"}), fdf[fcols]], axis=1)
     joined = joined.dropna()
 
     y = joined["__y__"].to_numpy(dtype=float)
@@ -321,9 +307,7 @@ def main(argv: list[str]) -> int:
     elif alpha_pass:
         note = "residual alpha significant > 0 after factor controls — plausibly novel edge"
     else:
-        note = (
-            "no significant residual alpha — return explained by factor exposure (FLAG)"
-        )
+        note = "no significant residual alpha — return explained by factor exposure (FLAG)"
 
     out = {
         **reg,
