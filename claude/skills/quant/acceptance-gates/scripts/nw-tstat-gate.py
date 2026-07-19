@@ -18,23 +18,15 @@ Sibling to ``dsr-gate.py``. Two robustness checks the DSR gate does NOT cover
 
 Pure math — keep it out of the model's turns so the verdict is reproducible.
 
-  PROVENANCE + HARDENING (2026-07-19): ported from quantbox-lab's wave-3 draft
-  (branch quark/wave3-gates-clean); codex's adversarial review found two holes
-  in that draft that let a corrupt/degenerate return series slip through, both
-  closed here:
-
-  (a) the loader silently dropped NaN/Inf returns via a boolean mask BEFORE
-      ``n_obs`` was ever counted — a file with 200 legit returns and 500
-      corrupt (NaN) rows would silently report n_obs=200 and could clear
-      ``--min-oos-periods`` on the surviving subset, hiding a real data-quality
-      failure behind a passing gate. Fixed: non-finite values now RAISE
-      (``--allow-nonfinite-drop`` opts back into the old drop-and-continue
-      behavior explicitly, for callers who have already vetted the source).
-  (b) ``--oos-periods`` was trusted even when it EXCEEDED the actual finite
-      return count — a caller could claim a 3-year OOS window on a file that
-      only has 30 real observations and the gate would record and grade that
-      claim uncritically. Fixed: ``--oos-periods`` is now capped to (and must
-      not exceed) the actual finite observation count; exceeding it raises.
+  The HAC statistic itself lives in the framework —
+  ``quantbox.analysis.hac.newey_west_tstat`` (statsmodels-backed, see that
+  module's parity note). This repo owns ZERO of the HAC statistics: this file is
+  CLI plumbing only — load the return series, call the framework, apply the
+  min-OOS-window and t-stat gate policy, print JSON. The non-finite
+  fail-loudly invariant (NaN/Inf RAISE unless ``--allow-nonfinite-drop``) and
+  the Newey-West lag rule also live in the framework; the CLI adds only the
+  ``--oos-periods`` cap (a window claim can only SHRINK the finite-observation
+  count, never inflate it) and the pass/fail thresholds.
 
 Usage:
   nw-tstat-gate.py --returns oos_returns.parquet [--column returns] \\
@@ -54,104 +46,21 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 
 import numpy as np
-from scipy.stats import norm
+from quantbox.analysis import newey_west_tstat
 
 # Columns to try, in order, when --column is not given and the frame has >1 col.
 _RETURN_COL_CANDIDATES = ("returns", "return", "ret", "rets", "pnl", "r")
 
 
-def _newey_west_auto_lags(n: int) -> int:
-    """Newey-West (1994) automatic lag truncation: floor(4 * (n/100)^(2/9))."""
-    return int(math.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
-
-
-def _finite_returns(raw: np.ndarray, *, allow_nonfinite_drop: bool) -> tuple[np.ndarray, int]:
-    """Validate a raw return array: FAIL LOUDLY on NaN/Inf unless explicitly opted out.
-
-    Returns (finite_returns, n_dropped). Raises ValueError when non-finite values
-    are present and ``allow_nonfinite_drop`` is False — a corrupt input must never
-    silently shrink the sample the gate then reports as complete.
-    """
-    r = np.asarray(raw, dtype=float)
-    finite_mask = np.isfinite(r)
-    n_dropped = int((~finite_mask).sum())
-    if n_dropped and not allow_nonfinite_drop:
-        raise ValueError(
-            f"{n_dropped} of {r.size} return observations are NaN/Inf — refusing to silently "
-            "drop them (a corrupt file must not pass on the surviving subset). Pass "
-            "--allow-nonfinite-drop to explicitly opt into dropping them and continuing."
-        )
-    return r[finite_mask], n_dropped
-
-
-def nw_tstat(returns: np.ndarray, lags: int | None = None) -> dict:
-    """Newey-West HAC t-stat on the mean of ``returns``.
-
-    Long-run variance via the Bartlett kernel:
-        LRV = gamma_0 + 2 * sum_{l=1..L} (1 - l/(L+1)) * gamma_l
-    SE of the mean = sqrt(LRV / n); t = mean / SE. Returns the t-stat, two-sided
-    p-value, the lag count used, and the components. A degenerate series (n < 2 or
-    zero long-run variance) yields a None t-stat rather than inf/nan.
-
-    ``returns`` MUST already be finite (see ``_finite_returns``) — this function
-    does not itself filter NaN/Inf.
-    """
-    r = np.asarray(returns, dtype=float)
-    n = r.size
-    if n < 2:
-        return {
-            "n_obs": n,
-            "nw_lags": 0,
-            "mean_return": None,
-            "nw_se": None,
-            "nw_tstat": None,
-            "nw_pvalue": None,
-        }
-
-    if lags is None:
-        lags = _newey_west_auto_lags(n)
-    lags = max(0, min(lags, n - 1))  # can't use more lags than we have data
-
-    mu = float(r.mean())
-    e = r - mu
-    lrv = float(e @ e) / n  # gamma_0
-    for lag in range(1, lags + 1):
-        cov = float(e[lag:] @ e[:-lag]) / n  # gamma_l
-        weight = 1.0 - lag / (lags + 1.0)  # Bartlett kernel
-        lrv += 2.0 * weight * cov
-
-    if lrv <= 0:
-        return {
-            "n_obs": n,
-            "nw_lags": lags,
-            "mean_return": round(mu, 8),
-            "nw_se": None,
-            "nw_tstat": None,
-            "nw_pvalue": None,
-        }
-
-    se = math.sqrt(lrv / n)
-    t = mu / se
-    pval = 2.0 * (1.0 - norm.cdf(abs(t)))
-    return {
-        "n_obs": n,
-        "nw_lags": lags,
-        "mean_return": round(mu, 8),
-        "nw_se": round(se, 8),
-        "nw_tstat": round(t, 4),
-        "nw_pvalue": round(pval, 6),
-    }
-
-
 def _read_returns(path: str, column: str | None) -> np.ndarray:
     """Load a raw return series from parquet / csv / whitespace-delimited text.
 
-    Does NOT filter NaN/Inf — that is ``_finite_returns``'s job, so the caller
-    controls (and the output records) whether/how many were dropped.
+    Does NOT filter NaN/Inf — that is the framework's ``require_finite`` job (via
+    ``newey_west_tstat``), so the caller controls (and the output records)
+    whether/how many were dropped.
     """
     lower = path.lower()
     if lower.endswith(".parquet"):
@@ -177,6 +86,15 @@ def _read_returns(path: str, column: str | None) -> np.ndarray:
         if cand in df.columns:
             return df[cand].to_numpy(dtype=float)
     raise SystemExit(f"could not infer return column from {list(df.columns)}; pass --column")
+
+
+def _round_nw(nw: dict) -> dict:
+    """Round the framework's full-precision stats for JSON display (presentation only)."""
+    out = dict(nw)
+    for key, ndigits in (("mean_return", 8), ("nw_se", 8), ("nw_tstat", 4), ("nw_pvalue", 6)):
+        if out.get(key) is not None:
+            out[key] = round(out[key], ndigits)
+    return out
 
 
 def main(argv: list[str]) -> int:
@@ -220,8 +138,9 @@ def main(argv: list[str]) -> int:
         raise ValueError(f"--min-oos-periods must be positive, got {args.min_oos_periods!r}")
 
     raw = _read_returns(args.returns, args.column)
-    r, n_dropped = _finite_returns(raw, allow_nonfinite_drop=args.allow_nonfinite_drop)
-    nw = nw_tstat(r, lags=args.lags)
+    # The framework validates finiteness (raise-by-default / opt-in drop) and
+    # computes the HAC t-stat. This CLI owns none of that math.
+    nw = _round_nw(newey_west_tstat(raw, lags=args.lags, allow_nonfinite_drop=args.allow_nonfinite_drop))
 
     # Gate 1 — honest t-stat: positive mean AND |t| over the threshold.
     nw_pass = bool(
@@ -250,8 +169,6 @@ def main(argv: list[str]) -> int:
 
     out = {
         **nw,
-        "n_obs_raw": int(raw.size),
-        "n_nonfinite_dropped": n_dropped,
         "nw_pass": nw_pass,
         "oos_window_periods": oos_window,
         "min_oos_periods": args.min_oos_periods,

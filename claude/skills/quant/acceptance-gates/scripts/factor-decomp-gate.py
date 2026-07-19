@@ -30,26 +30,28 @@ as in ``nw-tstat-gate.py``: strategy returns are autocorrelated (overlapping
 signals, trend overlap), and OLS/White SEs would understate the alpha's SE and
 rubber-stamp a spurious edge. HAC corrects the SE of the intercept specifically.
 
-Point-in-time factors: the regression math here is agnostic to how the factor
-series were built, but the GATE IS ONLY AS HONEST AS ITS FACTORS. Factor series
-MUST be constructed point-in-time (weights formed from information available at
-t-1, realised at t) or a look-ahead-contaminated factor will absorb genuine alpha
-and produce a false FAIL — or a look-ahead-leaking strategy will masquerade as
-alpha. Build the crypto factor panel with quantbox-lab's ``crypto_factors.py``
-helper (harness-specific — NOT part of this portable skill, it knows the data),
-which documents its no-look-ahead construction, and feed its output here.
+  The regression + HAC math lives in the framework —
+  ``quantbox.analysis.hac.factor_regression`` (statsmodels-backed). This repo owns
+  ZERO of the regression statistics: this file is CLI plumbing only — load the two
+  frames, resolve/inner-join the columns, guard against an empty factor list, call
+  the framework, apply the alpha t-stat + min-obs gate policy, print JSON.
 
-  PROVENANCE + HARDENING (2026-07-19): ported from quantbox-lab's wave-3 draft
-  (branch quark/wave3-gates-clean); codex's adversarial review found a hole in
-  that draft closed here: an EMPTY factor list (e.g. ``--factor-columns ","``,
-  which parses to ``[]`` and silently bypassed the "else use all numeric
-  columns" fallback since that fallback only triggers when the flag is None)
-  produced a valid, intercept-only regression that could PASS purely on the
-  raw mean return — i.e. exactly the "is this just beta in disguise" failure
-  this gate exists to catch, undetected because k_f=0 is numerically valid.
-  Fixed: an explicitly empty (post-parse) factor-column list now raises,
-  whether it came from ``--factor-columns`` or (impossible in practice, but
-  guarded anyway) an empty auto-detected numeric-column set.
+Point-in-time factors: the regression math is agnostic to how the factor series
+were built, but the GATE IS ONLY AS HONEST AS ITS FACTORS. Factor series MUST be
+constructed point-in-time (weights formed from information available at t-1,
+realised at t) or a look-ahead-contaminated factor will absorb genuine alpha and
+produce a false FAIL — or a look-ahead-leaking strategy will masquerade as alpha.
+Building the point-in-time crypto factor panel is a harness-specific,
+data-aware job that belongs to the consuming research repo (NOT this portable
+gate) — feed an already-built factor series in via ``--factors``.
+
+  HARDENING (2026-07-19): codex's adversarial review found a hole where an EMPTY
+  factor list (e.g. ``--factor-columns ","``, which parses to ``[]``) produced a
+  valid, intercept-only regression that could PASS purely on the raw mean return —
+  exactly the "is this just beta in disguise" failure this gate exists to catch.
+  Guarded here: an explicitly empty (post-parse) factor-column list raises, whether
+  it came from ``--factor-columns`` or an empty auto-detected numeric-column set.
+  The framework's ``factor_regression`` also refuses an empty ``factor_names``.
 
 Usage:
   factor-decomp-gate.py --returns strat_returns.parquet \\
@@ -69,126 +71,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 
-import numpy as np
-from scipy.stats import norm
-
-
-def _newey_west_auto_lags(n: int) -> int:
-    """Newey-West (1994) automatic lag truncation: floor(4 * (n/100)^(2/9))."""
-    return int(math.floor(4 * (n / 100.0) ** (2.0 / 9.0)))
-
-
-def factor_regression(
-    y: np.ndarray,
-    factors: np.ndarray,
-    factor_names: list[str],
-    lags: int | None = None,
-) -> dict:
-    """OLS of ``y`` on an intercept + ``factors`` with Newey-West HAC SEs.
-
-    Pure, testable core — no I/O. ``y`` is the strategy return series (shape n),
-    ``factors`` is the aligned factor panel (shape n x k), ``factor_names`` labels
-    the k columns. Fits ``y = alpha + factors @ beta + e`` and returns the betas,
-    Jensen's alpha (the intercept), and the HAC-robust SE / one-sided t-stat of the
-    alpha under H0: alpha <= 0.
-
-    HAC coefficient covariance is the sandwich
-        V = (X'X)^-1 . S . (X'X)^-1
-    where the "meat" S is the Newey-West long-run covariance of the score x_t*e_t:
-        S = Gamma_0 + sum_{l=1..L} w_l (Gamma_l + Gamma_l'),  w_l = 1 - l/(L+1),
-        Gamma_l = sum_t (x_t e_t)(x_{t-l} e_{t-l})'.
-    SE(alpha) = sqrt(V[0, 0]). With L = 0 this reduces to the White (HC0) SE.
-
-    A degenerate fit (too few observations, or a singular/near-collinear design)
-    yields ``alpha_tstat = None`` rather than a spurious number.
-
-    Requires at least one factor column — an intercept-only "regression" is not a
-    factor decomposition and must not be constructed here; the caller (main) is
-    responsible for refusing an empty factor list before this is called.
-    """
-    if not factor_names:
-        raise ValueError("factor_regression requires at least one factor column, got an empty factor_names list")
-
-    y = np.asarray(y, dtype=float).ravel()
-    F = np.asarray(factors, dtype=float)
-    if F.ndim == 1:
-        F = F.reshape(-1, 1)
-    n, k_f = F.shape
-    if k_f == 0:
-        raise ValueError("factor panel has zero columns — cannot run a factor decomposition")
-    k = k_f + 1  # +1 for the intercept
-
-    base = {
-        "n_obs": int(n),
-        "n_factors": int(k_f),
-        "factors": list(factor_names),
-        "hac_lags": 0,
-        "betas": None,
-        "alpha": None,
-        "alpha_se": None,
-        "alpha_tstat": None,
-        "alpha_pvalue_onesided": None,
-        "r_squared": None,
-    }
-    # Need strictly more observations than parameters for any residual d.o.f.
-    if n < k + 1:
-        return base
-
-    X = np.column_stack([np.ones(n), F])  # n x k, intercept first
-    XtX = X.T @ X
-    try:
-        XtX_inv = np.linalg.inv(XtX)
-    except np.linalg.LinAlgError:
-        return base  # perfectly collinear factors — refuse to fabricate an alpha
-
-    beta = XtX_inv @ (X.T @ y)
-    resid = y - X @ beta
-
-    if lags is None:
-        lags = _newey_west_auto_lags(n)
-    lags = max(0, min(lags, n - 1))
-
-    # Score matrix s_t = x_t * e_t  (n x k); build the NW long-run covariance.
-    s = X * resid[:, None]
-    meat = s.T @ s  # Gamma_0
-    for lag in range(1, lags + 1):
-        g = s[lag:].T @ s[:-lag]  # Gamma_l
-        weight = 1.0 - lag / (lags + 1.0)  # Bartlett kernel
-        meat += weight * (g + g.T)
-
-    cov = XtX_inv @ meat @ XtX_inv
-    var_diag = np.diag(cov)
-    # Numerical guard: a non-positive variance means the fit is degenerate.
-    if not np.all(np.isfinite(var_diag)) or var_diag[0] <= 0:
-        return base
-    se = np.sqrt(var_diag)
-
-    alpha = float(beta[0])
-    alpha_se = float(se[0])
-    alpha_t = alpha / alpha_se
-    # One-sided (H1: alpha > 0). p = P(Z > t) = 1 - Phi(t).
-    alpha_p = float(1.0 - norm.cdf(alpha_t))
-
-    ss_res = float(resid @ resid)
-    ss_tot = float(((y - y.mean()) ** 2).sum())
-    r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
-
-    betas = {name: round(float(b), 8) for name, b in zip(factor_names, beta[1:], strict=True)}
-    return {
-        "n_obs": int(n),
-        "n_factors": int(k_f),
-        "factors": list(factor_names),
-        "hac_lags": int(lags),
-        "betas": betas,
-        "alpha": round(alpha, 8),
-        "alpha_se": round(alpha_se, 8),
-        "alpha_tstat": round(alpha_t, 4),
-        "alpha_pvalue_onesided": round(alpha_p, 6),
-        "r_squared": round(r_squared, 6) if r_squared is not None else None,
-    }
+from quantbox.analysis import factor_regression
 
 
 def _read_frame(path: str):
@@ -221,6 +106,23 @@ def _pick_return_column(df, column: str | None):
         if cand in df.columns:
             return cand
     raise SystemExit(f"could not infer return column from {list(df.columns)}; pass --column")
+
+
+def _round_reg(reg: dict) -> dict:
+    """Round the framework's full-precision regression stats for JSON display."""
+    out = dict(reg)
+    if out.get("betas") is not None:
+        out["betas"] = {name: round(b, 8) for name, b in out["betas"].items()}
+    for key, ndigits in (
+        ("alpha", 8),
+        ("alpha_se", 8),
+        ("alpha_tstat", 4),
+        ("alpha_pvalue_onesided", 6),
+        ("r_squared", 6),
+    ):
+        if out.get(key) is not None:
+            out[key] = round(out[key], ndigits)
+    return out
 
 
 def main(argv: list[str]) -> int:
@@ -288,7 +190,7 @@ def main(argv: list[str]) -> int:
     y = joined["__y__"].to_numpy(dtype=float)
     F = joined[fcols].to_numpy(dtype=float)
 
-    reg = factor_regression(y, F, fcols, lags=args.lags)
+    reg = _round_reg(factor_regression(y, F, fcols, lags=args.lags))
 
     # Gate 1 — residual (Jensen's) alpha significantly > 0.
     alpha_pass = bool(

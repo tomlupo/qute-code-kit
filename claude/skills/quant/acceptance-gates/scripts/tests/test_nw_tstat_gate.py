@@ -1,17 +1,15 @@
-"""Tests for the Newey-West (HAC) t-stat + min-OOS-window gate.
+"""CLI tests for the Newey-West (HAC) t-stat + min-OOS-window gate.
 
-Previously MISSING entirely (2026-07-19 acceptance-gates skill split) — codex's
-adversarial review of the wave-3 draft found two holes in nw-tstat-gate.py that
-let a corrupt/degenerate return series slip a robustness gate:
+The HAC math itself now lives in the framework (``quantbox.analysis.hac``) and is
+regression-tested there (``quantbox/tests/test_analysis_hac.py`` +
+``test_hac_parity.py``). This suite covers only what the thin CLI owns: loading,
+the fail-loud non-finite policy surfaced end-to-end, the ``--oos-periods`` cap,
+and the two-part gate decision. Both codex-found holes stay pinned as CLI
+regressions:
 
-1. The loader silently dropped NaN/Inf returns via a boolean mask BEFORE n_obs
-   was counted, so a file with 200 legit + 500 corrupt rows could quietly pass
-   --min-oos-periods on the surviving 200 — a real data-quality failure hiding
-   behind a green gate.
-2. --oos-periods was trusted even when it EXCEEDED the actual finite return
-   count, letting a caller claim a longer OOS window than the data supports.
-
-Both are pinned as regressions here, alongside the existing math coverage.
+1. A file with 200 legit + 500 corrupt (NaN) rows must NOT quietly pass
+   --min-oos-periods on the surviving 200 — it must refuse outright.
+2. --oos-periods must never be trusted beyond the actual finite return count.
 
 Run: pytest scripts/tests/test_nw_tstat_gate.py -q
 """
@@ -26,80 +24,19 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 
-# nw-tstat-gate.py is hyphenated (CLI convention) -> load it explicitly.
+# nw-tstat-gate.py is hyphenated (CLI convention) -> load it explicitly. Importing
+# it exercises the thin CLI's `from quantbox.analysis import newey_west_tstat`.
 _SPEC = importlib.util.spec_from_file_location("nw_tstat_gate_cli", SCRIPTS / "nw-tstat-gate.py")
 nw_gate_cli = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(nw_gate_cli)
 
 
 # ---------------------------------------------------------------------------
-# nw_tstat() — the shared math (pure function, no I/O)
+# HOLE 1: silent NaN/Inf drop before counting n_obs — must FAIL LOUDLY (CLI)
 # ---------------------------------------------------------------------------
-
-
-def test_nw_tstat_iid_normal_matches_naive_se_at_zero_lags():
-    """With lags=0, the Newey-West SE collapses to the plain iid SE of the mean."""
-    rng = np.random.default_rng(3)
-    r = rng.normal(0.001, 0.02, 2000)
-    out = nw_gate_cli.nw_tstat(r, lags=0)
-    naive_se = r.std(ddof=0) / np.sqrt(len(r))
-    assert out["nw_se"] == pytest.approx(naive_se, abs=1e-8)
-    assert out["mean_return"] == pytest.approx(float(r.mean()), abs=1e-8)
-
-
-def test_nw_tstat_autocorrelated_returns_inflates_se_vs_naive():
-    """Positively autocorrelated returns must widen the NW SE vs the naive iid SE —
-    that inflation is the entire point of using HAC over a plain t-test."""
-    rng = np.random.default_rng(11)
-    eps = rng.normal(0, 1, 3000)
-    ar = np.zeros(3000)
-    for t in range(1, 3000):
-        ar[t] = 0.6 * ar[t - 1] + eps[t]
-    r = ar * 0.001 + 0.0005
-    out = nw_gate_cli.nw_tstat(r)
-    naive_se = r.std(ddof=0) / np.sqrt(len(r))
-    assert out["nw_se"] > naive_se
-
-
-def test_nw_tstat_degenerate_single_obs_returns_none_not_nan():
-    out = nw_gate_cli.nw_tstat(np.array([0.01]))
-    assert out["n_obs"] == 1
-    assert out["nw_tstat"] is None
-    assert out["nw_se"] is None
-
-
-def test_nw_tstat_zero_variance_returns_none_not_inf():
-    out = nw_gate_cli.nw_tstat(np.zeros(100))
-    assert out["nw_tstat"] is None
-    assert out["nw_se"] is None
-
-
-# ---------------------------------------------------------------------------
-# HOLE 1: silent NaN/Inf drop before counting n_obs — must now FAIL LOUDLY
-# ---------------------------------------------------------------------------
-
-
-def test_finite_returns_rejects_nan_by_default():
-    r = np.array([0.01, 0.02, np.nan, 0.01, -0.01])
-    with pytest.raises(ValueError, match="NaN/Inf"):
-        nw_gate_cli._finite_returns(r, allow_nonfinite_drop=False)
-
-
-def test_finite_returns_rejects_inf_by_default():
-    r = np.array([0.01, np.inf, 0.01, -0.01])
-    with pytest.raises(ValueError, match="NaN/Inf"):
-        nw_gate_cli._finite_returns(r, allow_nonfinite_drop=False)
-
-
-def test_finite_returns_allows_explicit_opt_out():
-    r = np.array([0.01, 0.02, np.nan, 0.01, -0.01])
-    finite, n_dropped = nw_gate_cli._finite_returns(r, allow_nonfinite_drop=True)
-    assert n_dropped == 1
-    assert finite.size == 4
 
 
 def test_cli_corrupt_file_raises_instead_of_silently_shrinking_sample(tmp_path):
@@ -288,7 +225,3 @@ def test_cli_short_window_fails_gate_even_with_strong_tstat(tmp_path):
     out = json.loads(proc.stdout)
     assert out["oos_window_pass"] is False
     assert out["gate_pass"] is False
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-q"]))

@@ -1,12 +1,12 @@
 ---
 name: acceptance-gates
-description: "Deterministic robustness/acceptance gates for a quant backtest finding — Deflated Sharpe Ratio (DSR, Bailey/López de Prado), Newey-West HAC t-stat + min-OOS-window, and factor-decomposition (Jensen's alpha). Pure statistical methodology, portable to any quant repo — no harness/config/universe knowledge required. Triggers: DSR gate, deflated sharpe, is this overfit, multiple-testing correction, Newey-West t-stat, HAC standard errors, factor decomposition, Jensen's alpha, is this just beta, acceptance gate, robustness gate before promotion."
+description: "Deterministic robustness/acceptance gates for a quant backtest finding — Deflated Sharpe Ratio (DSR, Bailey/López de Prado), Newey-West HAC t-stat + min-OOS-window, and factor-decomposition (Jensen's alpha). Thin CLIs over the quantbox framework's tested statistics (quantbox.analysis); requires quantbox installed. Triggers: DSR gate, deflated sharpe, is this overfit, multiple-testing correction, Newey-West t-stat, HAC standard errors, factor decomposition, Jensen's alpha, is this just beta, acceptance gate, robustness gate before promotion."
 ---
 
 # acceptance-gates — DSR / Newey-West / factor-decomposition robustness gates
 
-Three deterministic, pure-math CLI gates that answer three DIFFERENT questions about
-a candidate strategy's backtest result, before it's trusted enough to promote:
+Three deterministic, thin CLI gates that answer three DIFFERENT questions about a
+candidate strategy's backtest result, before it's trusted enough to promote:
 
 | Gate | Question | Script |
 |---|---|---|
@@ -14,14 +14,45 @@ a candidate strategy's backtest result, before it's trusted enough to promote:
 | **Newey-West** | Is the mean OOS return significant once autocorrelation is corrected for, AND was the OOS window long enough to trust at all? | `scripts/nw-tstat-gate.py` |
 | **Factor decomposition** | Is the return NOVEL, or just paid-for exposure to a known factor (beta, momentum, carry)? | `scripts/factor-decomp-gate.py` |
 
-None of these need to know anything about a specific harness, config format, or
-dataset — they take a return series (CSV/Parquet) and print a JSON verdict. That's
-what makes this skill portable: copy it into any quant repo unchanged.
+Each takes a return series (CSV/Parquet) and prints a JSON verdict. None of them
+know anything about a specific harness, config format, or dataset — they consume
+an already-built return/factor series.
 
-**What stays OUT of this skill on purpose:** anything that knows how to BUILD the
-input series from harness-specific data (e.g. a crypto factor panel from a specific
-dataset/universe) belongs to the consuming repo, not here — see quantbox-lab's
-`crypto_factors.py`. This skill only consumes an already-built return/factor series.
+**The statistics themselves are NOT in this skill.** They live in the quantbox
+framework (`quantbox.analysis`), which is tested there (parity proof against the
+retired hand-rolled implementations, plus the pinned DSR false-PASS-band
+regression). Each script here is a THIN wrapper: it loads the data, calls the
+framework, applies the gate's threshold/policy, and prints JSON. This is
+deliberate — three independent hand-rolled copies of the DSR math once co-existed
+and drifted (one silently passed overfit strategies with a naive normal null),
+which is exactly what centralising the math into one tested home prevents.
+
+**What stays OUT of the gates on purpose:** anything that knows how to BUILD the
+input series from harness-specific data (e.g. a point-in-time crypto factor panel
+from a specific dataset/universe) belongs to the consuming research repo, not
+here. These gates only consume an already-built return/factor series.
+
+## Runtime dependencies (state them before you run)
+
+These gates import the framework:
+
+```python
+from quantbox.analysis import deflated_sharpe_ratio_from_returns   # dsr-gate.py
+from quantbox.analysis import newey_west_tstat                     # nw-tstat-gate.py
+from quantbox.analysis import factor_regression                    # factor-decomp-gate.py
+```
+
+- **`quantbox`** (with `quantbox.analysis`, i.e. a version that carries the
+  `analysis.dsr` + `analysis.hac` modules — statsmodels-backed HAC landed
+  alongside DSR). This is the ONE hard dependency; everything else
+  (`numpy`, `scipy`, `pandas`, `patsy`, `statsmodels`) comes transitively with
+  it. If `import quantbox.analysis` fails, install quantbox in the environment
+  you run these from — do not reintroduce a local copy of the math.
+- **`pytest`** additionally, to run this skill's own CLI test suite.
+
+Because the gates now depend on quantbox, "portable to any quant repo" narrows to
+"portable to any repo that has quantbox installed" — the trade for never
+hand-rolling (and re-bugging) the statistics again.
 
 ## Ethos — assume overfit until proven
 
@@ -53,30 +84,27 @@ judgment call.** Instead:
 dsr-gate.py --returns oos_returns.csv --n-trials 1,5,10,20,50,100 --periods 365
 ```
 
-This is the convention already used in quantbox-lab's
-`scripts/analysis/carver_prelive_gauntlet.py` (see its `N_TRIALS` sensitivity sweep
-and its own comment on why: *"DSR is reported across a range of N so the verdict does
-not hinge on one count"*). The gate's `dsr_pass` is decided from the **conservative
-end** (the highest n_trials in the range — most deflation, lowest DSR), never from
-whichever n_trials value happens to pass. Default range: `1,5,10,20,50,100`. Default
-threshold: **0.95**, one-sided (Bailey/López de Prado standard — do not lower it to
-make a result pass). `--threshold` must be finite and strictly between 0 and 1 — a
-threshold of 0 or negative would make nearly any DSR pass.
+The gate's `dsr_pass` is decided from the **conservative end** (the highest n_trials
+in the range — most deflation, lowest DSR), never from whichever n_trials value
+happens to pass. Default range: `1,5,10,20,50,100`. Default threshold: **0.95**,
+one-sided (Bailey/López de Prado standard — do not lower it to make a result pass).
+`--threshold` must be finite and strictly between 0 and 1.
 
 **Kurtosis convention (load-bearing, easy to get wrong):** `--kurtosis` and the
 return-series path both use **PEARSON (non-excess) kurtosis**, where 3.0 = normal
 distribution — NOT excess kurtosis (0.0 = normal). `scipy.stats.kurtosis()` returns
 EXCESS kurtosis by **default** (`fisher=True`); you must pass `fisher=False` to get
 the convention this gate expects. Passing excess kurtosis silently understates the
-Mertens variance term and can flip a FAIL to a PASS. `scripts/lib/dsr.py` now rejects
+Mertens variance term and can flip a FAIL to a PASS. `quantbox.analysis.dsr` rejects
 any skew/kurtosis pair that is mathematically impossible under the Pearson convention
-(`kurtosis < skew**2 + 1` — an algebraic identity, not a modelling choice), which
-catches the most common form of this mixup, e.g. `skew=0, kurtosis=0`.
+(`kurtosis < skew**2 + 1` — an algebraic identity), which catches the most common
+form of this mixup, e.g. `skew=0, kurtosis=0`.
 
 **IID assumption:** the annualisation (`sqrt(periods)` scaling between per-period and
 annualised Sharpe) assumes returns are i.i.d. — no serial autocorrelation. If the
 return series is autocorrelated (overlapping windows, slow-moving positions), the
-annualisation is biased and the gate's threshold comparison is not reliable as stated.
+annualisation is biased and the gate's threshold comparison is not reliable as stated
+(use the Newey-West gate for an autocorrelation-robust t-stat).
 
 ## Quick start
 
@@ -97,64 +125,50 @@ print `{"error": "..."}` on degenerate input — **never treat a non-zero exit a
 gate didn't run, ignore it" — it means the input itself is broken and needs fixing,
 not bypassing.**
 
-## Runtime dependencies
-
-`numpy`, `scipy`, `pandas` (all three gates). Tests additionally need `pytest`. Not
-pinned in this repo's `pyproject.toml` on purpose (see repo `CLAUDE.md` — this repo
-is a plugin marketplace, not a Python package) — the consuming repo's own environment
-is expected to already carry these (any quant harness does). To run this skill's own
-test suite in isolation:
-
-```bash
-uv run --with numpy --with scipy --with pandas --with pytest \
-    pytest claude/skills/quant/acceptance-gates/scripts/tests/ -q
-```
-
 ## Degenerate input — every gate fails loudly, never silently passes
 
-This is the load-bearing invariant of the whole skill; each gate was hardened
-specifically against a class of silent-pass bug found by adversarial (codex) review:
+The load-bearing invariant, enforced in the framework so every caller inherits it:
 
-- **`dsr-gate.py`**: rejects inf/NaN Sharpe, `n_trials<=0` (any entry in the range),
-  `periods<=0`, `n_obs<=1`, negative SR-estimator variance (garbage skew/kurtosis
-  combos), zero-variance returns. `--sharpe` without `--skew`/`--kurtosis`/`--n-obs`
-  is refused outright — there is no default skew=0/kurtosis=3 (that WAS the original
-  bug: see `scripts/lib/dsr.py`'s module docstring and the pinned false-PASS-band
-  regression test).
-- **`nw-tstat-gate.py`**: NaN/Inf return observations now RAISE by default instead of
-  being silently dropped before `n_obs` is counted (`--allow-nonfinite-drop` opts
-  back in explicitly, and the output then records `n_obs_raw` /
-  `n_nonfinite_dropped` so the drop is visible, never hidden). `--oos-periods` can
-  only narrow the recorded window, never claim more than the actual finite-return
-  count — exceeding it raises.
-- **`factor-decomp-gate.py`**: an empty factor-column list (explicit
-  `--factor-columns ","`, or in principle a factor file with zero numeric columns)
-  raises rather than silently running an intercept-only "regression" that can PASS
-  on raw mean return alone — an intercept-only fit is not a factor decomposition.
-
-See `scripts/tests/` for the pinned regression covering each hole, and `references/`
-for the design write-ups this hardening pass produced.
+- **DSR** (`quantbox.analysis.dsr`): rejects inf/NaN Sharpe, `n_trials<=0`,
+  `periods<=0`, `n_obs<=1`, negative SR-estimator variance (garbage
+  skew/kurtosis), zero-variance returns, and impossible Pearson moments.
+  `--sharpe` without `--skew`/`--kurtosis`/`--n-obs` is refused outright — there
+  is no default skew=0/kurtosis=3 (that WAS the original normal-null bug).
+- **Newey-West** (`quantbox.analysis.hac.newey_west_tstat` +
+  `nw-tstat-gate.py`): NaN/Inf return observations RAISE by default
+  (`--allow-nonfinite-drop` opts back in explicitly, and the output records
+  `n_obs_raw` / `n_nonfinite_dropped`). `--oos-periods` can only narrow the
+  recorded window, never claim more than the actual finite-return count.
+- **Factor decomposition** (`quantbox.analysis.hac.factor_regression` +
+  `factor-decomp-gate.py`): an empty factor-column list raises rather than
+  silently running an intercept-only "regression" that can PASS on raw mean
+  return alone.
 
 ## Files
 
 ```
 scripts/
-  lib/dsr.py              shared DSR math (SINGLE SOURCE OF TRUTH — do not
-                           reimplement skew/kurtosis/expected-max-SR elsewhere)
   dsr-gate.py              DSR CLI gate (n_trials range, conservative-end decision)
   nw-tstat-gate.py         Newey-West HAC t-stat + min-OOS-window CLI gate
   factor-decomp-gate.py    factor-decomposition (Jensen's alpha) CLI gate
   tests/
-    test_dsr_gate.py
+    test_dsr_gate.py           CLI-level tests (the math regression lives in quantbox)
     test_nw_tstat_gate.py
     test_factor_decomp_gate.py
 ```
 
+The DSR / Newey-West / factor-regression math and its regression suite live in the
+`quantbox` framework (`quantbox.analysis.dsr`, `quantbox.analysis.hac`), not here.
+Do NOT reimplement skew/kurtosis/expected-max-SR or a HAC sandwich in this repo —
+import from `quantbox.analysis`.
+
 ## Provenance
 
-Ported from quantbox-lab (which knows the crypto-trend harness and originally hosted
-these gates) 2026-07-19, after Tom approved the split: pure statistical methodology
-→ here (portable to any quant repo); anything that knows quantbox's configs,
-universes, or dataset paths → stays in quantbox-lab's `.claude/skills/`. See the sync
-mechanism (provenance stamp + drift checker) documented at the repo level for how
-quantbox-lab's copy is kept honest against this canonical version.
+The gates originally hand-rolled their statistics inside these scripts (and, in
+quantbox-lab, in a `scripts/lib/dsr.py` and in `carver_prelive_gauntlet.py`).
+2026-07-19 those statistics were consolidated into the quantbox framework
+(`quantbox.analysis`), where they are packaged, typed, and tested — including a
+numeric-parity proof that the statsmodels-backed HAC reproduces the retired
+hand-rolled estimator to machine precision. These scripts became thin wrappers.
+The framework-usage linter (`scripts/lint/check_framework_usage.py`) now hard-gates
+re-introducing a hand-rolled DSR / Newey-West / OLS in the lab.
