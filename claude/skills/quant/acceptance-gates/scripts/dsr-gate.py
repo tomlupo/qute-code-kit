@@ -34,6 +34,22 @@ only: parse args, load returns, call the shared function once per n_trials
 in the range, apply the acceptance threshold at the conservative end, print
 JSON.
 
+KURTOSIS CONVENTION: --kurtosis (summary-stats path) and the return-series
+path both use PEARSON (non-excess) kurtosis, where 3.0 = normal distribution
+— NOT excess kurtosis (0.0 = normal). scipy.stats.kurtosis() returns EXCESS
+kurtosis by DEFAULT (fisher=True); you must pass fisher=False to get the
+convention this gate expects. Passing excess kurtosis here silently
+understates the Mertens variance term and can flip a FAIL to a PASS.
+lib/dsr.py rejects any skew/kurtosis pair that is mathematically impossible
+under the Pearson convention (kurtosis < skew**2 + 1) — this is the most
+common way the excess/Pearson mixup surfaces.
+
+IID ASSUMPTION: the annualisation (sqrt(periods) scaling between per-period
+and annualised Sharpe, both directions) assumes returns are i.i.d. — no
+serial autocorrelation. If the return series is autocorrelated (e.g. from
+overlapping windows or slow-moving positions), sqrt(T) annualisation is
+biased and this gate's threshold comparison is not reliable as stated.
+
 Two ways to provide input — pick ONE:
 
   1. --returns <file>   (RECOMMENDED, the only way to get genuine DSR)
@@ -88,7 +104,9 @@ def _parse_n_trials_range(raw: str) -> list[int]:
         try:
             n = int(p)
         except ValueError as e:
-            raise ValueError(f"--n-trials entries must be integers, got {p!r} in {raw!r}") from e
+            raise ValueError(
+                f"--n-trials entries must be integers, got {p!r} in {raw!r}"
+            ) from e
         if n <= 0:
             raise ValueError(
                 f"--n-trials entries must be positive, got {n!r} in {raw!r} (no multiple-testing penalty removal)"
@@ -111,7 +129,9 @@ def _load_returns_column(path: str):
     if df.shape[1] == 1:
         col = df.iloc[:, 0]
     else:
-        candidates = [c for c in df.columns if str(c).lower() in ("return", "returns", "ret", "r")]
+        candidates = [
+            c for c in df.columns if str(c).lower() in ("return", "returns", "ret", "r")
+        ]
         if not candidates:
             raise ValueError(
                 f"returns file has {df.shape[1]} columns and none is named "
@@ -138,7 +158,9 @@ def _by_n_trials(
     sr_period = sr_period_of
     by_n: dict[int, dict] = {}
     for n in n_trials_range:
-        res = deflated_sharpe_ratio(sr=sr_period, T=T, skew=skew, kurtosis=kurtosis, n_trials=n)
+        res = deflated_sharpe_ratio(
+            sr=sr_period, T=T, skew=skew, kurtosis=kurtosis, n_trials=n
+        )
         by_n[n] = {
             "sr_std": round(res.sr_std, 6),
             "sr0_annualized": round(res.sr0_period * ann, 4),
@@ -167,7 +189,9 @@ def run_from_returns(args) -> dict:
         kurtosis=seed.kurtosis,
         periods=args.periods,
     )
-    return _to_output(seed, by_n=by_n, n_years=n_years, periods=args.periods, threshold=args.threshold)
+    return _to_output(
+        seed, by_n=by_n, n_years=n_years, periods=args.periods, threshold=args.threshold
+    )
 
 
 def run_from_summary(args) -> dict:
@@ -196,10 +220,14 @@ def run_from_summary(args) -> dict:
         kurtosis=args.kurtosis,
         periods=args.periods,
     )
-    return _to_output(seed, by_n=by_n, n_years=n_years, periods=args.periods, threshold=args.threshold)
+    return _to_output(
+        seed, by_n=by_n, n_years=n_years, periods=args.periods, threshold=args.threshold
+    )
 
 
-def _to_output(seed, *, by_n: dict, n_years: float, periods: int, threshold: float) -> dict:
+def _to_output(
+    seed, *, by_n: dict, n_years: float, periods: int, threshold: float
+) -> dict:
     ann = math.sqrt(periods)
     n_conservative = max(by_n.keys())  # highest n_trials = most deflated = conservative
     dsr_conservative = by_n[n_conservative]["dsr"]
@@ -220,7 +248,9 @@ def _to_output(seed, *, by_n: dict, n_years: float, periods: int, threshold: flo
 
 
 def main(argv: list[str]) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument(
         "--returns",
         type=str,
@@ -243,7 +273,11 @@ def main(argv: list[str]) -> int:
         "--kurtosis",
         type=float,
         default=None,
-        help="per-period non-excess kurtosis, i.e. 3.0=normal (summary-stats path only, REQUIRED with --sharpe)",
+        help=(
+            "per-period PEARSON (non-excess) kurtosis, i.e. 3.0=normal — NOT excess kurtosis "
+            "(0.0=normal). scipy.stats.kurtosis() defaults to excess (fisher=True); pass "
+            "fisher=False to get this convention. (summary-stats path only, REQUIRED with --sharpe)"
+        ),
     )
     ap.add_argument(
         "--n-obs",
@@ -261,19 +295,36 @@ def main(argv: list[str]) -> int:
             "The gate decision is taken from the MAX (most conservative) value."
         ),
     )
-    ap.add_argument("--periods", type=int, default=365, help="periods per year (quantbox uses 365)")
+    ap.add_argument(
+        "--periods",
+        type=int,
+        default=365,
+        help="periods per year (quantbox uses 365); annualisation assumes i.i.d. returns (no autocorrelation)",
+    )
     ap.add_argument(
         "--threshold",
         type=float,
         default=0.95,
-        help="DSR acceptance threshold (default 0.95, Bailey/López de Prado)",
+        help="DSR acceptance threshold, strictly between 0 and 1 (default 0.95, Bailey/López de Prado)",
     )
     args = ap.parse_args(argv)
 
+    if not math.isfinite(args.threshold) or not (0 < args.threshold < 1):
+        ap.error(
+            f"--threshold must be finite and strictly between 0 and 1, got {args.threshold!r} "
+            "(e.g. --threshold 0 or a negative value would make almost any DSR pass)"
+        )
+
     if args.returns is not None:
-        extra = [n for n in ("sharpe", "skew", "kurtosis", "n_obs") if getattr(args, n) is not None]
+        extra = [
+            n
+            for n in ("sharpe", "skew", "kurtosis", "n_obs")
+            if getattr(args, n) is not None
+        ]
         if extra:
-            ap.error(f"--returns is mutually exclusive with summary-stats args: {extra}")
+            ap.error(
+                f"--returns is mutually exclusive with summary-stats args: {extra}"
+            )
         out = run_from_returns(args)
     elif args.sharpe is not None:
         missing = [n for n in ("skew", "kurtosis", "n_obs") if getattr(args, n) is None]
@@ -285,7 +336,9 @@ def main(argv: list[str]) -> int:
             )
         out = run_from_summary(args)
     else:
-        ap.error("provide either --returns <file>, or --sharpe together with --skew/--kurtosis/--n-obs")
+        ap.error(
+            "provide either --returns <file>, or --sharpe together with --skew/--kurtosis/--n-obs"
+        )
 
     print(json.dumps(out, indent=2))
     return 0

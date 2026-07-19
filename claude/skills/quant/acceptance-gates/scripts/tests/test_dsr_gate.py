@@ -67,7 +67,9 @@ def test_expected_max_sr_rejects_nonpositive_trials():
 def test_dsr_normal_returns_matches_hand_derivation():
     """skew=0, kurtosis=3 (normal): sr_std = sqrt((1 + 0.5*sr^2)/(T-1))."""
     sr, T, n_trials = 0.1, 500, 10
-    result = deflated_sharpe_ratio(sr=sr, T=T, skew=0.0, kurtosis=3.0, n_trials=n_trials)
+    result = deflated_sharpe_ratio(
+        sr=sr, T=T, skew=0.0, kurtosis=3.0, n_trials=n_trials
+    )
     expected_sr_std = math.sqrt((1 - 0.0 * sr + (3.0 - 1) / 4 * sr**2) / (T - 1))
     assert result.sr_std == pytest.approx(expected_sr_std, rel=1e-9)
     expected_sr0 = expected_sr_std * expected_max_sr(n_trials)
@@ -94,6 +96,71 @@ def test_dsr_fat_tails_reduce_confidence_vs_normal():
     fat_tailed = deflated_sharpe_ratio(skew=0.0, kurtosis=9.0, **kwargs)
     assert fat_tailed.sr_std > normal.sr_std
     assert fat_tailed.dsr < normal.dsr
+
+
+@pytest.mark.parametrize("skew", [0.5, -0.5])
+def test_dsr_nonzero_skew_matches_hand_derivation(skew):
+    """Pin an exact DSR value at nonzero skew of BOTH signs, independently derived
+    from the Mertens formula here in the test (not copied from the implementation's
+    printed output) -- a sign error in the skew term (e.g. `+ skew * sr` instead of
+    `- skew * sr`) would flip which sign gives the higher DSR and fail this."""
+    sr, T, kurtosis, n_trials = 0.12, 400, 4.0, 8
+    result = deflated_sharpe_ratio(
+        sr=sr, T=T, skew=skew, kurtosis=kurtosis, n_trials=n_trials
+    )
+
+    expected_variance = (1 - skew * sr + (kurtosis - 1) / 4 * sr**2) / (T - 1)
+    expected_sr_std = math.sqrt(expected_variance)
+    expected_e_max = (1 - 0.5772156649015329) * stats.norm.ppf(
+        1 - 1.0 / n_trials
+    ) + 0.5772156649015329 * stats.norm.ppf(1 - 1.0 / (n_trials * math.e))
+    expected_sr0 = expected_sr_std * expected_e_max
+    expected_z = (sr - expected_sr0) / expected_sr_std
+    expected_dsr = stats.norm.cdf(expected_z)
+
+    assert result.sr_std == pytest.approx(expected_sr_std, rel=1e-9)
+    assert result.dsr == pytest.approx(expected_dsr, rel=1e-9)
+
+
+def test_dsr_positive_vs_negative_skew_give_different_dsr():
+    """Sanity companion to the above: flipping skew's sign must change the DSR
+    (catches a skew term that was accidentally dropped/squared/abs'd)."""
+    kwargs = dict(sr=0.12, T=400, kurtosis=4.0, n_trials=8)
+    pos = deflated_sharpe_ratio(skew=0.5, **kwargs)
+    neg = deflated_sharpe_ratio(skew=-0.5, **kwargs)
+    assert pos.dsr != pytest.approx(neg.dsr, rel=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Impossible Pearson moments (kurtosis < skew**2 + 1) must be rejected -- this
+# also catches the excess-vs-Pearson-kurtosis convention trap: passing scipy's
+# default (excess) kurtosis, e.g. kurtosis=0 with skew=0, is mathematically
+# impossible for a real distribution under the Pearson convention this API
+# requires (min is skew**2 + 1 = 1), and used to be silently accepted.
+# ---------------------------------------------------------------------------
+
+
+def test_impossible_moments_rejected():
+    with pytest.raises(ValueError, match="impossible moments"):
+        deflated_sharpe_ratio(sr=0.1, T=500, skew=2.0, kurtosis=1.0, n_trials=10)
+
+
+def test_zero_skew_zero_kurtosis_now_rejected():
+    """kurtosis=0 with skew=0 (the classic excess-kurtosis-passed-as-Pearson bug,
+    since scipy.stats.kurtosis() defaults to fisher=True) used to be silently
+    scored -- now it must be rejected (min possible Pearson kurtosis at skew=0 is 1)."""
+    with pytest.raises(ValueError, match="impossible moments"):
+        deflated_sharpe_ratio(sr=0.1, T=500, skew=0.0, kurtosis=0.0, n_trials=10)
+
+
+def test_boundary_moments_at_equality_are_accepted():
+    """kurtosis == skew**2 + 1 exactly is the (degenerate but real) boundary case
+    -- must NOT be rejected by a strict '<' vs '<=' off-by-one."""
+    skew = 1.0
+    result = deflated_sharpe_ratio(
+        sr=0.1, T=500, skew=skew, kurtosis=skew**2 + 1, n_trials=10
+    )
+    assert math.isfinite(result.dsr)
 
 
 def test_dsr_from_returns_matches_direct_computation():
@@ -163,7 +230,9 @@ def test_nonfinite_drop_opt_in_reports_raw_and_surviving_counts():
     for i, idx in enumerate(bad_idx):
         r[idx] = np.nan if i % 2 == 0 else np.inf
 
-    result = deflated_sharpe_ratio_from_returns(r, n_trials=10, allow_nonfinite_drop=True)
+    result = deflated_sharpe_ratio_from_returns(
+        r, n_trials=10, allow_nonfinite_drop=True
+    )
     assert result.n_obs_raw == len(r)
     assert result.n_nonfinite_dropped == n_bad
     assert len(r) - n_bad == result.T
@@ -173,7 +242,9 @@ def test_nonfinite_drop_opt_in_reports_raw_and_surviving_counts():
     sr = finite.mean() / finite.std(ddof=1)
     sk = float(stats.skew(finite))
     ku = float(stats.kurtosis(finite, fisher=False))
-    direct = deflated_sharpe_ratio(sr=sr, T=len(finite), skew=sk, kurtosis=ku, n_trials=10)
+    direct = deflated_sharpe_ratio(
+        sr=sr, T=len(finite), skew=sk, kurtosis=ku, n_trials=10
+    )
     assert result.dsr == pytest.approx(direct.dsr, rel=1e-9)
 
 
@@ -189,9 +260,13 @@ def test_all_finite_input_unaffected_by_allow_nonfinite_drop_flag():
     rng = np.random.default_rng(5)
     r = rng.standard_t(df=5, size=300) * 0.01 + 0.0003
     default_result = deflated_sharpe_ratio_from_returns(r, n_trials=10)
-    opted_in_result = deflated_sharpe_ratio_from_returns(r, n_trials=10, allow_nonfinite_drop=True)
+    opted_in_result = deflated_sharpe_ratio_from_returns(
+        r, n_trials=10, allow_nonfinite_drop=True
+    )
     assert default_result.dsr == pytest.approx(opted_in_result.dsr, rel=1e-12)
-    assert default_result.n_nonfinite_dropped == opted_in_result.n_nonfinite_dropped == 0
+    assert (
+        default_result.n_nonfinite_dropped == opted_in_result.n_nonfinite_dropped == 0
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -304,11 +379,59 @@ def test_cli_rejects_empty_n_trials_range():
         )
 
 
+@pytest.mark.parametrize(
+    "bad_threshold", [0, -1, 1, 1.5, math.inf, -math.inf, math.nan]
+)
+def test_cli_rejects_invalid_threshold(bad_threshold):
+    """--threshold 0/negative/>=1/non-finite would make nearly any DSR pass -- refuse them."""
+    with pytest.raises((ValueError, SystemExit)):
+        dsr_gate_cli.main(
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "0.0",
+                "--kurtosis",
+                "3.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "10",
+                "--threshold",
+                str(bad_threshold),
+            ]
+        )
+
+
+def test_cli_rejects_impossible_pearson_moments():
+    """skew=2, kurtosis=1 is impossible (min kurtosis at skew=2 is 5) -- the CLI must
+    propagate the same rejection dsr.py enforces, not swallow it."""
+    with pytest.raises(ValueError, match="impossible moments"):
+        dsr_gate_cli.main(
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "2.0",
+                "--kurtosis",
+                "1.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "10",
+            ]
+        )
+
+
 def test_cli_returns_and_summary_mutually_exclusive(tmp_path):
     returns_file = tmp_path / "returns.csv"
-    pd.Series(np.random.default_rng(1).normal(0.001, 0.01, 300), name="return").to_csv(returns_file, index=False)
+    pd.Series(np.random.default_rng(1).normal(0.001, 0.01, 300), name="return").to_csv(
+        returns_file, index=False
+    )
     with pytest.raises(SystemExit):
-        dsr_gate_cli.main(["--returns", str(returns_file), "--sharpe", "0.4", "--n-trials", "10"])
+        dsr_gate_cli.main(
+            ["--returns", str(returns_file), "--sharpe", "0.4", "--n-trials", "10"]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +456,9 @@ def test_cli_returns_path_end_to_end(tmp_path):
     r = rng.normal(0.0015, 0.012, 1000)
     returns_file = tmp_path / "returns.csv"
     pd.Series(r, name="return").to_csv(returns_file, index=False)
-    out = _run_cli(["--returns", str(returns_file), "--n-trials", "1,5,20", "--periods", "365"])
+    out = _run_cli(
+        ["--returns", str(returns_file), "--n-trials", "1,5,20", "--periods", "365"]
+    )
     assert out["T"] == 1000
     assert set(out["by_n_trials"].keys()) == {"1", "5", "20"}
     assert out["n_trials_conservative"] == 20
@@ -370,7 +495,9 @@ def test_cli_reports_range_and_gates_on_max_n_trials():
 def test_cli_default_n_trials_range_matches_carver_convention():
     """Default range mirrors scripts/analysis/carver_prelive_gauntlet.py's
     sensitivity sweep (1, 5, 10, 20, 50, 100)."""
-    out = _run_cli(["--sharpe", "1.0", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500"])
+    out = _run_cli(
+        ["--sharpe", "1.0", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500"]
+    )
     assert set(int(n) for n in out["by_n_trials"]) == {1, 5, 10, 20, 50, 100}
     assert out["n_trials_conservative"] == 100
 
@@ -420,7 +547,9 @@ def test_cli_summary_path_end_to_end():
 def test_false_pass_band_now_fails_under_real_dsr(z_naive, expected_dsr):
     T = 365
     sr_period = z_naive / math.sqrt(T)  # so sr_annualized == z_naive with periods=365
-    result = deflated_sharpe_ratio(sr=sr_period, T=T, skew=0.0, kurtosis=3.0, n_trials=20)
+    result = deflated_sharpe_ratio(
+        sr=sr_period, T=T, skew=0.0, kurtosis=3.0, n_trials=20
+    )
 
     # Sanity: this IS the band the old gate would have passed.
     old_style_pvalue = 2 * (1 - stats.norm.cdf(abs(z_naive)))

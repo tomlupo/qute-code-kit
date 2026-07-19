@@ -60,7 +60,23 @@ not hinge on one count"*). The gate's `dsr_pass` is decided from the **conservat
 end** (the highest n_trials in the range — most deflation, lowest DSR), never from
 whichever n_trials value happens to pass. Default range: `1,5,10,20,50,100`. Default
 threshold: **0.95**, one-sided (Bailey/López de Prado standard — do not lower it to
-make a result pass).
+make a result pass). `--threshold` must be finite and strictly between 0 and 1 — a
+threshold of 0 or negative would make nearly any DSR pass.
+
+**Kurtosis convention (load-bearing, easy to get wrong):** `--kurtosis` and the
+return-series path both use **PEARSON (non-excess) kurtosis**, where 3.0 = normal
+distribution — NOT excess kurtosis (0.0 = normal). `scipy.stats.kurtosis()` returns
+EXCESS kurtosis by **default** (`fisher=True`); you must pass `fisher=False` to get
+the convention this gate expects. Passing excess kurtosis silently understates the
+Mertens variance term and can flip a FAIL to a PASS. `scripts/lib/dsr.py` now rejects
+any skew/kurtosis pair that is mathematically impossible under the Pearson convention
+(`kurtosis < skew**2 + 1` — an algebraic identity, not a modelling choice), which
+catches the most common form of this mixup, e.g. `skew=0, kurtosis=0`.
+
+**IID assumption:** the annualisation (`sqrt(periods)` scaling between per-period and
+annualised Sharpe) assumes returns are i.i.d. — no serial autocorrelation. If the
+return series is autocorrelated (overlapping windows, slow-moving positions), the
+annualisation is biased and the gate's threshold comparison is not reliable as stated.
 
 ## Quick start
 

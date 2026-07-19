@@ -90,6 +90,24 @@ def deflated_sharpe_ratio(sr: float, T: int, skew: float, kurtosis: float, n_tri
         raise ValueError(f"sharpe must be finite, got {sr!r}")
     if not math.isfinite(skew) or not math.isfinite(kurtosis):
         raise ValueError(f"skew/kurtosis must be finite, got skew={skew!r} kurtosis={kurtosis!r}")
+    # Pearson (non-excess) kurtosis is mathematically bounded below by
+    # skew**2 + 1 for ANY real distribution — this is not a modelling
+    # choice, it's an algebraic identity (Var(Z^2) >= 0 for standardized Z).
+    # A caller passing e.g. skew=2, kurtosis=1 (impossible: min is 5) is
+    # almost always a units/convention bug (most commonly: excess kurtosis
+    # from scipy.stats.kurtosis()'s default fisher=True passed where this
+    # function expects Pearson/non-excess). Feeding an impossible moment
+    # pair into the Mertens variance term can silently flip a FAIL to a
+    # PASS, so this is refused rather than "trusted".
+    min_kurtosis = skew**2 + 1
+    if kurtosis < min_kurtosis:
+        raise ValueError(
+            f"impossible moments: kurtosis={kurtosis!r} < skew**2 + 1 = {min_kurtosis!r} "
+            f"(skew={skew!r}). Pearson (non-excess) kurtosis is always >= skew**2 + 1 for any "
+            "real distribution. This usually means EXCESS kurtosis was passed instead of Pearson "
+            "— scipy.stats.kurtosis() returns excess kurtosis by default (fisher=True); this "
+            "function requires fisher=False (3.0 for a normal distribution, not 0.0)."
+        )
 
     sr_std = sr_estimator_std(T, sr, skew, kurtosis)
     if sr_std == 0:
