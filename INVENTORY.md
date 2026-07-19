@@ -2,12 +2,13 @@
 
 Full contents of `claude/` and `templates/`. Use as a map — copy the bits you want into target repos. See [`README.md`](README.md) for the high-level intro and copy commands.
 
-## Skills (24)
+## Skills (25)
 
 ### Quant / research
 
 | Name | Description |
 |---|---|
+| `acceptance-gates` | Statistical acceptance gates — deflated Sharpe (DSR), Newey-West HAC t-stat, factor decomposition |
 | `analizy-pl-data` | Programmatic access to Polish investment fund data from analizy.pl |
 | `atlasetf-scraper` | Scrape ETF data from atlasetf.pl (screener of ~13k funds, per-ISIN detail, prices) via its JSON API |
 | `backtest` | Portfolio allocation backtesting via vectorbt (drift, rebalancing, fees, multi-strategy) |
