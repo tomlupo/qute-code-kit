@@ -107,6 +107,93 @@ def test_dsr_from_returns_matches_direct_computation():
     assert from_returns.dsr == pytest.approx(direct.dsr, rel=1e-9)
 
 
+def test_from_returns_reports_n_obs_raw_matches_survivors_when_clean():
+    """No NaN/Inf present -> n_obs_raw == T and n_nonfinite_dropped == 0."""
+    rng = np.random.default_rng(7)
+    r = rng.standard_t(df=5, size=300) * 0.01 + 0.0003
+    result = deflated_sharpe_ratio_from_returns(r, n_trials=10)
+    assert result.n_obs_raw == len(r)
+    assert result.n_nonfinite_dropped == 0
+    assert len(r) == result.T
+
+
+# ---------------------------------------------------------------------------
+# NaN/Inf handling in deflated_sharpe_ratio_from_returns — must match
+# nw-tstat-gate.py's --allow-nonfinite-drop convention: fail loudly by
+# default, opt-in dropping must disclose both raw and surviving counts.
+# ---------------------------------------------------------------------------
+
+
+def test_nan_returns_rejected_by_default():
+    rng = np.random.default_rng(1)
+    r = rng.standard_t(df=5, size=200) * 0.01 + 0.0003
+    r[5] = np.nan
+    r[17] = np.nan
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        deflated_sharpe_ratio_from_returns(r, n_trials=10)
+
+
+def test_inf_returns_rejected_by_default():
+    """inf/-inf must be caught too, not just NaN — a bare isnan() mask lets these through."""
+    rng = np.random.default_rng(2)
+    r = rng.standard_t(df=5, size=200) * 0.01 + 0.0003
+    r[3] = np.inf
+    r[40] = -np.inf
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        deflated_sharpe_ratio_from_returns(r, n_trials=10)
+
+
+def test_mixed_nan_and_inf_rejected_by_default():
+    rng = np.random.default_rng(3)
+    r = rng.standard_t(df=5, size=200) * 0.01 + 0.0003
+    r[0] = np.nan
+    r[1] = np.inf
+    r[2] = -np.inf
+    with pytest.raises(ValueError, match="NaN/Inf"):
+        deflated_sharpe_ratio_from_returns(r, n_trials=10)
+
+
+def test_nonfinite_drop_opt_in_reports_raw_and_surviving_counts():
+    """allow_nonfinite_drop=True must disclose BOTH the raw and surviving observation
+    count on the result — the loss must never be silently absorbed into T."""
+    rng = np.random.default_rng(4)
+    r = rng.standard_t(df=5, size=500) * 0.01 + 0.0003
+    n_bad = 37
+    bad_idx = rng.choice(len(r), size=n_bad, replace=False)
+    for i, idx in enumerate(bad_idx):
+        r[idx] = np.nan if i % 2 == 0 else np.inf
+
+    result = deflated_sharpe_ratio_from_returns(r, n_trials=10, allow_nonfinite_drop=True)
+    assert result.n_obs_raw == len(r)
+    assert result.n_nonfinite_dropped == n_bad
+    assert len(r) - n_bad == result.T
+
+    # And it must match computing directly on the pre-filtered finite subset.
+    finite = r[np.isfinite(r)]
+    sr = finite.mean() / finite.std(ddof=1)
+    sk = float(stats.skew(finite))
+    ku = float(stats.kurtosis(finite, fisher=False))
+    direct = deflated_sharpe_ratio(sr=sr, T=len(finite), skew=sk, kurtosis=ku, n_trials=10)
+    assert result.dsr == pytest.approx(direct.dsr, rel=1e-9)
+
+
+def test_nonfinite_drop_opt_in_still_raises_if_too_few_survive():
+    """Opting into dropping doesn't bypass the min-2-observations degeneracy check."""
+    r = np.array([0.01, np.nan, np.nan, np.nan])
+    with pytest.raises(ValueError):
+        deflated_sharpe_ratio_from_returns(r, n_trials=10, allow_nonfinite_drop=True)
+
+
+def test_all_finite_input_unaffected_by_allow_nonfinite_drop_flag():
+    """The opt-in flag must be a no-op when there's nothing non-finite to drop."""
+    rng = np.random.default_rng(5)
+    r = rng.standard_t(df=5, size=300) * 0.01 + 0.0003
+    default_result = deflated_sharpe_ratio_from_returns(r, n_trials=10)
+    opted_in_result = deflated_sharpe_ratio_from_returns(r, n_trials=10, allow_nonfinite_drop=True)
+    assert default_result.dsr == pytest.approx(opted_in_result.dsr, rel=1e-12)
+    assert default_result.n_nonfinite_dropped == opted_in_result.n_nonfinite_dropped == 0
+
+
 # ---------------------------------------------------------------------------
 # Degenerate-input holes — must FAIL LOUDLY, never silently weaken the gate
 # ---------------------------------------------------------------------------
