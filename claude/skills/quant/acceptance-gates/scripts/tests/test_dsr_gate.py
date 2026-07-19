@@ -42,8 +42,20 @@ def test_cli_periods_zero_rejected_not_coerced_to_one():
     """The old CLI silently coerced --periods 0 to 1, turning N obs into N years."""
     with pytest.raises(ValueError):
         dsr_gate_cli.main(
-            ["--sharpe", "0.4", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500", "--n-trials", "10",
-             "--periods", "0"]
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "0.0",
+                "--kurtosis",
+                "3.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "10",
+                "--periods",
+                "0",
+            ]
         )
 
 
@@ -56,7 +68,18 @@ def test_cli_requires_skew_kurtosis_with_sharpe():
 def test_cli_rejects_zero_n_trials_in_range():
     with pytest.raises(ValueError):
         dsr_gate_cli.main(
-            ["--sharpe", "0.4", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500", "--n-trials", "0"]
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "0.0",
+                "--kurtosis",
+                "3.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "0",
+            ]
         )
 
 
@@ -64,24 +87,60 @@ def test_cli_rejects_zero_n_trials_mixed_into_range():
     """A single bad entry anywhere in the range invalidates the whole call."""
     with pytest.raises(ValueError):
         dsr_gate_cli.main(
-            ["--sharpe", "0.4", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500", "--n-trials", "5,10,0,50"]
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "0.0",
+                "--kurtosis",
+                "3.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "5,10,0,50",
+            ]
         )
 
 
 def test_cli_rejects_empty_n_trials_range():
     with pytest.raises(ValueError):
         dsr_gate_cli.main(
-            ["--sharpe", "0.4", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500", "--n-trials", ""]
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "0.0",
+                "--kurtosis",
+                "3.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "",
+            ]
         )
 
 
-@pytest.mark.parametrize("bad_threshold", [0, -1, 1, 1.5, math.inf, -math.inf, math.nan])
+@pytest.mark.parametrize(
+    "bad_threshold", [0, -1, 1, 1.5, math.inf, -math.inf, math.nan]
+)
 def test_cli_rejects_invalid_threshold(bad_threshold):
     """--threshold 0/negative/>=1/non-finite would make nearly any DSR pass -- refuse them."""
     with pytest.raises((ValueError, SystemExit)):
         dsr_gate_cli.main(
-            ["--sharpe", "0.4", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500", "--n-trials", "10",
-             "--threshold", str(bad_threshold)]
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "0.0",
+                "--kurtosis",
+                "3.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "10",
+                "--threshold",
+                str(bad_threshold),
+            ]
         )
 
 
@@ -90,15 +149,30 @@ def test_cli_rejects_impossible_pearson_moments():
     the same rejection quantbox.analysis.dsr enforces, not swallow it."""
     with pytest.raises(ValueError, match="impossible moments"):
         dsr_gate_cli.main(
-            ["--sharpe", "0.4", "--skew", "2.0", "--kurtosis", "1.0", "--n-obs", "500", "--n-trials", "10"]
+            [
+                "--sharpe",
+                "0.4",
+                "--skew",
+                "2.0",
+                "--kurtosis",
+                "1.0",
+                "--n-obs",
+                "500",
+                "--n-trials",
+                "10",
+            ]
         )
 
 
 def test_cli_returns_and_summary_mutually_exclusive(tmp_path):
     returns_file = tmp_path / "returns.csv"
-    pd.Series(np.random.default_rng(1).normal(0.001, 0.01, 300), name="return").to_csv(returns_file, index=False)
+    pd.Series(np.random.default_rng(1).normal(0.001, 0.01, 300), name="return").to_csv(
+        returns_file, index=False
+    )
     with pytest.raises(SystemExit):
-        dsr_gate_cli.main(["--returns", str(returns_file), "--sharpe", "0.4", "--n-trials", "10"])
+        dsr_gate_cli.main(
+            ["--returns", str(returns_file), "--sharpe", "0.4", "--n-trials", "10"]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +195,9 @@ def test_cli_returns_path_end_to_end(tmp_path):
     r = rng.normal(0.0015, 0.012, 1000)
     returns_file = tmp_path / "returns.csv"
     pd.Series(r, name="return").to_csv(returns_file, index=False)
-    out = _run_cli(["--returns", str(returns_file), "--n-trials", "1,5,20", "--periods", "365"])
+    out = _run_cli(
+        ["--returns", str(returns_file), "--n-trials", "1,5,20", "--periods", "365"]
+    )
     assert out["T"] == 1000
     assert set(out["by_n_trials"].keys()) == {"1", "5", "20"}
     assert out["n_trials_conservative"] == 20
@@ -133,8 +209,20 @@ def test_cli_reports_range_and_gates_on_max_n_trials():
     """DSR at n_trials=1 can pass while the conservative (max) end fails — the gate
     must decide from the conservative end, not the most flattering one."""
     out = _run_cli(
-        ["--sharpe", "1.5", "--skew", "-0.1", "--kurtosis", "4.0", "--n-obs", "1000", "--n-trials", "1,5,20,100",
-         "--periods", "365"]
+        [
+            "--sharpe",
+            "1.5",
+            "--skew",
+            "-0.1",
+            "--kurtosis",
+            "4.0",
+            "--n-obs",
+            "1000",
+            "--n-trials",
+            "1,5,20,100",
+            "--periods",
+            "365",
+        ]
     )
     dsrs = {int(n): v["dsr"] for n, v in out["by_n_trials"].items()}
     assert dsrs[1] >= dsrs[5] >= dsrs[20] >= dsrs[100]
@@ -145,15 +233,29 @@ def test_cli_reports_range_and_gates_on_max_n_trials():
 
 def test_cli_default_n_trials_range_matches_carver_convention():
     """Default range mirrors carver_prelive_gauntlet.py's sensitivity sweep."""
-    out = _run_cli(["--sharpe", "1.0", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500"])
+    out = _run_cli(
+        ["--sharpe", "1.0", "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", "500"]
+    )
     assert {int(n) for n in out["by_n_trials"]} == {1, 5, 10, 20, 50, 100}
     assert out["n_trials_conservative"] == 100
 
 
 def test_cli_summary_path_end_to_end():
     out = _run_cli(
-        ["--sharpe", "1.5", "--skew", "-0.1", "--kurtosis", "4.0", "--n-obs", "1000", "--n-trials", "5",
-         "--periods", "365"]
+        [
+            "--sharpe",
+            "1.5",
+            "--skew",
+            "-0.1",
+            "--kurtosis",
+            "4.0",
+            "--n-obs",
+            "1000",
+            "--n-trials",
+            "5",
+            "--periods",
+            "365",
+        ]
     )
     assert out["n_trials_conservative"] == 5
     assert out["T"] == 1000
@@ -166,8 +268,20 @@ def test_false_pass_band_cli_end_to_end_fails_gate():
     T = 365
     sr_ann = z_naive  # periods=365, T=365 -> n_years=1 -> sr_ann == z_naive
     out = _run_cli(
-        ["--sharpe", str(sr_ann), "--skew", "0.0", "--kurtosis", "3.0", "--n-obs", str(T), "--n-trials", "20",
-         "--periods", "365"]
+        [
+            "--sharpe",
+            str(sr_ann),
+            "--skew",
+            "0.0",
+            "--kurtosis",
+            "3.0",
+            "--n-obs",
+            str(T),
+            "--n-trials",
+            "20",
+            "--periods",
+            "365",
+        ]
     )
     assert out["dsr_conservative"] == pytest.approx(0.9147, abs=5e-3)
     assert out["dsr_pass"] is False

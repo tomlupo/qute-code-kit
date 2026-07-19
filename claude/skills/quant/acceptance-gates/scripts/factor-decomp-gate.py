@@ -105,7 +105,9 @@ def _pick_return_column(df, column: str | None):
     for cand in _RETURN_COL_CANDIDATES:
         if cand in df.columns:
             return cand
-    raise SystemExit(f"could not infer return column from {list(df.columns)}; pass --column")
+    raise SystemExit(
+        f"could not infer return column from {list(df.columns)}; pass --column"
+    )
 
 
 def _round_reg(reg: dict) -> dict:
@@ -127,8 +129,12 @@ def _round_reg(reg: dict) -> dict:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--returns", required=True, help="strategy return series (parquet/csv)")
-    ap.add_argument("--factors", required=True, help="factor return panel (parquet/csv)")
+    ap.add_argument(
+        "--returns", required=True, help="strategy return series (parquet/csv)"
+    )
+    ap.add_argument(
+        "--factors", required=True, help="factor return panel (parquet/csv)"
+    )
     ap.add_argument("--column", default=None, help="strategy return column (else auto)")
     ap.add_argument(
         "--factor-columns",
@@ -184,7 +190,9 @@ def main(argv: list[str]) -> int:
     # Inner-join strategy + factors on their common dates, then drop any row with a
     # missing value so the design matrix is complete. This trims (never pads) the
     # sample — a factor panel that starts later just shortens n_obs.
-    joined = pd.concat([sdf[[scol]].rename(columns={scol: "__y__"}), fdf[fcols]], axis=1)
+    joined = pd.concat(
+        [sdf[[scol]].rename(columns={scol: "__y__"}), fdf[fcols]], axis=1
+    )
     joined = joined.dropna()
 
     y = joined["__y__"].to_numpy(dtype=float)
@@ -209,7 +217,9 @@ def main(argv: list[str]) -> int:
     elif alpha_pass:
         note = "residual alpha significant > 0 after factor controls — plausibly novel edge"
     else:
-        note = "no significant residual alpha — return explained by factor exposure (FLAG)"
+        note = (
+            "no significant residual alpha — return explained by factor exposure (FLAG)"
+        )
 
     out = {
         **reg,

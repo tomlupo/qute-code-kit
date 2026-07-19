@@ -85,13 +85,20 @@ def _read_returns(path: str, column: str | None) -> np.ndarray:
     for cand in _RETURN_COL_CANDIDATES:
         if cand in df.columns:
             return df[cand].to_numpy(dtype=float)
-    raise SystemExit(f"could not infer return column from {list(df.columns)}; pass --column")
+    raise SystemExit(
+        f"could not infer return column from {list(df.columns)}; pass --column"
+    )
 
 
 def _round_nw(nw: dict) -> dict:
     """Round the framework's full-precision stats for JSON display (presentation only)."""
     out = dict(nw)
-    for key, ndigits in (("mean_return", 8), ("nw_se", 8), ("nw_tstat", 4), ("nw_pvalue", 6)):
+    for key, ndigits in (
+        ("mean_return", 8),
+        ("nw_se", 8),
+        ("nw_tstat", 4),
+        ("nw_pvalue", 6),
+    ):
         if out.get(key) is not None:
             out[key] = round(out[key], ndigits)
     return out
@@ -99,9 +106,13 @@ def _round_nw(nw: dict) -> dict:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--returns", required=True, help="OOS return series (parquet/csv/txt)")
+    ap.add_argument(
+        "--returns", required=True, help="OOS return series (parquet/csv/txt)"
+    )
     ap.add_argument("--column", default=None, help="return column name (else auto)")
-    ap.add_argument("--t-threshold", type=float, default=2.0, help="min |Newey-West t| to pass")
+    ap.add_argument(
+        "--t-threshold", type=float, default=2.0, help="min |Newey-West t| to pass"
+    )
     ap.add_argument(
         "--min-oos-periods",
         type=int,
@@ -135,12 +146,18 @@ def main(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     if args.min_oos_periods <= 0:
-        raise ValueError(f"--min-oos-periods must be positive, got {args.min_oos_periods!r}")
+        raise ValueError(
+            f"--min-oos-periods must be positive, got {args.min_oos_periods!r}"
+        )
 
     raw = _read_returns(args.returns, args.column)
     # The framework validates finiteness (raise-by-default / opt-in drop) and
     # computes the HAC t-stat. This CLI owns none of that math.
-    nw = _round_nw(newey_west_tstat(raw, lags=args.lags, allow_nonfinite_drop=args.allow_nonfinite_drop))
+    nw = _round_nw(
+        newey_west_tstat(
+            raw, lags=args.lags, allow_nonfinite_drop=args.allow_nonfinite_drop
+        )
+    )
 
     # Gate 1 — honest t-stat: positive mean AND |t| over the threshold.
     nw_pass = bool(
@@ -161,7 +178,9 @@ def main(argv: list[str]) -> int:
                 f"({n_finite}) — cannot claim a longer OOS window than the data supports"
             )
         if args.oos_periods <= 0:
-            raise ValueError(f"--oos-periods must be positive, got {args.oos_periods!r}")
+            raise ValueError(
+                f"--oos-periods must be positive, got {args.oos_periods!r}"
+            )
         oos_window = args.oos_periods
     else:
         oos_window = n_finite
