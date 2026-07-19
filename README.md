@@ -64,6 +64,7 @@ For new repos that need release tooling, install the plugin and use `/ship` (it 
 - [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md) — plugin reference (guards, hooks, skills)
 - [`docs/architecture/lean-qute-target.md`](docs/architecture/lean-qute-target.md) — target lean organization and cleanup sequence
 - [`docs/architecture/matt-qute-hybrid-stack.md`](docs/architecture/matt-qute-hybrid-stack.md) — Matt + qute ownership model
+- [`docs/playbooks/matt-gstack-qute-hybrid-workflow.md`](docs/playbooks/matt-gstack-qute-hybrid-workflow.md) — recommended Matt + gstack + qute workflows without duplicate planning/review layers
 - [`docs/playbooks/`](docs/playbooks/) — multi-step workflows (compound engineering, multi-agent review, investment research, session continuity, …)
 - [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
