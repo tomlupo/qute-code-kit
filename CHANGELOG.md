@@ -1,3 +1,9 @@
+## v2.13.0 (2026-07-20)
+
+### Feat
+
+- native WorktreeCreate/WorktreeRemove hooks — unified setup + venv reap (#71)
+
 ## v2.12.1 (2026-07-18)
 
 ### Feat
