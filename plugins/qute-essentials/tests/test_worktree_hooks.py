@@ -41,11 +41,15 @@ def _reap(home: Path, worktree_path: str) -> subprocess.CompletedProcess:
     )
 
 
-def _mk_venv(home: Path, name: str) -> Path:
+def _mk_venv(home: Path, name: str, worktree: str | None = "AUTO") -> Path:
+    """Create a fake venv; by default stamped as owned by /x/<name>."""
     venv = home / ".venvs" / name
     venv.mkdir(parents=True)
     (venv / "pyvenv.cfg").write_text("home = /usr\n")
     (venv / "lib").mkdir()
+    if worktree is not None:
+        owner = f"/x/{name}" if worktree == "AUTO" else worktree
+        (venv / ".qute-worktree.json").write_text(json.dumps({"worktree_path": owner}))
     return venv
 
 
@@ -58,7 +62,7 @@ def _log(home: Path) -> str:
 
 
 def test_reap_deletes_matching_venv(tmp_path):
-    venv = _mk_venv(tmp_path, "wt-a")
+    venv = _mk_venv(tmp_path, "wt-a", worktree="/somewhere/worktrees/wt-a")
     proc = _reap(tmp_path, "/somewhere/worktrees/wt-a")
     assert proc.returncode == 0
     assert not venv.exists()
@@ -145,6 +149,37 @@ def test_refuses_venv_held_by_live_process(tmp_path):
     assert not venv.exists()
 
 
+def test_refuses_unmarked_venv_name_collision(tmp_path):
+    """A real venv sharing the basename but lacking the ownership marker
+    (legacy venv, or one the user made by hand) must survive."""
+    venv = _mk_venv(tmp_path, "api", worktree=None)
+    proc = _reap(tmp_path, "/repos/worktrees/api")
+    assert proc.returncode == 1
+    assert venv.exists()
+    assert "no .qute-worktree.json ownership marker" in _log(tmp_path)
+
+
+def test_refuses_marker_for_different_worktree(tmp_path):
+    venv = _mk_venv(tmp_path, "api", worktree="/other/place/api")
+    proc = _reap(tmp_path, "/repos/worktrees/api")
+    assert proc.returncode == 1
+    assert venv.exists()
+    assert "records worktree" in _log(tmp_path)
+
+
+def test_refuses_symlinked_venvs_root(tmp_path):
+    real = tmp_path / "real-venvs"
+    real.mkdir()
+    (tmp_path / ".venvs").symlink_to(real)
+    venv = real / "wt-d"
+    venv.mkdir()
+    (venv / "pyvenv.cfg").write_text("home = /usr\n")
+    proc = _reap(tmp_path, "/x/wt-d")
+    assert proc.returncode == 1
+    assert venv.exists()
+    assert "venvs root" in _log(tmp_path) and "symlink" in _log(tmp_path)
+
+
 def test_garbage_hook_input_soft_exits_zero(tmp_path):
     proc = subprocess.run(
         [sys.executable, str(REMOVE)],
@@ -212,6 +247,37 @@ def test_setup_shared_dirs_and_copy_files(tmp_path):
     assert (wt / "data").is_symlink()
     assert (wt / "data" / "big.bin").read_text() == "x"
     assert (wt / "local.toml").read_text() == "[cfg]"
+
+
+def test_setup_rejects_escaping_config_entries(tmp_path):
+    """Absolute or ..-traversing shared_dirs/copy_files entries must abort
+    setup before touching anything."""
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "keep.txt").write_text("keep")
+    cases = [
+        {"shared_dirs": [str(victim)]},
+        {"shared_dirs": ["../victim"]},
+        {"copy_files": ["/etc/passwd"]},
+        {"copy_files": ["../victim/keep.txt"]},
+    ]
+    for i, cfg in enumerate(cases):
+        base, wt = _mk_project(tmp_path / f"case{i}", cfg)
+        proc = _setup(tmp_path, wt, base)
+        assert proc.returncode == 1, cfg
+        assert "must be a relative path" in proc.stderr
+    assert (victim / "keep.txt").exists()
+
+
+def test_setup_uv_stamps_ownership_marker(tmp_path):
+    base, wt = _mk_project(tmp_path, {"venv_setup": "uv"})
+    proc = _setup(tmp_path, wt, base, _stub_uv(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    marker = tmp_path / ".venvs" / wt.name / ".qute-worktree.json"
+    assert json.loads(marker.read_text())["worktree_path"] == str(wt)
+    # and the reap path accepts exactly that worktree
+    assert _reap(tmp_path, str(wt)).returncode == 0
+    assert not (tmp_path / ".venvs" / wt.name).exists()
 
 
 def test_setup_uv_writes_envrc_and_syncs(tmp_path):

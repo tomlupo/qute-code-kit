@@ -19,8 +19,10 @@ either "provably the right venv" or a refusal:
   $HOME/.venvs, and its fully resolved realpath must still be strictly inside
   the resolved $HOME/.venvs — symlink/.. escapes are refused. $HOME/.venvs
   itself can never be the target.
-- The candidate must look like a venv (pyvenv.cfg present), so an unrelated
-  directory that merely shares the name is refused.
+- The candidate must look like a venv (pyvenv.cfg present), AND carry the
+  ownership marker (.qute-worktree.json) stamped by the create path, recording
+  the exact worktree it belongs to. Unrelated or legacy venvs that merely
+  share the basename are refused.
 - If any live process holds the venv (exe or cwd inside it, per /proc), refuse.
 
 Failure is soft by contract (WorktreeRemove cannot block removal and its exit
@@ -31,11 +33,13 @@ code is ignored) but never silent: every decision is appended to
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
 
 LOG_FILE = Path.home() / ".claude" / "qute-worktree-reap.log"
+MARKER_NAME = ".qute-worktree.json"  # stamped by worktree_create.py
 
 
 def log(msg: str) -> None:
@@ -85,6 +89,9 @@ def reap_venv(worktree_path: str, venvs_root: Path | None = None) -> bool:
     if not root.is_dir():
         log(f"skip: venvs root {root} does not exist")
         return False
+    if root.is_symlink():
+        log(f"REFUSED: venvs root {root} is a symlink — not operating on it")
+        return False
 
     candidate = root / name
     if not candidate.exists():
@@ -107,16 +114,40 @@ def reap_venv(worktree_path: str, venvs_root: Path | None = None) -> bool:
         log(f"REFUSED: {candidate} has no pyvenv.cfg — not a venv, not deleting")
         return False
 
+    # Ownership proof: the create path stamps the venv with the worktree it
+    # belongs to. A basename collision with an unrelated or legacy venv (no
+    # marker, or a marker naming a different worktree) is refused.
+    marker = candidate / MARKER_NAME
+    if not marker.is_file():
+        log(
+            f"REFUSED: {candidate} has no {MARKER_NAME} ownership marker — "
+            "legacy or unrelated venv, not deleting (remove manually if orphaned)"
+        )
+        return False
+    try:
+        recorded = json.loads(marker.read_text()).get("worktree_path", "")
+    except (OSError, json.JSONDecodeError, AttributeError) as exc:
+        log(f"REFUSED: unreadable marker {marker}: {exc}")
+        return False
+    if os.path.normpath(recorded) != os.path.normpath(worktree_path):
+        log(
+            f"REFUSED: marker in {candidate} records worktree "
+            f"{recorded!r}, not {worktree_path!r} — not deleting"
+        )
+        return False
+
     if venv_in_use(candidate):
         log(f"REFUSED: {candidate} is held by a live process, not deleting")
         return False
 
     try:
-        shutil.rmtree(candidate)
+        # Delete the validated resolved path, not the pre-resolution candidate,
+        # so a parent symlink swapped in after validation cannot redirect us.
+        shutil.rmtree(resolved)
     except OSError as exc:
-        log(f"FAILED: rmtree {candidate}: {exc}")
+        log(f"FAILED: rmtree {resolved}: {exc}")
         return False
-    log(f"reaped {candidate} (worktree {worktree_path} removed)")
+    log(f"reaped {resolved} (worktree {worktree_path} removed)")
     return True
 
 

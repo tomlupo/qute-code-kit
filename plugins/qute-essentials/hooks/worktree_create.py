@@ -71,12 +71,31 @@ def load_config(base_path: Path) -> dict:
     return cfg
 
 
+MARKER_NAME = ".qute-worktree.json"
+
+
+def _safe_rel_name(name: object, kind: str) -> str:
+    """Validate a shared_dirs/copy_files entry as a safe relative subpath.
+
+    Rejects absolute paths, `..` components, and empty names so a hostile or
+    typo'd worktree.json can never make setup touch anything outside the
+    worktree / main checkout.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise SetupError(f"{kind}: invalid entry {name!r}")
+    p = Path(name)
+    if p.is_absolute() or ".." in p.parts:
+        raise SetupError(f"{kind}: entry {name!r} must be a relative path without '..'")
+    return name
+
+
 def setup_worktree(worktree: Path, base: Path) -> list[str]:
     """Apply worktree.json setup + post-worktree.sh. Returns log of actions."""
     actions: list[str] = []
     cfg = load_config(base)
 
     for name in cfg.get("shared_dirs", []):
+        name = _safe_rel_name(name, "shared_dirs")
         src = base / name
         if not src.is_dir():
             actions.append(f"shared_dirs: skip {name} (missing in main checkout)")
@@ -92,6 +111,7 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
         actions.append(f"shared_dirs: {name} -> {src}")
 
     for name in cfg.get("copy_files", []):
+        name = _safe_rel_name(name, "copy_files")
         src = base / name
         if not src.is_file():
             actions.append(f"copy_files: skip {name} (missing in main checkout)")
@@ -122,10 +142,15 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
                 f"venv_setup=uv: `uv sync` exited {proc.returncode}\n"
                 f"stderr: {proc.stderr.strip()}"
             )
-        if not env_dir.is_dir():
+        if not (env_dir / "pyvenv.cfg").is_file():
             raise SetupError(
-                f"venv_setup=uv: uv sync succeeded but {env_dir} does not exist"
+                f"venv_setup=uv: uv sync succeeded but {env_dir} is not a venv"
             )
+        # Ownership marker: worktree_remove.py only reaps venvs that carry a
+        # marker recording the exact worktree they belong to.
+        (env_dir / MARKER_NAME).write_text(
+            json.dumps({"worktree_path": str(worktree)}) + "\n"
+        )
         actions.append(f"venv_setup=uv: synced {env_dir}")
     elif venv_setup == "pip":
         _run([sys.executable, "-m", "venv", ".venv"], worktree, "venv_setup=pip")

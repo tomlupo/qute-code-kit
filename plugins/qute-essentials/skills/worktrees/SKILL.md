@@ -131,7 +131,9 @@ The second command reaps the per-worktree venv (`$HOME/.venvs/<dir-basename>`)
 that `venv_setup: "uv"` created — without it, removed worktrees leak venvs
 forever. It is defensive by design: it refuses (with a logged reason, see
 `~/.claude/qute-worktree-reap.log`) unless the target is a real, unused venv
-strictly inside `$HOME/.venvs/`. Native worktree removal triggers the same
+strictly inside `$HOME/.venvs/` carrying the `.qute-worktree.json` ownership
+marker (stamped at setup time) that names this exact worktree — legacy venvs
+without a marker are left alone. Native worktree removal triggers the same
 reap automatically via the `WorktreeRemove` hook.
 
 **Note:** Don't auto-remove worktrees. Leave the decision to the user. If services are running, stop them first via `scripts/shutdown-services.sh`. After removal, delete the branch separately (`git branch -d <name>`, or `-D` to force when squash-merged).
