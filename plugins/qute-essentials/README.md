@@ -127,6 +127,8 @@ effect immediately.
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with `ruff format` (cosmetic only — `ruff check --fix` deliberately omitted so per-edit F401 doesn't strip imports mid-task) |
 | `log_use.py` | PostToolUse (Skill/Agent), SubagentStart | Skill/agent activity logging |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
+| `worktree_create.py` | WorktreeCreate | Creates native worktrees with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); setup failures fail creation loudly |
+| `worktree_remove.py` | WorktreeRemove | Reaps the per-worktree venv (`$HOME/.venvs/<name>`) on worktree removal; refuses anything that isn't provably an unused venv strictly inside `~/.venvs` (logged to `~/.claude/qute-worktree-reap.log`) |
 | `pr-flow-guard.py` | PreToolUse (Bash) | **Opt-in, default OFF** (`.github/qute-pr.yml` `enforce:true`; legacy `quteEnforcePrReview` marker still honored). Blocks `gh pr create` → `/qute-coder`; gates `gh pr merge` on `allowAgentSelfMerge`. Inert unless the repo opts in — see "PR-flow enforcement" below |
 
 ## Notifications

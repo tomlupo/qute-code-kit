@@ -1,5 +1,5 @@
 {
-  "description": "Essential hooks: security guards (destructive/secrets/injection), Python formatting, dependency audit, usage logging",
+  "description": "Essential hooks: security guards (destructive/secrets/injection), Python formatting, dependency audit, usage logging, worktree lifecycle (setup + venv reap)",
   "hooks": {
     "PreToolUse": [
       {
@@ -74,6 +74,29 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/langfuse-trace.py",
             "timeout": 5,
             "async": true
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/worktree_create.py",
+            "timeout": 300,
+            "statusMessage": "Creating worktree + applying .claude/worktree.json setup..."
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/worktree_remove.py",
+            "timeout": 60
           }
         ]
       }
