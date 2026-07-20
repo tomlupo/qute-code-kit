@@ -84,9 +84,37 @@ def _safe_rel_name(name: object, kind: str) -> str:
     if not isinstance(name, str) or not name.strip():
         raise SetupError(f"{kind}: invalid entry {name!r}")
     p = Path(name)
-    if p.is_absolute() or ".." in p.parts:
+    if p.is_absolute() or ".." in p.parts or not p.parts:
         raise SetupError(f"{kind}: entry {name!r} must be a relative path without '..'")
     return name
+
+
+def _dst_in_worktree(worktree: Path, name: str, kind: str) -> Path:
+    """Return worktree/name after proving it cannot escape the worktree.
+
+    `_safe_rel_name` already rejected absolute/`..`/empty entries; this closes
+    the remaining hole — a symlink component inside the worktree (e.g. a
+    tracked `link -> /outside` with entry `link/sub`) redirecting the write or
+    delete outside. The destination's parent must resolve inside the resolved
+    worktree, and an existing destination must itself resolve strictly inside
+    (a symlink destination is fine — it is unlinked, never followed).
+    """
+    dst = worktree / name
+    wt_res = worktree.resolve()
+    parent_res = dst.parent.resolve()
+    if parent_res != wt_res and wt_res not in parent_res.parents:
+        raise SetupError(
+            f"{kind}: entry {name!r} escapes the worktree via a symlinked "
+            f"parent ({parent_res})"
+        )
+    if dst.exists() and not dst.is_symlink():
+        dst_res = dst.resolve()
+        if dst_res == wt_res or wt_res not in dst_res.parents:
+            raise SetupError(
+                f"{kind}: entry {name!r} resolves to {dst_res}, outside or "
+                "equal to the worktree — refusing"
+            )
+    return dst
 
 
 def setup_worktree(worktree: Path, base: Path) -> list[str]:
@@ -100,10 +128,12 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
         if not src.is_dir():
             actions.append(f"shared_dirs: skip {name} (missing in main checkout)")
             continue
-        dst = worktree / name
-        if dst.is_dir() and not dst.is_symlink():
+        dst = _dst_in_worktree(worktree, name, "shared_dirs")
+        if dst.is_symlink():
+            dst.unlink()  # unlink removes the link itself, never the target
+        elif dst.is_dir():
             shutil.rmtree(dst)
-        elif dst.is_symlink() or dst.exists():
+        elif dst.exists():
             dst.unlink()
         dst.symlink_to(src)
         if not dst.is_symlink():
@@ -116,8 +146,11 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
         if not src.is_file():
             actions.append(f"copy_files: skip {name} (missing in main checkout)")
             continue
-        shutil.copy2(src, worktree / name)
-        if not (worktree / name).is_file():
+        dst = _dst_in_worktree(worktree, name, "copy_files")
+        if dst.is_symlink():
+            dst.unlink()  # never write through a pre-existing symlink
+        shutil.copy2(src, dst)
+        if not dst.is_file():
             raise SetupError(f"copy_files: failed to copy {name}")
         actions.append(f"copy_files: {name}")
 

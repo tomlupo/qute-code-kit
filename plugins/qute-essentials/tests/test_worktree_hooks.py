@@ -258,6 +258,7 @@ def test_setup_rejects_escaping_config_entries(tmp_path):
     cases = [
         {"shared_dirs": [str(victim)]},
         {"shared_dirs": ["../victim"]},
+        {"shared_dirs": ["."]},
         {"copy_files": ["/etc/passwd"]},
         {"copy_files": ["../victim/keep.txt"]},
     ]
@@ -267,6 +268,21 @@ def test_setup_rejects_escaping_config_entries(tmp_path):
         assert proc.returncode == 1, cfg
         assert "must be a relative path" in proc.stderr
     assert (victim / "keep.txt").exists()
+
+
+def test_setup_refuses_symlink_parent_escape(tmp_path):
+    """A ..-free nested entry whose parent is a symlink out of the worktree
+    must be refused before any delete/write."""
+    outside = tmp_path / "outside"
+    (outside / "sub").mkdir(parents=True)
+    (outside / "sub" / "keep.txt").write_text("keep")
+    base, wt = _mk_project(tmp_path, {"shared_dirs": ["link/sub"]})
+    (base / "link" / "sub").mkdir(parents=True)  # src exists in main checkout
+    (wt / "link").symlink_to(outside)  # hostile/tracked symlink in worktree
+    proc = _setup(tmp_path, wt, base)
+    assert proc.returncode == 1
+    assert "escapes the worktree via a symlinked parent" in proc.stderr
+    assert (outside / "sub" / "keep.txt").exists()
 
 
 def test_setup_uv_stamps_ownership_marker(tmp_path):
