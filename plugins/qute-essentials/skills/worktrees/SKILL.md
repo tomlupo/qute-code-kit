@@ -73,31 +73,38 @@ If `dev` exists locally or remotely, prefer it; otherwise fall back to `main`.
 cd <resolved-path>
 ```
 
-### 4. Apply project shared resources (if configured)
+### 4. Apply project setup (shared dirs, copied files, venv, post-create hook)
 
-After `cd`, if `worktree.json` is present:
+Run the shared setup implementation — the same script the plugin's native
+`WorktreeCreate` hook uses, so the skill path and `claude --worktree` cannot
+diverge:
 
-- For each `shared_dirs` entry: if `$MAIN/$dir` exists, run `ln -sf "$MAIN/$dir" "$dir"` (replacing any auto-created empty dir).
-- For each `copy_files` entry: if `$MAIN/$file` exists, run `cp "$MAIN/$file" .`.
-- If `venv_setup == "uv"`:
-  ```bash
-  echo 'export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/${PWD##*/}"' > .envrc
-  direnv allow 2>/dev/null || true
-  uv sync
-  ```
-- If `venv_setup == "pip"`:
-  ```bash
-  python -m venv .venv && .venv/bin/pip install -e .
-  ```
-- If `venv_setup == "none"` or absent: skip.
+```bash
+${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/worktree_create.py --setup <resolved-path> --base <main-checkout>
+```
 
-`$MAIN` resolves to the main checkout directory (the original repo root, not the worktree).
+It applies `worktree.json` (`shared_dirs` symlinks, `copy_files`,
+`venv_setup`) and then `.claude/post-worktree.sh` if executable. It **fails
+loudly**: a non-zero exit means setup did NOT complete (e.g. `uv` missing,
+`uv sync` failed, post-worktree.sh errored) — report the error to the user,
+do not proceed as if setup succeeded.
 
-### 5. Run post-create hook (optional)
+What it does for each `venv_setup` value (for reference):
 
-If `.claude/post-worktree.sh` exists and is executable in the project, run it inside the new worktree. Surface non-zero exit as an error.
+- `"uv"`: writes `.envrc` exporting
+  `UV_PROJECT_ENVIRONMENT="$HOME/.venvs/${PWD##*/}"`, runs `direnv allow`
+  (best-effort), then `uv sync` — and verifies the venv actually exists.
+- `"pip"`: `python -m venv .venv && .venv/bin/pip install -e .`
+- `"none"`/absent: venv skipped; `shared_dirs`/`copy_files` still apply.
 
-This is the escape hatch for project-specific custom setup beyond what config can express (e.g., starting services, running migrations, generating local secrets).
+### 5. Native path convergence
+
+When this plugin is installed, native worktree creation (`claude --worktree`,
+subagent `isolation: "worktree"`) runs the exact same setup automatically via
+the `WorktreeCreate` hook in `hooks/hooks.json` — no skill invocation needed.
+The skill remains the interactive/config-aware path (custom `base_path`,
+`branch_pattern`, base-branch choice); both call `worktree_create.py` for
+setup.
 
 ### 6. Work in Isolation
 
@@ -117,7 +124,17 @@ git worktree list
 
 ```bash
 git worktree remove <path>
+${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/worktree_remove.py --reap <path>
 ```
+
+The second command reaps the per-worktree venv (`$HOME/.venvs/<dir-basename>`)
+that `venv_setup: "uv"` created — without it, removed worktrees leak venvs
+forever. It is defensive by design: it refuses (with a logged reason, see
+`~/.claude/qute-worktree-reap.log`) unless the target is a real, unused venv
+strictly inside `$HOME/.venvs/` carrying the `.qute-worktree.json` ownership
+marker (stamped at setup time) that names this exact worktree — legacy venvs
+without a marker are left alone. Native worktree removal triggers the same
+reap automatically via the `WorktreeRemove` hook.
 
 **Note:** Don't auto-remove worktrees. Leave the decision to the user. If services are running, stop them first via `scripts/shutdown-services.sh`. After removal, delete the branch separately (`git branch -d <name>`, or `-D` to force when squash-merged).
 

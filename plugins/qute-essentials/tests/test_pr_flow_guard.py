@@ -140,7 +140,10 @@ def test_merge_denied_when_self_merge_off(tmp_path):
     root = _yml_repo(tmp_path, "enforce: true\nallowAgentSelfMerge: false\n")
     out = _run(root, "gh pr merge 7 --repo o/r --squash")
     assert _decision(out) == "deny"
-    assert "self-merge is DISABLED" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert (
+        "self-merge is DISABLED"
+        in out["hookSpecificOutput"]["permissionDecisionReason"]
+    )
 
 
 def test_merge_allowed_when_self_merge_on_and_review_exists(tmp_path):

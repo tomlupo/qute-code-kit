@@ -11,7 +11,6 @@ Toggle with `/guard <name> on/off` (persists to ~/.claude/qute-guards.json).
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys

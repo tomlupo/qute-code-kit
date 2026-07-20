@@ -13,7 +13,6 @@ Requires: LANGFUSE_SECRET_KEY, LANGFUSE_PUBLIC_KEY env vars.
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 
@@ -94,7 +93,6 @@ def main():
     # Detect source: dispatcher (tmux) vs interactive
     source = "interactive"
     tmux = os.environ.get("TMUX", "")
-    tmux_pane = os.environ.get("TMUX_PANE", "")
     if tmux:
         source = "dispatcher"
 
