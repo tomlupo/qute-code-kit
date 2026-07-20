@@ -29,6 +29,10 @@ def info(msg: str) -> None:
     print(f"ship-setup: {msg}")
 
 
+def warn(msg: str) -> None:
+    print(f"ship-setup: WARNING: {msg}", file=sys.stderr)
+
+
 def fail(msg: str) -> int:
     print(f"ship-setup: error: {msg}", file=sys.stderr)
     return 1
@@ -143,23 +147,61 @@ def setup_python(root: Path, pyproject: Path) -> int:
         changelog.write_text(template, encoding="utf-8")
         info("created CHANGELOG.md from template")
 
-    # 4. Create GitHub Actions release workflow if missing
-    workflow = root / ".github" / "workflows" / "release.yml"
-    if workflow.exists():
-        info(".github/workflows/release.yml already exists — skipping")
-    else:
-        workflow.parent.mkdir(parents=True, exist_ok=True)
-        template = (TEMPLATES / "github-workflow-release.yml").read_text(
-            encoding="utf-8"
-        )
-        workflow.write_text(template, encoding="utf-8")
-        info("created .github/workflows/release.yml")
+    # 4. Report (do NOT create) a CI release workflow.
+    #
+    # Setup used to install templates/github-workflow-release.yml here, which
+    # runs `cz bump` on every push to main — i.e. it does /ship's job
+    # automatically. A repo then had TWO version writers and every release
+    # double-bumped. Worse, in a dev->main flow the CI bump lands on main as a
+    # commit dev never sees, so the branches diverge permanently and later
+    # bumps compute from a stale baseline.
+    #
+    # Versioning must have exactly one owner. /ship is that owner, so setup no
+    # longer installs a competitor. Repos that prefer CI-owned releases can
+    # copy the template deliberately and stop using /ship's bump — see
+    # SKILL.md "Who owns the version".
+    if _warn_if_autobump_workflow(root):
+        info("  (left in place — setup does not modify existing workflows)")
 
     info(
-        "setup complete. Commit these changes, then run /ship on main to cut releases."
+        "setup complete. Commit these changes, then run /ship to cut releases."
     )
     return 0
 
+
+
+def _warn_if_autobump_workflow(root: Path) -> bool:
+    """Warn when a CI workflow also bumps versions. Returns True if one exists.
+
+    Detects the duplication that breaks single-owner versioning: a workflow
+    triggered by a push to the release branch that runs `cz bump`. Read-only —
+    it reports, never edits, because disabling someone's release automation is
+    their call, not setup's.
+    """
+    wf_dir = root / ".github" / "workflows"
+    if not wf_dir.is_dir():
+        return False
+    found = False
+    for wf in sorted(wf_dir.glob("*.y*ml")):
+        try:
+            text = wf.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if "cz bump" not in text:
+            continue
+        # Only a push trigger duplicates /ship; workflow_dispatch is manual and
+        # harmless (it is how a repo neuters this file without deleting it —
+        # deletion would just make setup recreate it).
+        if re.search(r"(?m)^\s*push\s*:", text):
+            warn(
+                f"{wf.relative_to(root).as_posix()} bumps versions on push — "
+                "so does /ship. TWO version writers double-bump, and a bump "
+                "created on the release branch never reaches the integration "
+                "branch, so they diverge. Pick ONE owner: disable the push "
+                "trigger, or stop using /ship's bump."
+            )
+            found = True
+    return found
 
 def _extract_version(pyproject_content: str) -> str | None:
     match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject_content)

@@ -148,3 +148,86 @@ class ForbiddenPaths(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAutoBumpWorkflowDetection(unittest.TestCase):
+    """Setup must not install a second version writer, and must flag one.
+
+    Regression guard for a real incident (dm-evo, 2026-07): setup installed a
+    release.yml that ran `cz bump` on push to main — /ship's own job. Both ran,
+    every release double-bumped, and because the CI bump landed on main as a
+    commit dev never saw, the branches diverged for two months. That surfaced
+    as a stale lockfile breaking all of CI and a CHANGELOG conflict where
+    resolving toward dev would have deleted a release from the record.
+    """
+
+    @staticmethod
+    def _setup_mod():
+        import importlib.util
+
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "plugins/qute-essentials/scripts/ship_setup.py"
+        )
+        spec = importlib.util.spec_from_file_location("ship_setup_under_test", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _write_workflow(self, root: Path, body: str, name: str = "release.yml") -> None:
+        wf = root / ".github" / "workflows"
+        wf.mkdir(parents=True, exist_ok=True)
+        (wf / name).write_text(body, encoding="utf-8")
+
+    def test_flags_a_push_triggered_cz_bump(self):
+        mod = self._setup_mod()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write_workflow(
+                root,
+                "on:\n  push:\n    branches: [main]\njobs:\n  s:\n    steps:\n"
+                "      - run: cz bump --yes\n",
+            )
+            self.assertTrue(mod._warn_if_autobump_workflow(root))
+
+    def test_ignores_workflow_dispatch_only(self):
+        """The neutered form — how a repo disables it without deletion.
+
+        Deleting is not enough: setup recreates a MISSING release.yml, which
+        would restore the auto-bump. An inert file is the stable state, so it
+        must not be reported as a duplicate writer.
+        """
+        mod = self._setup_mod()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write_workflow(
+                root,
+                "on:\n  workflow_dispatch:\njobs:\n  noop:\n    steps:\n"
+                "      - run: echo 'inert — cz bump lives in /ship'\n",
+            )
+            self.assertFalse(mod._warn_if_autobump_workflow(root))
+
+    def test_ignores_ordinary_push_ci_without_a_bump(self):
+        mod = self._setup_mod()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._write_workflow(
+                root,
+                "on:\n  push:\n    branches: [main]\njobs:\n  t:\n    steps:\n"
+                "      - run: pytest\n",
+                name="tests.yml",
+            )
+            self.assertFalse(mod._warn_if_autobump_workflow(root))
+
+    def test_no_workflows_directory_is_not_an_error(self):
+        mod = self._setup_mod()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(mod._warn_if_autobump_workflow(Path(d)))
+
+    def test_setup_does_not_create_a_release_workflow(self):
+        """The core fix: setup must no longer install a competing writer."""
+        src = (
+            Path(__file__).resolve().parents[1]
+            / "plugins/qute-essentials/scripts/ship_setup.py"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("created .github/workflows/release.yml", src)

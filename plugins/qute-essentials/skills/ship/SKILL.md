@@ -125,7 +125,9 @@ ones are left alone:
    `version_files` so they bump in lockstep; a `__version__` derived from
    `importlib.metadata` is left alone.
 3. `CHANGELOG.md` from the Keep-a-Changelog template.
-4. `.github/workflows/release.yml`.
+4. ~~`.github/workflows/release.yml`~~ — **no longer created.** It ran `cz bump`
+   on every push to main, i.e. /ship's own job, so repos ended up with two
+   version writers. Setup now only WARNS if such a workflow already exists.
 
 Re-running `/ship` after the first call is safe — already-present artifacts
 are skipped with a one-line note.
@@ -137,6 +139,24 @@ are skipped with a one-line note.
   The pre-commit hook in `.githooks/pre-commit` blocks future drift.
 - After bump, regenerates `marketplace.json` from plugin manifests (one-way
   flow: hand-edit `.claude-plugin/plugin.json`; `marketplace.json` is derived).
+
+## Who owns the version
+
+Exactly one thing may write versions and tags. Two writers double-bump, and in a
+`dev -> main` flow the CI bump lands on `main` as a commit `dev` never sees — the
+branches diverge and every later bump computes from a stale baseline.
+
+| Flow | Owner | Notes |
+|---|---|---|
+| `dev -> main` via release PR (default) | **`/ship` on `dev`** | Bump BEFORE the merge so it reaches main through the PR and both branches match. |
+| Single branch, CI-owned | the workflow | Copy `templates/github-workflow-release.yml` deliberately and stop using /ship's bump. |
+
+After a release, `main` and the integration branch must agree:
+`git diff origin/main origin/dev -- pyproject.toml` — empty is correct.
+
+Note: an existing `release.yml` cannot simply be deleted if setup ever created
+it — check nothing recreates it. Making the trigger `workflow_dispatch` only is
+the stable way to neuter it.
 
 ## Gotchas
 

@@ -4,9 +4,13 @@ on:
   push:
     branches: [main]
 
-# Bumps version, updates CHANGELOG.md, and creates a git tag on every merge
-# to main based on Conventional Commits. Mirrors the behavior of `/ship`
-# when run locally.
+# OPT-IN — no longer installed by `/ship` setup. Copy this in ONLY if CI owns
+# versioning and you do NOT use /ship's bump.
+#
+# Bumps version, updates CHANGELOG.md, and tags on every merge to main from
+# Conventional Commits. It duplicates `/ship`: running both double-bumps, and
+# in a dev->main flow the bump lands on main as a commit dev never sees, so the
+# branches diverge permanently. Pick one owner. See ship/SKILL.md.
 
 jobs:
   ship:
