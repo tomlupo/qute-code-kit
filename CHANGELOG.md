@@ -1,3 +1,15 @@
+## v3.0.0 (2026-07-21)
+
+### BREAKING
+
+- feat(plugin)!: move qute-coder / qute-reviewer / jimek-onboard to jimek (ADR-0005 §2)
+- feat(plugin)!: delete qute-pr.yml + pr-flow-guard — tier is the sole merge authority (ADR-0005 §3)
+
+### Feat
+
+- reposition as the shared review core — Matt base + quant layer (ADR-0005 §6-7)
+- stamp .claude/rules behavioral core at onboarding (ADR-0005 §5)
+
 ## v2.14.0 (2026-07-21)
 
 ### Feat
