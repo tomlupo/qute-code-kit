@@ -118,18 +118,38 @@ core, localhost-reachable) — the board-write analogue of the Option D pull-ove
 Workers drive GitHub only (review + `gh pr merge`, which are reachable). Shipped in jimek this
 session.
 
-## Open choices (deferred, not blocking)
+## Resolved sub-decisions (2026-07-21)
 
-- **Standalone review poster.** Without jimek the gate still wants a review object — posted by a
-  human or a human running `/qute-review` (quant) or Matt's review tools. Leaning: human/skill,
-  **no bot** (that's the point of standalone).
-- **One review core vs two.** If `qute-review` is quant-specific, does jimek's autonomous reviewer
-  call it for quant repos and use a generic review elsewhere, or always run its own? The quant/
-  general split is a clean reason to keep `qute-review` separate; resolve when the review core is
-  refactored.
-- **Verifiability classification across the SSH boundary.** With board writes conductor-side, the
-  worker's per-criterion verifiability judgment no longer reaches the board (only the repo
-  `humanQA` rule does). Carry it over the status plane in a later change.
+### Independence is a separate reviewing *agent*, not an identity
+
+The gate's `author ≠ reviewer` identity check is a **mechanical proxy that is gameable** — you can
+post as another identity without any genuine independent look. The real independence is a
+**separate reviewing agent** with fresh context and no stake in the code. Consequences:
+
+- The **review capability lives in the shared review core and is invocable in ANY session** —
+  interactive or autonomous. A human driving an agent can invoke a genuinely independent review on
+  their own PR (spawn a separate review agent), which is the substantive thing; posting the verdict
+  as `qute-review[bot]` is a **thin optional adapter** to satisfy a mechanical gate, not the point.
+- So there is **no standalone/jimek duplication** of the review capability and no separate
+  standalone reviewer to build: one core, called from either entry point.
+- The gate rule stays "an independent review object exists" as its *checkable* form, understood as
+  a proxy for "a separate agent reviewed this." Human-authored PRs may still invoke it on demand.
+
+### One review core = Matt review base + quant layer, two entry points
+
+A single review implementation. `qute-review` **reuses Matt's review skill and adds a quant layer
+on top** — so it handles both general and quant repos (not quant-only). The interactive entry is
+the skill; the autonomous entry is the conductor; both call the same core. This retires the two
+drifted runners (`qute-review` skill vs `src/dispatcher/review.py`).
+
+### Verifiability classification — deferred to a future classifier
+
+With board writes conductor-side, the worker's per-criterion machine-vs-human verifiability
+judgment no longer reaches the board (only the pre-declared `humanQA` globs/markers do). There is
+no perfect fix. **Interim:** rely on per-repo `humanQA` rules (a repo knows which paths are
+visual). **Later:** add a **classifier** (analogous to a quality gate on the issue body) that
+decides machine- vs human-verifiable. Not built now; not blocking (machine-verifiable changes
+correctly go Done today).
 
 ## Path to target state
 
