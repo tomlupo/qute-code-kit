@@ -161,17 +161,21 @@ is proven (the migration doc's Order §4 discipline is retained).
    both modes and removes the gate's dependency on `qute-pr.yml`.
 2. **Conductor-side board writes** — *done this session.* Removes the worker→dispatcher
    reachability dependency.
-3. **Delete `qute-pr.yml`.** Point the gate template solely at the tier label (already does) and
+3. *(done 2026-07-21)* **Delete `qute-pr.yml`.** Point the gate template solely at the tier label (already does) and
    drop the file from onboarding + existing repos. Remove `pr-flow-guard`/`pr_flow_config` reads.
-4. **Move `qute-coder` / `qute-reviewer` / `jimek-onboard` into jimek.** They are the conductor's
+4. *(done 2026-07-21)* **Move `qute-coder` / `qute-reviewer` / `jimek-onboard` into jimek.**
+   Resolved: jimek ships them under `skills/<name>/` (SKILL.md + helper scripts) and
+   auto-installs them globally as whole-dir symlinks on bot start (`managed_skills`). They are the conductor's
    transport verbs. qute-essentials stops shipping them in a minor-major bump; README drops them.
-5. **Stand up `.claude/rules` onboarding in `setup-qute-repo`.** Stamp the common core +
+5. *(done 2026-07-21)* **Stand up `.claude/rules` onboarding in `setup-qute-repo`.** Stamp the common core +
    jimek-conditional note; make it idempotent per-concern-file. Move the review-gate CI template
    ownership here (or to jimek — one unit with the gate; decide with step 4).
-6. **Reposition `qute-review` as the quant reviewer.** Update its description/triggers to quant
+6. *(done 2026-07-21)* **Reposition `qute-review` as the quant reviewer.** Update its description/triggers to quant
    scope; document that general repos use Matt's review tooling.
-7. **Collapse the two review runners** into one shared core (interactive entry = skill, autonomous
+7. *(done 2026-07-21)* **Collapse the two review runners**
+   Resolved: the canonical prompt is `skills/qute-review/review-core.md`; jimek's
+   `dispatcher/review.py` loads it (env > checkout > plugin cache > embedded fallback). into one shared core (interactive entry = skill, autonomous
    entry = conductor), resolving the quant/general split from the open choices.
 
-Steps 1–2 are live. 3–7 are the remaining migration; do them in order, proving each before the
-next, and update this ADR's status if a choice above is resolved differently.
+All steps 1–7 are done (2026-07-21). Gate-template ownership resolved: qute-essentials ships the
+canonical `templates/review-gate.yml`; jimek-onboard renders from it (env > checkout > plugin cache).
