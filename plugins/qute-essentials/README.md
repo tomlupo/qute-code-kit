@@ -156,7 +156,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/readme` | Generate or update README files |
 | `/gbu` | Good/bad/ugly structured code or design review |
 | `/wtf` | Activated on frustration/pushback — captures failure, applies three guardrail tiers (feedback memory + CLAUDE.md rule + hook), proposes smallest fix |
-| `/qute-review` | Independent adversarial multi-agent code review; posts gate verdict (approve / request-changes) as a structured report |
+| `/qute-review` | The shared review core (ADR-0005): Matt-review-base + quant layer, adversarial failure-class framing (`review-core.md`), cross-model via codex; posts the native GitHub review verdict the gate requires. Same core drives jimek's autonomous reviewer |
 
 ## PR governance (ADR-0005: tier or rules, no policy file)
 

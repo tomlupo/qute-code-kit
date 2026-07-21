@@ -1,40 +1,49 @@
 ---
 name: qute-review
 description: >-
-  Adversarial, INDEPENDENT code review that posts a native GitHub review verdict — the verdict the
-  review-gate CI requires before merge. Runs a cross-model (codex) review with a security-first,
-  failure-class-driven prompt (not generic "review this"), multi-run for risky code, with a Code
-  Reviewer subagent fallback. Use before merging any non-trivial PR, or when the review-gate is red
-  for a missing reviewer verdict. Triggers: /qute-review, review this PR, run the review gate,
-  independent review, post a reviewer verdict.
+  The shared review core (ADR-0005): adversarial, INDEPENDENT code review — Matt's review-skill
+  base plus a quant layer (look-ahead, survivorship, data-path, fabrication) — that posts a native
+  GitHub review verdict, the verdict the review-gate CI requires before merge. ONE review core, two
+  entry points: this skill (interactive) and jimek's conductor (autonomous) both drive the same
+  canonical prompt (review-core.md). Runs cross-model (codex) with a security-first,
+  failure-class-driven framing, multi-run for risky code, with a Code Reviewer subagent fallback.
+  Use before merging any non-trivial PR, or when the review-gate is red. Triggers: /qute-review,
+  review this PR, run the review gate, independent review, post a reviewer verdict.
 argument-hint: "[PR ref — e.g. owner/repo#123 — or omit for the current branch's PR]"
 ---
 
-# qute-review — independent, adversarial review that satisfies the gate
+# qute-review — the shared review core (one core, two entry points)
 
 Produce a real review verdict and post it as a native GitHub review, so the **review-gate** CI
-(`require-reviewer-verdict`) passes. This skill exists because of a concrete failure (2026-06-28): a
-session ran codex on its OWN PRs (verdict SHIP); an independent codex run with a security prompt then
-found 3 BLOCKERS it missed (path traversal, silent overwrite, unguarded symlink). Two things fix that —
-this skill carries both.
+passes. Per ADR-0005 this is THE review core: **Matt's review skill is the base** (general-repo
+review tooling), and this adds the adversarial framing + the **quant layer** on top — so it serves
+both general and quant repos. The same canonical prompt drives jimek's autonomous review runner
+(`dispatcher/review.py` loads `review-core.md`), so the two entry points can never drift.
+
+This skill exists because of a concrete failure (2026-06-28): a session ran codex on its OWN PRs
+(verdict SHIP); an independent codex run with a security prompt then found 3 BLOCKERS it missed
+(path traversal, silent overwrite, unguarded symlink).
 
 ## Two non-negotiables
 
-1. **INDEPENDENCE — a different party than the builder runs it.** A skill is just a prompt; if the
-   agent that WROTE the code runs it on its own work, it's a rubber-stamp (it frames the review and
-   decides how to act on findings). If you built the diff, an INDEPENDENT session/agent must run this.
-   The review-gate CI enforces that *a* review exists; you enforce that it's *independent*.
-2. **ADVERSARIAL FRAMING — hunt failure classes, not "review this diff."** The framing was the biggest
-   factor in catching the miss. Drive the reviewer with the checklist below, as a skeptic that assumes
-   the code is wrong until proven otherwise.
+1. **INDEPENDENCE — a separate reviewing AGENT runs it** (ADR-0005: independence is a separate
+   agent with fresh context, not an identity trick). If you built the diff, an independent
+   session/process must run this — codex exec or a fresh headless run, never an in-process subagent
+   of the authoring session. The review-gate CI checks that *a* review object exists; you ensure
+   it's *independent*.
+2. **ADVERSARIAL FRAMING — hunt failure classes, not "review this diff."** The framing is carried
+   by `review-core.md` (sibling of this file) — the canonical prompt. Do not improvise a
+   replacement prompt; feed the core.
 
 ## Process
 
 1. **Get the diff.** `gh pr diff <#> --repo <owner/repo>` (or `git diff <base>...<branch>` — use the
    PR's actual base; check `gh pr view <#> --json baseRefName`). Write it to a temp file.
-2. **Run the cross-model review (codex by default).** Feed the diff + the adversarial prompt:
+2. **Run the cross-model review (codex by default).** Feed the diff + the canonical core prompt
+   (`review-core.md` in this skill's directory, prefixed with one line of context: repo + PR + diff
+   location):
    ```
-   cat <difffile> | codex exec --skip-git-repo-check "<adversarial prompt — see template>" > <scratch>/codex-review.log 2>&1
+   cat <difffile> | codex exec --skip-git-repo-check "$(cat <skill-dir>/review-core.md)" > <scratch>/codex-review.log 2>&1
    ```
    `codex` lives at `~/.local/bin/codex` (and `~/.npm-global/bin/codex`). Use a generous timeout (~320s).
 
@@ -52,16 +61,13 @@ this skill carries both.
    (correctness · security · data-safety) and UNION the findings — one run misses things (codex is
    non-deterministic).
 4. **Fallback if codex is capped/unavailable** (usage limit, egress concern): `Agent(subagent_type:
-   "Code Reviewer")` with the SAME adversarial prompt. Flag in the verdict that codex was unavailable
+   "Code Reviewer")` with the SAME core prompt. Flag in the verdict that codex was unavailable
    (so it's Claude-on-Claude this round).
-5. **Confidence-gate, then verify before posting.** For each candidate finding, assign a confidence
-   score (0–100%) and drop anything below **80%** — pattern-matched hunches are noise, not findings.
-   Before it goes in the verdict, **verify each surviving finding against the actual code**: re-read
-   the relevant lines/context (not just the diff hunk in isolation) and confirm the issue really
-   holds — discard anything that doesn't survive that re-read (a helper defined two lines up, a guard
-   already applied earlier in the function, etc.).
+5. **Confidence-gate, then verify before posting.** The core prompt instructs the reviewer to do
+   this; you re-verify the surviving findings against the actual code (not just the diff hunk)
+   before they go in the verdict.
 6. **Synthesize the verdict:** `SHIP` / `SHIP-WITH-NITS` / `BLOCKER` + concrete findings, each with
-   `file:line` and a one-line fix. Real, verified, >=80%-confidence findings only; drop speculative noise.
+   `file:line` and a one-line fix. Real, verified, >=80%-confidence findings only.
 7. **POST it as a native GitHub review** (this is what satisfies the gate):
    ```
    gh pr review <#> --repo <owner/repo> --comment --body "codex: <SHIP|SHIP-WITH-NITS|BLOCKER> — <findings>"
@@ -69,38 +75,16 @@ this skill carries both.
    Use `--comment` (agents are not human approvers — never `--approve`). The gate is satisfied by any
    review in state COMMENTED/CHANGES_REQUESTED; the `codex:` prefix is the convention. On `BLOCKER`,
    the builder fixes + you re-run and update the verdict — don't merge until it's SHIP / SHIP-WITH-NITS.
+   To post AS qute-review[bot] (App-authored, for `author != reviewer` by construction), hand the
+   verdict to `/qute-reviewer` (ships with jimek) instead of `gh pr review`.
 
-## The adversarial prompt template
+## Relationship to Matt's review + jimek
 
-> Independent review — you are a SEPARATE reviewer from whoever wrote this; assume nothing was verified.
-> Diff at <path>. Context: <one line>. Be a skeptic: assume it's wrong until proven otherwise. Hunt these
-> classes, report only REAL findings with file:line + a one-line fix:
-> - **Correctness** — logic, edge cases, off-by-one, wrong/empty defaults, error paths.
-> - **Path/IO safety** — path traversal (user-influenced slugs/wikilinks joined into paths; `..`/separators
->   escaping a base dir), unguarded overwrite/delete of existing files, unhandled symlinks, resolved-path
->   not asserted under the expected base.
-> - **AuthZ/AuthN** — missing/weak checks, allowlist bypass, fail-open.
-> - **Injection** — SQL/shell/template/prompt injection from untrusted input.
-> - **Secrets / data egress** — logged/committed secrets, data sent to a third party.
-> - **Silent failure / data loss** — swallowed errors (`|| true`, bare except), partial writes, stale-but-
->   finite outputs that pass a presence check.
-> - **Concurrency / resources** — races, leaks, unbounded growth.
-> - **(quant only)** — look-ahead / same-bar leakage, survivorship, wrong data path vs prod, fabricated values.
-> Also explicitly sweep these 6 lenses before you finish — they catch classes the list above under-covers:
-> - **Comment-analysis** — do comments/docstrings actually match what the code does (stale, aspirational,
->   or contradicted by the implementation)?
-> - **Test-analysis** — do the tests assert the RIGHT thing, and do they actually cover this change (not
->   just touch the function)?
-> - **Silent-failure** — swallowed exceptions, unchecked return values, no-op fallbacks that look like
->   success.
-> - **Type-design** — do the types/shapes allow an invalid state to be represented that shouldn't be?
-> - **Correctness** — logic bugs, edge cases, off-by-one (restated as its own explicit pass, not just
->   folded into the first bullet above).
-> - **Simplification** — unneeded complexity, dead code, an existing helper/pattern that should have been
->   reused instead of re-implemented.
-> For every candidate finding: assign a confidence 0–100%, drop anything under 80%, and re-verify the
-> survivors against the actual code (not just the diff hunk) before including them.
-> Output: a verdict line SHIP / SHIP-WITH-NITS / BLOCKER, then concise bullets.
+- **Matt's code-review skill** is the planning-spine base for general repos; this core layers the
+  adversarial framing + quant lens on top and adds the gate-satisfying GitHub posting.
+- **jimek's conductor** is the autonomous entry point: `dispatcher/review.py` loads the same
+  `review-core.md` (env `QUTE_REVIEW_CORE` > qute-code-kit checkout > plugin cache > embedded
+  fallback) for its codex/claude runners. Change the review policy HERE, once.
 
 ## Caveats
 
@@ -110,4 +94,5 @@ this skill carries both.
   the audit trail and the gate passes — a verdict only in chat leaves the PR showing "no reviews."
 - **This is the cross-model layer**, complementary to a separate Claude review session — not either/or.
 
-Background: the review-gate CI workflow (`review-gate.yml`) + the lesson memory `feedback-codex-cross-model-review`.
+Background: the review-gate CI workflow (`templates/review-gate.yml`) + the lesson memory
+`feedback-codex-cross-model-review`.
