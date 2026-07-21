@@ -79,6 +79,13 @@ For Linear repos, confirm which Linear **project** the repo maps to (roughly
 repo = project; product surfaces may combine repos — e.g. dm-evo covers lab +
 app).
 
+**Mint the repo label** (closed catalogue): onboarding is the ONE legitimate
+moment a new `repo`-group child label is created on the Linear team. Create
+`<owner>/<name>` under the `repo` group (via the dispatcher gateway when
+reachable — a `POST /board/issue` for the repo mints it — or deliberately in
+the Linear UI). Never mint any other label; the catalogue is closed (statuses
+carry state, parents carry structure, groups carry routing facets).
+
 ## Step 4 — Jimek management (conductor.yml)
 
 If the repo type says Jimek-managed (and the user agrees), run
