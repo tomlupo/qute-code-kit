@@ -1,3 +1,13 @@
+## v2.14.0 (2026-07-21)
+
+### Feat
+
+- guided onboarding wizard superseding adopt-matt-workflow (#73)
+
+### Fix
+
+- stop installing a release workflow that duplicates /ship (#72)
+
 ## v2.13.0 (2026-07-20)
 
 ### Feat

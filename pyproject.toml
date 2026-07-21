@@ -5,7 +5,7 @@
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "2.13.0"
+version = "2.14.0"
 version_files = [
     ".claude-plugin/marketplace.json:version",
     "plugins/qute-essentials/.claude-plugin/plugin.json:version",
