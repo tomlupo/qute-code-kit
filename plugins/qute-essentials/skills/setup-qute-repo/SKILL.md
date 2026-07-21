@@ -179,5 +179,5 @@ machine marker.
   `/qute-review`, `/ship`, research regime.
 - qute never grows a parallel planning flow; `/task` publishes accepted
   work, it does not decompose unclear work.
-- GitHub PR transport / bot identities are Jimek's
-  (`docs/architecture/jimek-migration.md`).
+- GitHub PR transport / bot identities are Jimek's (ADR-0005; the
+  `/qute-coder` / `/qute-reviewer` / `/jimek-onboard` skills ship with jimek).

@@ -19,8 +19,9 @@ qute-essentials is the runtime + research regime. Do not add qute skills that
 duplicate Matt's generic planning roles (grilling, specs, tickets, implementation
 orchestration) — qute skills must be runtime (safety/release/continuity), research
 regime, or domain-specific. ADRs go to `docs/adr/`. GitHub PR/bot skills
-(`qute-coder`, `qute-reviewer`, `jimek-onboard`) are Jimek infrastructure pending
-relocation — see `docs/architecture/jimek-migration.md`; don't grow them.
+(`qute-coder`, `qute-reviewer`, `jimek-onboard`) now live in the jimek repo
+(ADR-0005, `docs/adr/0005-qute-jimek-boundary-governance-modes.md`) — jimek
+auto-installs them globally; don't re-add them here.
 
 ## Layout
 
