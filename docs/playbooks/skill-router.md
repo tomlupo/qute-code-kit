@@ -51,7 +51,7 @@ Jimek         = autonomous dispatch (assign on the board; it does the rest)
 
 | Situation | Run |
 |---|---|
-| New repo onboarding | Matt `/setup-matt-pocock-skills` → qute `/adopt-matt-workflow` (adds qute deltas; `--research` for lab repos) |
+| New repo onboarding | Matt `/setup-matt-pocock-skills` → qute `/setup-qute-repo` (guided wizard; type-driven defaults, supersedes adopt-matt-workflow) |
 | Where do ideas go | The board (`fleet-track new`, Backlog) — never loose markdown, never a GitHub issue |
 | GitHub Issues | Records only (bugs/defects/evidence; `--to github` in `/task`) — NEVER a queue to pull from |
 | Something feels off with the assistant | `/wtf` (captures the failure into guardrails) |

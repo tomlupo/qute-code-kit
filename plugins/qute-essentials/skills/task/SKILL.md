@@ -57,7 +57,7 @@ to know the live store is now GitHub.
 ## Tracker binding (`docs/agents/issue-tracker.md`)
 
 If the repo has `docs/agents/issue-tracker.md` (Matt Pocock's
-`setup-matt-pocock-skills` convention, also stamped by `/adopt-matt-workflow`),
+`setup-matt-pocock-skills` convention, also stamped by `/setup-qute-repo`),
 that file **wins over auto-detection**. The engine routes on its machine-readable
 marker — `<!-- qute-tracker: <linear|github|tasks-md> [team=ABC] -->` — and the
 prose declares auth notes and workflow specifics for agents. Template:

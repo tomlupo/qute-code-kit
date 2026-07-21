@@ -1,7 +1,7 @@
 """jimek-onboard — make a target repo Jimek-managed in one command.
 
 Runs INSIDE a target repo. Detects the repo's workflow conventions, then STAMPS
-a schema-valid ``jimek.yml`` (the per-repo Jimek dispatch + workflow-policy
+a schema-valid ``conductor.yml`` (the per-repo Jimek dispatch + workflow-policy
 contract) plus the supporting ``review-gate`` CI, idempotently and without ever
 clobbering an existing file (it backs up + diffs instead).
 
@@ -12,7 +12,7 @@ Division of labour (decided 2026-07-09):
   * Jimek owns *orchestration*; the contract SCHEMA is the single source of
     truth in ``dispatcher.jimek.JimekContract`` (the 8 Wave-1a policy fields +
     the core dispatch fields). This script only TEMPLATES a schema-valid
-    ``jimek.yml`` from that schema's shape + the repo's detected conventions.
+    ``conductor.yml`` from that schema's shape + the repo's detected conventions.
 
 Validation is two-tier:
 
@@ -68,7 +68,7 @@ LIVE_CAPITAL_REPOS = {"quantbox", "quantbox-live"}
 # was emitting "commit"; keep this list authoritative for the bundled check.
 VALID_PATHS = {"commit-to-default", "pr"}
 
-DEFAULT_DISPATCHER_REPO = Path.home() / "workspace" / "projects" / "dispatcher"
+DEFAULT_DISPATCHER_REPO = Path.home() / "workspace" / "projects" / "jimek"
 
 
 # ── Detection ────────────────────────────────────────────────────────────────
@@ -234,7 +234,7 @@ def _yaml_list(items: list[str]) -> str:
 
 
 def render_jimek_yml(conv: dict) -> str:
-    """Render a schema-valid jimek.yml from detected conventions.
+    """Render a schema-valid conductor.yml from detected conventions.
 
     Models the merged reference templates (dispatcher root PR #76 + the per-repo
     dm-evo/quantbox ones). Every value is one the origin/master JimekContract
@@ -271,10 +271,10 @@ def render_jimek_yml(conv: dict) -> str:
     )
 
     return f"""\
-# jimek.yml — dispatch + workflow-policy contract for THIS repo ({name}).
+# conductor.yml — dispatch + workflow-policy contract for THIS repo ({name}).
 #
 # Per-repo instantiation of the JimekContract schema (Jimek Wave 1c), modeled on
-# the APPROVED reference template (dispatcher repo-root jimek.yml, PR #76) and
+# the APPROVED reference template (dispatcher repo-root conductor.yml, PR #76) and
 # the merged per-repo contracts (dm-evo / quantbox). It codifies {name}'s
 # CURRENT workflow policy — ADDITIVE, describing today's behavior.
 #
@@ -374,7 +374,7 @@ def _review_gate_branches(conv: dict) -> list[str]:
     """The branch names the review-gate must trigger on for THIS repo.
 
     Rendered from the DETECTED conventions, not hard-coded — a `master`-base repo
-    (or any non-`main` default) would otherwise get a `jimek.yml` telling it to
+    (or any non-`main` default) would otherwise get a `conductor.yml` telling it to
     open PRs to `<base>` while the stamped gate never fires on those PRs (review
     blocker 2026-07-09). We watch the PR base AND the release branch (dev-base
     repos merge dev→main, so the gate must also cover the eventual main PR),
@@ -623,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
         "--print",
         dest="print_only",
         action="store_true",
-        help="print the jimek.yml and exit",
+        help="print the conductor.yml and exit",
     )
     ap.add_argument(
         "--force", action="store_true", help="back up + overwrite existing files"
@@ -654,7 +654,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     elif builtin_errors:
         print(
-            "error: generated jimek.yml failed the bundled structural check:",
+            "error: generated conductor.yml failed the bundled structural check:",
             file=sys.stderr,
         )
         for e in builtin_errors:
@@ -668,9 +668,9 @@ def main(argv: list[str] | None = None) -> int:
     # Authoritative validation against origin/master, if reachable. Validate a
     # throwaway copy so we never leave a file behind when just checking.
     with tempfile.TemporaryDirectory() as td:
-        (Path(td) / "jimek.yml").write_text(jimek_yml, encoding="utf-8")
+        (Path(td) / "conductor.yml").write_text(jimek_yml, encoding="utf-8")
         ok, msg = authoritative_validate(
-            Path(td) / "jimek.yml", Path(args.dispatcher_repo)
+            Path(td) / "conductor.yml", Path(args.dispatcher_repo)
         )
     if ok:
         auth_line = f"authoritative loader (origin/master): OK — {msg}"
@@ -678,7 +678,7 @@ def main(argv: list[str] | None = None) -> int:
         auth_line = f"authoritative loader: {msg} (bundled check passed)"
     else:
         print(
-            "error: generated jimek.yml is REJECTED by the authoritative loader:",
+            "error: generated conductor.yml is REJECTED by the authoritative loader:",
             file=sys.stderr,
         )
         print(f"  {msg}", file=sys.stderr)
@@ -687,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── Stamp ────────────────────────────────────────────────────────────────
     log: list[str] = []
     _stamp(
-        repo / "jimek.yml", jimek_yml, force=args.force, dry_run=args.dry_run, log=log
+        repo / "conductor.yml", jimek_yml, force=args.force, dry_run=args.dry_run, log=log
     )
     if not args.no_review_gate:
         _stamp(
@@ -736,7 +736,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print()
     print("next steps:")
-    print("  1. review jimek.yml (and any *.jimek-proposed)")
+    print("  1. review conductor.yml (and any *.jimek-proposed)")
     print(
         f"  2. commit on a branch, then open a PR to `{conv['base']}` via /qute-coder"
     )

@@ -29,7 +29,7 @@ Adoption (option 2). `qute-essentials = Matt workflow (assumed installed) + runt
 - ADRs live in `docs/adr/` (Matt's convention); `/decision` writes there.
 - Repo agent policy lives in `docs/agents/*.md` prose files (no qute-specific YAML schema);
   `/task` and `/repo-status` honor `docs/agents/issue-tracker.md` when present.
-- Repo config is stamped by Matt's `setup-matt-pocock-skills`; qute's `/adopt-matt-workflow`
+- Repo config is stamped by Matt's `setup-matt-pocock-skills`; qute's `/setup-qute-repo` (né adopt-matt-workflow)
   is a thin complement that adds only qute deltas (guards, release, research mode).
 - Matt is **assumed installed, never required**: every qute core skill works standalone;
   Matt-aware behavior activates only on detection (graceful degradation).

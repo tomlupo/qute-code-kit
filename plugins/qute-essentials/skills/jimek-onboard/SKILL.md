@@ -4,7 +4,7 @@ description: >-
   One command to make a repo Jimek-managed. Detects the target repo's workflow
   conventions (PR base branch, whether direct commits to default are allowed,
   live-capital status, release/tag conventions) and STAMPS a schema-valid
-  `jimek.yml` (the per-repo Jimek dispatch + workflow-policy contract) plus the
+  `conductor.yml` (the per-repo Jimek dispatch + workflow-policy contract) plus the
   `review-gate` CI, idempotently — never clobbering an existing file (backs up +
   diffs instead). The generated contract is validated against the REAL loader
   (dispatcher.jimek.load_contract on origin/master) before it is written. Use
@@ -20,7 +20,7 @@ the qute-essentials repo-distribution mechanism that makes a repo part of the
 Jimek fleet. It is deliberately separate from orchestration: the contract SCHEMA
 lives in `dispatcher.jimek.JimekContract` (the single source of truth — the 8
 Wave-1a policy fields plus the core dispatch fields); this skill only *templates*
-a schema-valid `jimek.yml` from that schema's shape and the repo's detected
+a schema-valid `conductor.yml` from that schema's shape and the repo's detected
 conventions.
 
 ## What it does
@@ -33,7 +33,7 @@ Run inside a target repo. It is idempotent — safe to re-run:
    whether it is live-capital (→ records `escalation.block_on`; the dispatcher
    rigor engine already forces live-capital changes to complex + a Tom gate),
    and release/tag conventions (from `pyproject.toml` commitizen `tag_format`).
-2. **Stamps `jimek.yml`** at the repo root, templated from the detected
+2. **Stamps `conductor.yml`** at the repo root, templated from the detected
    conventions + the schema. It is **validated** first by a bundled structural
    check (guards the W1c `"commit"` bug — `path` must be `commit-to-default` |
    `pr` only) and then by the **authoritative** loader extracted from
@@ -55,7 +55,7 @@ differing file prints a unified diff and writes a `*.jimek-proposed` sibling
 # Detect + validate + stamp into the current repo:
 ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/jimek_onboard.py $ARGUMENTS
 
-# Preview the generated jimek.yml without writing anything:
+# Preview the generated conductor.yml without writing anything:
 ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/jimek_onboard.py --print
 
 # Dry-run (detect + render + validate, write nothing, show the diffs):
@@ -64,12 +64,12 @@ ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/jimek_onboard
 
 Flags: `--repo DIR` (target a repo other than cwd), `--dispatcher-repo DIR` (or
 `$DISPATCHER_REPO`; where the authoritative loader is read from — defaults to
-`~/workspace/projects/dispatcher`), `--force` (back up + overwrite existing
+`~/workspace/projects/jimek`), `--force` (back up + overwrite existing
 files), `--no-review-gate` (skip the CI stamp), `--print`, `--dry-run`.
 
 ## After stamping
 
-- Review `jimek.yml` and any `*.jimek-proposed`.
+- Review `conductor.yml` and any `*.jimek-proposed`.
 - Commit on a branch and open a PR to the detected base branch (`/qute-coder`).
 - The dispatcher hot-reloads contracts (`/jimek/reload`); a broken contract is
   fail-closed (the repo has NO contract until fixed) — so the pre-write
