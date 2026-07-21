@@ -5,7 +5,7 @@ Verifies the Jimek verb contract WITHOUT changing human-invocation defaults:
 - chain-control flags parameterize policy: --no-review, --no-assign, --assign-to;
 - --json emits ONE structured object a conductor can branch on;
 - idempotency: an existing OPEN PR for the branch is REUSED (no second PR);
-- policy baseBranch injects --base when the caller passed none.
+- ADR-0005: a leftover `.github/qute-pr.yml` has NO effect (policy file is dead).
 
 All externals (gh, gh-app-token minter, codex, curl) are shell stubs on PATH.
 """
@@ -94,12 +94,12 @@ esac
     }
 
 
-def _run(env, args, cwd=None):
+def _run(env, args, cwd=None, extra_env=None):
     return subprocess.run(
         ["bash", str(SCRIPT), *args],
         capture_output=True,
         text=True,
-        env=env["path_env"],
+        env={**env["path_env"], **(extra_env or {})},
         cwd=str(cwd or env["cwd"]),
         timeout=60,
     )
@@ -220,13 +220,12 @@ def test_idempotent_reuses_existing_pr(env):
     assert j["assign"]["ran"] is True
 
 
-def test_policy_base_branch_injected(env, tmp_path):
-    """.github/qute-pr.yml baseBranch: dev -> --base dev when caller gave none."""
+def test_qute_pr_yml_is_ignored(env, tmp_path):
+    """ADR-0005: `.github/qute-pr.yml` is dead — a leftover file must have NO effect."""
     repo = tmp_path / "repo"
     (repo / ".git").mkdir(parents=True)
     (repo / ".github").mkdir()
     (repo / ".github" / "qute-pr.yml").write_text("baseBranch: dev\n")
-    # no --base in args; run with cwd inside the repo so policy resolves
     r = _run(
         env,
         ["--json", "--repo", "o/r", "--head", "feature", "--title", "T", "--body", "B"],
@@ -234,17 +233,13 @@ def test_policy_base_branch_injected(env, tmp_path):
     )
     assert r.returncode == 0, r.stderr
     j = _last_json(r.stdout)
-    assert j["base"] == "dev"
-    assert "--base dev" in env["calls"].read_text()
+    assert j["base"] is None  # gh default — the leftover policy file changed nothing
+    assert "--base dev" not in env["calls"].read_text()
 
 
-def test_explicit_base_wins_over_policy(env, tmp_path):
-    repo = tmp_path / "repo"
-    (repo / ".git").mkdir(parents=True)
-    (repo / ".github").mkdir()
-    (repo / ".github" / "qute-pr.yml").write_text("baseBranch: dev\n")
-    r = _run(env, [*BASE_ARGS, "--base", "main"], cwd=repo)
+def test_env_assign_to_default(env):
+    """QUTE_ASSIGN_TO env sets the default assignee; --assign-to still wins."""
+    r = _run(env, BASE_ARGS, extra_env={"QUTE_ASSIGN_TO": "bob"})
     assert r.returncode == 0, r.stderr
     j = _last_json(r.stdout)
-    assert j["base"] == "main"
-    assert "--base dev" not in env["calls"].read_text()
+    assert j["assign"]["to"] == "bob"

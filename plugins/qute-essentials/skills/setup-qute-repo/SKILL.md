@@ -146,9 +146,8 @@ Stamp `docs/agents/research-workflow.md` from the qute template; ensure
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
-  otherwise offer it only where independent review is wanted.
-- `.github/qute-pr.yml` (PR-identity policy) only for repos where agents
-  author PRs.
+  otherwise offer it only where independent review is wanted (the gate is
+  tier-aware and needs no policy file — installing it is the opt-in).
 
 ## Step 9 — Root files + discipline pointer
 

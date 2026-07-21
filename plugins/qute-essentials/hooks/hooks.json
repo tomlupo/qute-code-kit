@@ -9,11 +9,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/destructive-guard.py",
             "timeout": 3
-          },
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/pr-flow-guard.py",
-            "timeout": 10
           }
         ]
       },

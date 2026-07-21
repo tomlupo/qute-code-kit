@@ -23,7 +23,7 @@ claude plugin install qute-essentials@qute-marketplace
 | **Workflow** | `/audit`, `/test`, `/decision` (ADRs → `docs/adr/`), `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
 | **Research regime** ([ADR-0002](docs/adr/0002-standard-research-regime.md)) | `/research-line` (open/register a line), `/finding` (verdict-forced results + atomic index update), `/research-status` (drift detector + index regenerator), `/promote` (finding → ADR + prod PR / wiki / plugin) |
 | **Regime setup** | `/setup-qute-repo` (guided onboarding wizard: repo type → tracker → conductor.yml → worktrees → shipping → research regime; supersedes adopt-matt-workflow), `/check-agent-regime` (audit for competing regimes / duplicate task stores) |
-| **PR flow** (opt-in enforcement, default OFF; relocating to Jimek — see [migration plan](docs/architecture/jimek-migration.md)) | `/qute-coder` (open a PR as qute-coder[bot]), `/qute-reviewer` (post an independent qute-review[bot] verdict); a per-repo `quteEnforcePrReview` marker arms the gated `pr-flow-guard` hook + optional `review-gate.yml` CI template |
+| **PR flow** (relocating to Jimek — [ADR-0005](docs/adr/0005-qute-jimek-boundary-governance-modes.md)) | `/qute-coder` (open a PR as qute-coder[bot]), `/qute-reviewer` (post an independent qute-review[bot] verdict); optional tier-aware `review-gate.yml` CI template |
 
 Full plugin reference (including the guard architecture diagram and per-hook event table): [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md).
 

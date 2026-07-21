@@ -129,7 +129,6 @@ effect immediately.
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
 | `worktree_create.py` | WorktreeCreate | Creates native worktrees with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); setup failures fail creation loudly |
 | `worktree_remove.py` | WorktreeRemove | Reaps the per-worktree venv (`$HOME/.venvs/<name>`) on worktree removal; refuses anything that isn't provably an unused venv strictly inside `~/.venvs` (logged to `~/.claude/qute-worktree-reap.log`) |
-| `pr-flow-guard.py` | PreToolUse (Bash) | **Opt-in, default OFF** (`.github/qute-pr.yml` `enforce:true`; legacy `quteEnforcePrReview` marker still honored). Blocks `gh pr create` → `/qute-coder`; gates `gh pr merge` on `allowAgentSelfMerge`. Inert unless the repo opts in — see "PR-flow enforcement" below |
 
 ## Notifications
 
@@ -162,39 +161,23 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/qute-reviewer` | Post an INDEPENDENT verdict authored by the **qute-review** GitHub App (qute-review[bot]) via the dispatcher `/review` service (fallback: `qute-review-verdict` helper), and confirm a native review **object** was created — the review the gate requires |
 | `/jimek-onboard` | Make a repo **Jimek-managed** in one command — detects its workflow conventions and stamps a schema-valid `jimek.yml` (validated against the real `dispatcher.jimek` loader on `origin/master`) + the `review-gate` CI. Idempotent; never clobbers (backs up + diffs) |
 
-## PR-flow enforcement (opt-in, default OFF)
+## PR governance (ADR-0005: tier or rules, no policy file)
 
-The two skills above are always available and purely additive. On top of them, an **opt-in** PreToolUse
-hook (`pr-flow-guard.py`) enforces the flow **per repo** — it is **inert by default**. A repo that merely
-has qute-essentials installed behaves exactly as before (no block, no warning, no failure) until it opts in.
+There is **no per-repo PR policy file and no blocking client hook** — `.github/qute-pr.yml` and
+`pr-flow-guard.py` were deleted (qute-code-kit ADR-0005). Merge/PR governance is:
 
-**Policy lives in a committed, tool-agnostic single source of truth: `.github/qute-pr.yml`** (read by BOTH
-the client hooks / `/qute-coder` skill AND the CI review-gate). Copy `templates/qute-pr.yml` and edit:
+- **Jimek-managed repos** — the rigor **tier** in `conductor.yml` is the sole merge authority
+  (trivial = auto-merge, standard = self-merge on SHIP, complex = human merges). The conductor
+  stamps `jimek-tier:*` labels on managed PRs; the review-gate CI reads them.
+- **Standalone repos** — `.claude/rules` (stamped by `/setup-qute-repo`) states the expectations;
+  the review-gate CI enforces "get an independent review"; a human merges.
 
-```yaml
-assignTo: tomlupo          # PR assignee + requested reviewer (default tomlupo)
-independentReview: true    # auto-run the qute-review[bot] review in the /qute-coder chain
-allowAgentSelfMerge: false # false → agent must NOT merge (assign to the human)
-enforce: true              # turn on the blocking hooks + CI gate (default false = inert)
-```
-
-Keys may be flat (as above) or nested under a top-level `qutePrWorkflow:` mapping. Absent file/keys →
-documented defaults (review on, assign tomlupo, self-merge off, enforce off) — nothing new fails.
-
-When `enforce: true`, in that repo only, the hook:
-- blocks `gh pr create` → directs you to `/qute-coder` (so the PR is authored by qute-coder[bot]);
-- gates `gh pr merge` on `allowAgentSelfMerge`: `false` (default) blocks agent merge entirely
-  (assign-to-human); `true` allows it only once a native **qute-review[bot]** review object exists
-  (fail-open on ambiguity: if the PR can't be resolved it warns rather than blocking).
-
-**Backward-compat (transition):** a repo that still has the legacy `{ "quteEnforcePrReview": true }` marker
-in `.claude/settings.json` is honored as `enforce: true`. `.github/qute-pr.yml` is the primary home going
-forward. Env overrides: `QUTE_ENFORCE_PR_REVIEW=1|0`.
-
-### Optional CI gate
+### Optional CI gate (tier-aware)
 
 `templates/review-gate.yml` is a workflow template (NOT auto-added to any repo) that turns a missing
-independent review into a red check. Install it into an opting-in repo on request:
+independent review into a red check — **installing the file is the opt-in** (no policy file). It is
+tier-aware: `jimek-tier:trivial` passes with no review; `standard`/`complex`/no-label require an
+independent review object. Install it into an opting-in repo on request:
 
 ```bash
 mkdir -p .github/workflows && cp "$(claude plugin path qute-essentials)/templates/review-gate.yml" .github/workflows/review-gate.yml
@@ -207,8 +190,7 @@ touches security-sensitive files (`pyproject.toml`, `uv.lock`, `requirements*.tx
 `.github/workflows/**`, `**/hooks/**`, `Dockerfile*`, `.env*`, `**/*.py`) it runs the
 deterministic `audit` verb: **gitleaks (`--secrets`) hard-fails** the check (a leaked
 secret must block merge) while **semgrep (`--static`) is annotate-only** (advisory, to
-avoid false-positive merge blocks). It shares the `enforce` policy — a repo that
-hasn't opted in is a no-op green.
+avoid false-positive merge blocks). Installing the workflow opts the repo into this job too.
 
 ### Event-driven security audit (3 layers)
 

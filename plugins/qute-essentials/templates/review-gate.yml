@@ -1,36 +1,43 @@
 # review-gate — require an INDEPENDENT review object before a PR can merge.
 #
-# OPTIONAL, install-on-request. This is NOT auto-added to any repo. Install it
-# into a repo that has opted into PR-flow enforcement with the one-liner in the
-# qute-essentials README (or copy this file to .github/workflows/review-gate.yml).
+# OPTIONAL, install-on-request. This is NOT auto-added to any repo. Installing
+# this file IS the opt-in — there is no separate policy file (ADR-0005 deleted
+# `.github/qute-pr.yml`; merge/PR governance is `.claude/rules` for standalone
+# repos, or the rigor tier in `conductor.yml` for jimek-managed repos).
 #
-# POLICY SOURCE: it reads the committed `.github/qute-pr.yml` (the single source of
-# truth shared with the client hooks + /qute-coder skill). When `enforce: false`
-# (the default, or the file is absent) the gate is a NO-OP green — it never fails a
-# repo that hasn't opted in. When `enforce: true` it fails until a native review
-# object authored by a DIFFERENT identity than the PR author exists — i.e. an
-# independent reviewer (qute-review[bot] via /qute-reviewer, another App, or a
-# human). A CI "comment" does NOT count; only a review object in state COMMENTED /
-# APPROVED / CHANGES_REQUESTED does.
+# TIER-AWARE (ADR-0005 §4): the gate reads the PR's `jimek-tier:*` label,
+# stamped by the jimek conductor (a trusted writer — labels are not PR-head
+# content, so a PR can't stamp itself):
+#   - `jimek-tier:trivial`          → PASS (no independent review by doctrine)
+#   - `jimek-tier:standard|complex` → require an independent review object
+#   - no label (standalone repo, or an interactive PR in a jimek repo)
+#                                   → require an independent review object
+# One template serves both governance modes.
 #
-# This plan has no branch protection, so the check cannot HARD-block a merge — it
-# turns a missing independent review into a visible RED check (the closing step is
-# still on the agent). Enable branch protection requiring "review-gate" to hard-gate.
+# An independent review = a native review OBJECT (state COMMENTED / APPROVED /
+# CHANGES_REQUESTED) authored by a DIFFERENT identity than the PR author —
+# qute-review[bot] via /qute-reviewer, another App, or a human. A CI "comment"
+# does NOT count. NOTE (ADR-0005): the identity check is the gate's *checkable*
+# proxy; the substantive requirement is that a SEPARATE reviewing agent with
+# fresh context reviewed the change.
+#
+# Without branch protection this check cannot HARD-block a merge — it turns a
+# missing independent review into a visible RED check. Enable branch protection
+# requiring "review-gate" to hard-gate.
 #
 # ── SECOND JOB: audit-sensitive-paths (obsidian-vaults#167, Layer 2 "ON-PR") ──
-# When a PR touches security-sensitive paths, run the deterministic qute-essentials
-# `audit` verb: gitleaks (--secrets) is a HARD-FAIL (a leaked secret must block a
-# merge); semgrep (--static) is ANNOTATE-ONLY (advisory, avoids false-positive merge
-# blocks). Both are gated on the SAME `enforce` policy as the reviewer job — a repo
-# that hasn't opted into PR-flow enforcement is a no-op green. The audit script is
-# fetched from qute-code-kit at QUTE_AUDIT_REF (portable: CI runners don't carry the
-# plugin). /jimek-onboard renders its stamped review-gate.yml FROM this file (only
-# substituting the branch trigger on top — see jimek_onboard.render_review_gate_yml),
-# so onboarded repos inherit this audit job too, by construction (#65).
+# When a PR touches security-sensitive paths, run the deterministic
+# qute-essentials `audit` verb: gitleaks (--secrets) is a HARD-FAIL (a leaked
+# secret must block a merge); semgrep (--static) is ANNOTATE-ONLY (advisory).
+# Installing this workflow opts the repo into the audit job too. The audit
+# script is fetched from qute-code-kit at QUTE_AUDIT_REF (portable: CI runners
+# don't carry the plugin). /jimek-onboard renders its stamped review-gate.yml
+# FROM this file (only substituting the branch trigger on top — see
+# jimek_onboard.render_review_gate_yml), so onboarded repos inherit both jobs.
 name: review-gate
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted, dismissed]
 
@@ -42,60 +49,25 @@ jobs:
   require-independent-reviewer:
     runs-on: ubuntu-latest
     steps:
-      # Read policy from the TRUSTED BASE branch, never the PR head — otherwise a
-      # PR could set `enforce: false` (or delete the file) to disable the gate that
-      # is meant to police it. base.sha is the base commit the PR targets.
-      - name: Check out base-branch policy (trusted; not PR-controlled)
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-      - name: Require a review by a different identity than the author
+      - name: Require a review by a different identity than the author (tier-aware)
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
-
-            // ── read the shared policy: .github/qute-pr.yml ──
-            // Dependency-free parse of the documented scalars in BOTH shapes: flat
-            // top-level keys, and keys nested directly under `qutePrWorkflow:`. We
-            // track nesting explicitly (rather than an indent-agnostic match) so an
-            // `enforce:` nested under some OTHER key can never be picked up — keeping
-            // this parser a faithful mirror of pr_flow_config.py (single source of truth).
-            function readPolicy() {
-              const policy = { enforce: false, assignTo: 'tomlupo' };
-              function coerce(v) { return v.replace(/['"]/g, '').trim(); }
-              for (const f of ['.github/qute-pr.yml', '.github/qute-pr.yaml']) {
-                let text;
-                try { text = fs.readFileSync(f, 'utf8'); } catch { continue; }
-                let inWorkflow = false;
-                for (const raw of text.split('\n')) {
-                  const line = raw.replace(/#.*$/, '');
-                  if (!line.trim()) continue;
-                  const km = line.match(/^(\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*?)\s*$/);
-                  if (!km) continue;
-                  const indent = km[1].length, key = km[2], val = km[3];
-                  if (indent === 0) {
-                    inWorkflow = (key === 'qutePrWorkflow' && val === '');
-                  }
-                  // accept the key at top level, or nested one level under qutePrWorkflow
-                  const accept = (indent === 0) || inWorkflow;
-                  if (!accept || val === '') continue;
-                  if (key === 'enforce') policy.enforce = /^(true|yes|on)$/i.test(coerce(val));
-                  else if (key === 'assignTo') policy.assignTo = coerce(val);
-                }
-                break;
-              }
-              return policy;
-            }
-
-            const policy = readPolicy();
-            if (!policy.enforce) {
-              core.info('qute-pr.yml enforce=false (or absent) — review-gate is a no-op. Passing.');
-              return;
-            }
-
             const pr = context.payload.pull_request;
             const author = pr.user.login;
+
+            // ── tier awareness (Jimek rigor doctrine, ADR-0005 §4) ──
+            // The `jimek-tier:*` label carries the conductor's rigor tier. The
+            // `trivial` tier requires NO independent review by doctrine
+            // (auto-merge on green CI). standard / complex — and NO label (a
+            // standalone repo or an interactive PR) — require a review. The
+            // label is set by the conductor (a trusted writer), not by PR-head
+            // content, so it can't be spoofed to downgrade a change.
+            const tierLabels = (pr.labels || []).map(l => l.name).filter(n => n.startsWith('jimek-tier:'));
+            if (tierLabels.includes('jimek-tier:trivial')) {
+              core.info('jimek-tier:trivial — no independent review required by doctrine. Passing.');
+              return;
+            }
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -126,48 +98,19 @@ jobs:
       # Pin to a tag/SHA in a hardened repo; `main` tracks the latest verb.
       QUTE_AUDIT_REF: main
     steps:
-      - name: Check out PR head (full history for base-diff + trusted policy read)
+      - name: Check out PR head (full history for base-diff)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Gate — enforce policy (trusted base) + sensitive-path filter
+      - name: Gate — sensitive-path filter
         id: gate
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          # Policy from the TRUSTED BASE commit, never the PR head (a PR must not be
-          # able to disable the gate policing it). FAITHFUL mirror of the JS reviewer
-          # parser / pr_flow_config.py: `enforce` is honoured ONLY at the top level or
-          # nested directly under `qutePrWorkflow:` — an `enforce:` under any OTHER key
-          # is ignored, so the audit job can't be switched on by an unrelated stanza.
-          policy="$(git show "$BASE_SHA:.github/qute-pr.yml" 2>/dev/null \
-                 || git show "$BASE_SHA:.github/qute-pr.yaml" 2>/dev/null || true)"
-          # awk mirror (runner default awk = mawk-compatible): track nesting so an
-          # `enforce:` under any key OTHER than top-level or qutePrWorkflow is ignored.
-          enforce="$(printf '%s\n' "$policy" | awk '
-            function trim(s){ sub(/^[ \t]+/,"",s); sub(/[ \t]+$/,"",s); return s }
-            { line=$0; sub(/#.*/,"",line)
-              if (line ~ /^[ \t]*$/) next
-              if (line !~ /:/) next
-              lead=line; sub(/[^ ].*/,"",lead); indent=length(lead)
-              rest=line; sub(/^[ \t]*/,"",rest)
-              key=rest; sub(/[ \t]*:.*/,"",key)
-              val=rest; sub(/^[^:]*:[ \t]*/,"",val); val=trim(val)
-              if (indent==0) inwf=(key=="qutePrWorkflow" && val=="")
-              if (!(indent==0 || inwf)) next
-              if (val=="") next
-              if (key=="enforce"){ v=tolower(val); gsub(/["]/,"",v); gsub(/'"'"'/,"",v)
-                if (v=="true"||v=="yes"||v=="on") found=1 } }
-            END{ print (found?"true":"false") }
-          ')"
-          if [ "$enforce" != "true" ]; then
-            echo "qute-pr.yml enforce=false (or absent) — audit gate is a no-op. Passing."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # Installing this workflow IS the opt-in (no policy file — ADR-0005).
           # FAIL-CLOSED: if the changed-file set can't be computed (missing refs,
           # shallow clone, git error) a security gate must NOT silently skip — scan
           # the full tree instead of treating "unknown" as "nothing sensitive".

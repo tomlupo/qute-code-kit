@@ -10,11 +10,9 @@
 # This verb is composable. Baked-in policy is now PARAMETERIZED via flags that
 # DEFAULT to today's human-invocation behavior:
 #
-#   --base <b>          PR base branch (native gh flag; also settable as policy
-#                       baseBranch in .github/qute-pr.yml). Default: gh picks the
+#   --base <b>          PR base branch (native gh flag). Default: gh picks the
 #                       repo default branch — unchanged from today.
-#   --no-review         skip the independent-review step (default: policy
-#                       independentReview, normally ON).
+#   --no-review         skip the independent-review step (default: ON).
 #   --no-assign         skip assigning + requesting review from the human
 #                       (default: assign ON).
 #   --assign-to <login> override policy assignTo for this run.
@@ -32,10 +30,9 @@
 # EXIT CODES: 0 ok (PR open/reused, review ok or skipped); 2 PR could not be
 # opened; 3 PR is open but the independent review FAILED (gate stays red).
 #
-# Policy comes from the repo's committed `.github/qute-pr.yml` (single source of
-# truth, read by BOTH this client flow and the CI review-gate). Resolved via
-# scripts/pr_flow_config.py --json. Keys (defaults): assignTo=tomlupo,
-# independentReview=true, allowAgentSelfMerge=false, enforce=false, baseBranch="".
+# Policy is flags + env only (ADR-0005: `.github/qute-pr.yml` is gone — merge/PR
+# governance is `.claude/rules` standalone, or the rigor tier in `conductor.yml`
+# under jimek). Env defaults: QUTE_ASSIGN_TO (default tomlupo).
 #
 # Usage:
 #   qute_coder_flow.sh [--base b] [--no-review] [--no-assign] [--assign-to u] \
@@ -45,7 +42,6 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODER="$HERE/qute_coder_pr.sh"
 REVIEWER="$HERE/qute_reviewer_post.sh"
-CFG_PY="$HERE/pr_flow_config.py"
 
 log() { echo "qute-coder-flow: $*" >&2; }
 
@@ -129,24 +125,15 @@ PY
 }
 die() { log "$*"; EMIT_CODE="${FAIL_CODE:-2}" emit; }
 
-# ── resolve policy from .github/qute-pr.yml (defaults if absent) ──────────
-CFG_JSON="$(python3 "$CFG_PY" --json "$PWD" 2>/dev/null || echo '{}')"
-jqget() { printf '%s' "$CFG_JSON" | python3 -c "import json,sys;print(json.load(sys.stdin).get('$1',''))" 2>/dev/null; }
-ASSIGN_TO="$(jqget assignTo)";            [ -n "$ASSIGN_TO" ] || ASSIGN_TO="tomlupo"
-INDEP_REVIEW="$(jqget independentReview)"; [ -n "$INDEP_REVIEW" ] || INDEP_REVIEW="True"
-POLICY_BASE="$(jqget baseBranch)"
+# ── resolve policy: flags > env > built-in defaults (no policy file — ADR-0005) ──
+ASSIGN_TO="${QUTE_ASSIGN_TO:-tomlupo}"
+INDEP_REVIEW="True"
 
-# flag overrides win over policy (flags default to today's behavior).
+# flag overrides win.
 [ -n "$OVR_ASSIGN_TO" ] && ASSIGN_TO="$OVR_ASSIGN_TO"
 [ "$OVR_NO_REVIEW" = "1" ] && INDEP_REVIEW="False"
 [ "$OVR_NO_ASSIGN" = "1" ] && ASSIGN_TO=""   # empty => skip the assign step
 
-# base branch: caller --base wins; else policy baseBranch; else gh's default.
-if [ -z "$BASE_ARG" ] && [ -n "$POLICY_BASE" ]; then
-  BASE_ARG="$POLICY_BASE"
-  PASS+=(--base "$POLICY_BASE")
-  log "policy baseBranch=$POLICY_BASE applied (no --base given)."
-fi
 log "policy: assignTo=${ASSIGN_TO:-<skip>} independentReview=$INDEP_REVIEW base=${BASE_ARG:-<gh default>}"
 
 # ── resolve repo + head for the idempotency probe (best-effort) ──────────

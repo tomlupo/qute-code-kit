@@ -84,10 +84,9 @@ prIdentity:
   reviewAppId: 4172333      # qute-review[bot] — posts the independent verdict (must differ)
   ghAppsDir: "$GHAPPS"
 
-# Shape of the open → review → assign chain, mirroring the committed
-# .github/qute-pr.yml (the single source of truth read by CI + the client hooks):
+# Shape of the open → review → assign chain (ADR-0005: no qute-pr.yml — this
+# block IS the policy for jimek dispatch; the rigor tier is the merge authority):
 # agents NEVER self-merge — the PR is assigned to Tom, who approves and merges.
-# enforce: false matches qute-pr.yml today (review-gate advisory, not hard-blocking).
 prFlow:
   assignTo: tomlupo
   reviewRequestFrom: tomlupo

@@ -403,9 +403,7 @@ _CANONICAL_REVIEW_GATE_PATH = (
 # The exact `on:` trigger block in the canonical template — matched verbatim so
 # a drift in the canonical file (e.g. a changed event list) fails LOUD instead
 # of silently skipping the branch-trigger substitution.
-_CANONICAL_PR_TRIGGER = (
-    "  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review]\n"
-)
+_CANONICAL_PR_TRIGGER = "  pull_request:\n    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]\n"
 
 
 def render_review_gate_yml(conv: dict) -> str:
@@ -687,7 +685,11 @@ def main(argv: list[str] | None = None) -> int:
     # ── Stamp ────────────────────────────────────────────────────────────────
     log: list[str] = []
     _stamp(
-        repo / "conductor.yml", jimek_yml, force=args.force, dry_run=args.dry_run, log=log
+        repo / "conductor.yml",
+        jimek_yml,
+        force=args.force,
+        dry_run=args.dry_run,
+        log=log,
     )
     if not args.no_review_gate:
         _stamp(
@@ -711,27 +713,20 @@ def main(argv: list[str] | None = None) -> int:
     print("stamped:" if not args.dry_run else "would stamp (dry-run):")
     for line in log:
         print(line)
-    # ── Fleet rules / guards advisory (item 4 — non-clobbering) ──────────────
-    # We deliberately do NOT write into .claude here: the fleet rules and the
-    # anti-raw-gh / artifact-write-guard hooks ship with qute-essentials and are
-    # single-sourced from agent-kit; blindly copying them into a target repo
+    # ── Fleet rules advisory (item 4 — non-clobbering) ───────────────────────
+    # We deliberately do NOT write into .claude here: the rules are stamped by
+    # /setup-qute-repo (ADR-0005 §5); blindly copying them into a target repo
     # risks clobbering repo-specific config. Instead we report what's missing so
     # the operator wires it deliberately.
     advisories: list[str] = []
-    settings = _read_text(repo / ".claude" / "settings.json") + _read_text(
-        repo / ".claude" / "settings.local.json"
-    )
     if not (repo / ".claude" / "rules").is_dir():
         advisories.append(
-            "no .claude/rules — reference the agent-kit single-source rules"
+            "no .claude/rules — run /setup-qute-repo to stamp the behavioral core"
         )
-    if "qute-pr" not in settings and not (repo / ".github" / "qute-pr.yml").is_file():
+    if (repo / ".github" / "qute-pr.yml").is_file():
         advisories.append(
-            "no .github/qute-pr.yml — copy qute-essentials templates/qute-pr.yml to enforce PR-flow"
-        )
-    if "raw-gh" not in settings and "pr-flow-guard" not in settings:
-        advisories.append(
-            "anti-raw-gh / pr-flow-guard hooks not wired in .claude/settings.json"
+            "STALE .github/qute-pr.yml present — delete it (ADR-0005: the rigor tier "
+            "in conductor.yml is the sole merge authority; the gate no longer reads it)"
         )
 
     print()

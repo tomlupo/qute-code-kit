@@ -22,23 +22,22 @@ Baked-in policy becomes explicit flags. The conductor passes them from `jimek.ym
 a human who passes nothing gets the current behavior. Precedence, high → low:
 
 ```
-CLI flag  >  .github/qute-pr.yml policy  >  built-in default
+CLI flag  >  env  >  built-in default
 ```
+
+(ADR-0005 removed the `.github/qute-pr.yml` policy layer — merge/PR governance is
+the rigor tier in `conductor.yml`, or `.claude/rules` + CI for standalone repos.)
 
 Reference verbs:
 
 | Verb | Flag | Default | Was (baked-in) |
 |------|------|---------|----------------|
-| qute-coder | `--base <b>` | `gh` repo default (or policy `baseBranch`) | implicit base |
-| qute-coder | `--no-review` | review ON (`independentReview`) | always reviewed |
+| qute-coder | `--base <b>` | `gh` repo default | implicit base |
+| qute-coder | `--no-review` | review ON | always reviewed |
 | qute-coder | `--no-assign` | assign ON | always assigned |
-| qute-coder | `--assign-to <u>` | policy `assignTo` (`tomlupo`) | hardcoded human |
+| qute-coder | `--assign-to <u>` | `$QUTE_ASSIGN_TO` (`tomlupo`) | hardcoded human |
 | qute-coder | `--review-mode <m>` | `auto` | auto |
 | qute-reviewer | `--force` | idempotent (off) | always posted |
-
-Policy lives in the committed, tool-agnostic `.github/qute-pr.yml` (schema resolved
-by `scripts/pr_flow_config.py`). New key this contract adds: **`baseBranch`** (str,
-default `""` = let `gh` pick the repo default).
 
 ### 2. Structured return (exit code + JSON)
 
@@ -94,14 +93,12 @@ fix still happens.
    object before a non-zero exit so the conductor gets a result, not just a code.
 4. **Idempotency key = stable identity**, and expose it in the return (`created`,
    `idempotent_skip`) so the conductor can tell "did work" from "already done".
-5. **Policy in `.github/qute-pr.yml`**, resolved by `pr_flow_config.py`, so CI and
-   client read the same source of truth.
+5. **No policy file** (ADR-0005): flags + env are the whole policy surface; the
+   conductor passes flags from `jimek.yml`'s `prFlow` block.
 
 ## Files
 
 - `scripts/qute_coder_flow.sh` — the open→review→assign chain (contract reference).
 - `scripts/qute_reviewer_post.sh` — the independent-review poster (contract reference).
-- `scripts/pr_flow_config.py` — `.github/qute-pr.yml` resolver (adds `baseBranch`).
-- `templates/qute-pr.yml` — annotated policy template.
-- `tests/test_qute_coder_flow.py`, `tests/test_qute_reviewer.py`,
-  `tests/test_pr_flow_config.py` — contract + regression tests.
+- `tests/test_qute_coder_flow.py`, `tests/test_qute_reviewer.py` — contract +
+  regression tests.
