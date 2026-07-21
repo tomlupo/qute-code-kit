@@ -1,5 +1,12 @@
 # Jimek migration plan — GitHub verbs move out of qute-essentials
 
+> **Superseded by [ADR-0005](../adr/0005-qute-jimek-boundary-governance-modes.md)** (2026-07-21).
+> The target split below still holds, with two changes: `.github/qute-pr.yml` is **deleted**, not
+> moved (the rigor tier is the sole merge authority; the gate reads the `jimek-tier:` label), and
+> governance now runs on a **with/without-jimek** axis chosen at onboarding, with a shared
+> `.claude/rules` behavioral core. See the ADR's "Path to target state" for the current, ordered
+> migration. This doc is kept for its detailed target-split rationale.
+
 Companion to [ADR-0001](../adr/0001-matt-planning-spine-qute-runtime.md) and
 [ADR-0003](../adr/0003-task-tracking-tiers-linear-jimek.md). This is a **relocation, not a
 deprecation**: `/qute-coder` and `/qute-reviewer` are how Jimek's agents/workers talk to
