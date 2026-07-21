@@ -36,3 +36,15 @@ Issues list is never a queue to pull from. TASKS.md Tier 1 for simple repos is u
 - (+) `/task`'s `github` backend stays useful — for filing/closing issue records
 - (-) Filing a bug and scheduling it are two steps (issue + Linear task) — accepted;
   the separation is the point
+
+## Amendment (2026-07-21): who talks to Linear directly vs via the dispatcher gateway
+
+Credential ownership decides the path. **Fleet agents** (quark / iris / coach,
+conductor workers, heartbeat, `fleet-track`) hold no Linear key and MUST write
+through the dispatcher `/board` gateway — it is the single credential holder,
+enforces the status vocabulary, fails closed, and dedups with the conductor's
+claim logic. **Humans and interactive sessions acting as Tom** (Linear
+app/MCP/API under Tom's own auth, PR magic-word linking) go to Linear directly;
+the gateway is an agent surface, not a universal chokepoint. Also for the
+record: `jimek.yml` in the Decision above is now `conductor.yml` (dispatcher
+contract rename).
