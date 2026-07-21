@@ -54,7 +54,7 @@ Research regime:  standard | drifting | n/a
 Orchestration:    jimek | none | misplaced
 
 Findings (evidence per line: file → what's wrong)
-Recommended fixes (ordered; name the skill that applies each: /adopt-matt-workflow,
+Recommended fixes (ordered; name the skill that applies each: /setup-qute-repo,
 /research-status --fix, /task migrate, manual)
 ```
 

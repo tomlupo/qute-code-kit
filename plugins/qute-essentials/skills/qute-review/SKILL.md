@@ -34,9 +34,19 @@ this skill carries both.
    PR's actual base; check `gh pr view <#> --json baseRefName`). Write it to a temp file.
 2. **Run the cross-model review (codex by default).** Feed the diff + the adversarial prompt:
    ```
-   <DIFF> | codex exec --skip-git-repo-check "<adversarial prompt — see template>"
+   cat <difffile> | codex exec --skip-git-repo-check "<adversarial prompt — see template>" > <scratch>/codex-review.log 2>&1
    ```
    `codex` lives at `~/.local/bin/codex` (and `~/.npm-global/bin/codex`). Use a generous timeout (~320s).
+
+   **STDIN IS MANDATORY, NOT DECORATIVE.** In an agent shell stdin is a pipe, and `codex exec`
+   invoked without piped input prints "Reading additional input from stdin..." and **blocks
+   forever** — it will sit silent past any timeout while looking alive in `ps` (real incident:
+   2×50 min wasted, 2026-07-21). Either pipe the diff (preferred) or close stdin with
+   `< /dev/null` if the prompt references a file path instead. **Always redirect output to a
+   log file** (as above), never through `| tail` — the user must be able to `tail -f` a
+   long-running review, and a tail-pipe buffers everything until exit. Liveness check when in
+   doubt: `~/.codex/sessions/<yyyy>/<mm>/` should show a fresh `.jsonl` within a minute of
+   starting; a running process with no session file is a stdin-wedged process.
 3. **Multi-run for risky code.** If the diff touches auth, file/path IO, user-influenced input, money/
    quant math, secrets, or deletes/overwrites: run codex **2–3×** or with **distinct lenses**
    (correctness · security · data-safety) and UNION the findings — one run misses things (codex is
