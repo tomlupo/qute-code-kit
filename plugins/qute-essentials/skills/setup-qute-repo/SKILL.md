@@ -5,8 +5,8 @@ description: >-
   adopt-matt-workflow into a full setup flow. Walks a repo through: repo type
   (webapp / quant package / quant lab / quant production / simple tool), Matt
   spine, task tracker (Linear default, TASKS.md for simple repos), Jimek
-  management (conductor.yml), worktree config, shipping mode, research regime,
-  guards + CI posture, and root files — each step defaulted by repo type,
+  management (conductor.yml), behavioral rules (.claude/rules), worktree
+  config, shipping mode, research regime, guards + CI posture, and root files — each step defaulted by repo type,
   diff-first, idempotent, never clobbering. Use when onboarding or re-aligning
   a repo: "set up this repo", "setup qute repo", "adopt matt workflow",
   "set up the standard regime", "onboard this repo to the regime".
@@ -99,7 +99,29 @@ paths for all tiers.
 Not Jimek-managed → skip; note it in the final report so it's a decision,
 not an omission.
 
-## Step 5 — Worktrees
+## Step 5 — Behavioral rules (`.claude/rules/`) — ADR-0005 §5
+
+Stamp the repo's core behavioral contract into **`.claude/rules/`** (auto-loaded
+every session like CLAUDE.md, but modular — regenerable one concern-file at a
+time). Both interactive Claude AND autonomous jimek workers load these, so it is
+ONE contract for two worlds; rigor tiers only add enforcement on top.
+
+From `templates/rules/` stamp, idempotent per-file (write if absent; if present
+and differing, show the diff and ask — never silently clobber):
+
+- `git-workflow.md` — branch off default, Conventional Commits, PR-per-change
+- `shipping.md` — `/ship` is the only version writer (skip/adapt when the
+  repo's shipping mode is "none")
+- `review-expectations.md` — non-trivial changes get an independent review
+  (a separate reviewing agent, not an identity trick)
+- `governance.md` — mode-conditional: copy `governance-jimek.md` if step 4 made
+  the repo conductor-managed, else `governance-standalone.md`
+
+Each file carries a `<!-- qute-rule: <name> vN -->` marker so re-runs can tell a
+stamped file from a hand-authored one. `CLAUDE.md` stays human-authored
+(overview/architecture) — onboarding never writes rules into it.
+
+## Step 6 — Worktrees
 
 Stamp `.claude/worktree.json` (consumed by the `worktrees` skill AND the
 plugin's native `WorktreeCreate`/`WorktreeRemove` hooks — one setup path):
@@ -121,7 +143,7 @@ Linear PR-linking (`<agent>/TOM-<n>-<slug>` is produced by the conductor —
 the local pattern only governs human/interactive worktrees). Verify
 `base_branch` actually exists; fall back to `main`.
 
-## Step 6 — Shipping
+## Step 7 — Shipping
 
 - **Plugin repo** (marketplace.json) → `/ship` plugin mode, nothing to stamp.
 - **Python package / production** → run `/ship --dry-run` once so its
@@ -133,7 +155,7 @@ the local pattern only governs human/interactive worktrees). Verify
 - **quant-lab / simple** → no releases; deliverables go to `reports/`
   (lab) or nowhere. Record "shipping: none" explicitly in CLAUDE.md.
 
-## Step 7 — Research regime (quant-lab only)
+## Step 8 — Research regime (quant-lab only)
 
 Stamp `docs/agents/research-workflow.md` from the qute template; ensure
 `research/_template/` exists and the root `research/README.md` index is
@@ -141,7 +163,7 @@ Stamp `docs/agents/research-workflow.md` from the qute template; ensure
 `/research-line`, results only via `/finding`
 (`YYYY-MM-DD-<verdict>-<slug>.md`), promotion via `/promote`.
 
-## Step 8 — Guards + CI posture
+## Step 9 — Guards + CI posture
 
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
@@ -149,7 +171,7 @@ Stamp `docs/agents/research-workflow.md` from the qute template; ensure
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).
 
-## Step 9 — Root files + discipline pointer
+## Step 10 — Root files + discipline pointer
 
 - CLAUDE.md: ensure it exists (seed from `claude/root-files/` starter if not)
   and carries a short **qute runtime** subsection in its `## Agent skills`
@@ -164,13 +186,13 @@ Stamp `docs/agents/research-workflow.md` from the qute template; ensure
 - Add a one-line pointer to the skill-router one-pager (qute-code-kit
   `docs/playbooks/skill-router.md`) so "which skill when" survives sessions.
 
-## Step 10 — Exit check + report
+## Step 11 — Exit check + report
 
 Re-run the `/check-agent-regime` checks. Report: stamped / skipped /
 needs-human (tracker choice, Linear project mapping, docs/decisions/
 migration, review-gate adoption). The repo passes when there is exactly one
-task store, one boot file, one ADR location, and every binding carries its
-machine marker.
+task store, one boot file, one ADR location, a stamped `.claude/rules/` with a
+mode-correct `governance.md`, and every binding carries its machine marker.
 
 ## Policy (unchanged from adopt-matt-workflow)
 
