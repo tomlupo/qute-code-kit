@@ -33,20 +33,20 @@ tiers, nothing project-specific:
   list outgrows a flat file — open-task count past the threshold (default 12,
   tunable), or a task needs what a checklist can't give: labels, assignees,
   sub-issues, or durability across sessions.
-- **Tier 3 (task source = Linear):** declared via
-  `docs/agents/issue-tracker.md` (see binding below). **Linear is the task
-  source** — all work items live there (Jimek monitors it for assigned tasks).
-  **GitHub Issues track issues, not tasks**: bugs/defects/debt records attached
-  to the code; an issue becomes work only when a Linear task references it
-  ("fix issue #X") — never treat the Issues list as a queue. The engine has a
-  native Linear backend (`linear.py`, stdlib-only): auth via `LINEAR_API_KEY`,
-  team bound by the `<!-- qute-tracker: linear team=ABC -->` marker in
-  `docs/agents/issue-tracker.md`. `add`/`close`/`report` route to Linear
-  automatically; keep `--to github` for filing/closing issue records.
-  **Orchestrated workspaces** (Jimek / Symphony-Elixir style): the API key is
-  held host-side and stripped from the agent env by design — use the
-  orchestrator's advertised `linear` tool for state changes/comments; the qute
-  backend is the interactive/local path.
+- **Tier 3 (fleet board — Linear via fleet-track):** applies when the repo is
+  fleet-managed — it has a `conductor.yml` and/or `docs/agents/issue-tracker.md`
+  declares `linear` (see binding below). **Linear is the task source** — all
+  work items live on the fleet board (team `TOM`); the conductor monitors it for
+  assigned tasks. **GitHub Issues track issues, not tasks**: bugs/defects/debt
+  records attached to the code; an issue becomes work only when a Linear task
+  references it ("fix issue #X") — never treat the Issues list as a queue.
+
+  **Route writes through `fleet-track` (the dispatcher `/board` gateway), never
+  the raw Linear API.** Per ADR-0004's amendment the gateway is the single
+  credential holder — fleet agents hold no Linear key. It enforces the status
+  vocabulary, fails closed, and dedups with the conductor's claim logic. Only a
+  human/interactive session acting as Tom (own Linear app/MCP/API auth) may go
+  to Linear directly. See "Fleet board commands" below for the exact CLI.
 
 A repo has exactly **one live task source** — TASKS.md OR GitHub Issues OR
 Linear (where Issues are then only an issue record, not a queue), never
@@ -129,6 +129,33 @@ is owned by **gh-track** (the fleet board verb, obsidian-vaults#177): agent
 GitHub writes flow through gh-track, which applies the prefix. The `task` verb is
 a general consumer tool — humans included — so it stays attribution-neutral
 rather than stamping a misleading `[agent:<cwd>]` on non-agent sessions.
+
+## Fleet board commands (Tier 3)
+
+On a fleet-managed repo, file and move work through `fleet-track` — it fronts the
+dispatcher `/board` gateway. Never call the Linear API directly and never invent
+labels: the board uses a **closed label catalogue** (grouped facets). Applying an
+off-catalogue label is a design violation, not a missing feature.
+
+```bash
+fleet-track new  "<title>" [--tier <t>] [--model <m>] [--reviewer <r>]   # file a fleet task
+fleet-track task "<title>" [--tier <t>] [--model <m>] [--reviewer <r>]   # alias of new
+```
+
+`--tier/--model/--reviewer` land on `fleet-track new/task` as of v0.4. Facet
+values (pick from the catalogue, never free-text):
+
+- **tier** → `tier/{trivial,standard,complex}`
+- **model** → `model/{haiku,sonnet,opus,fable,codex}`
+- **reviewer** → `reviewer/by-{haiku,sonnet,opus,fable,codex}` (reviewer children
+  carry a `by-` prefix because Linear label names are team-unique across groups)
+
+The gateway also stamps the grouped facets it owns: `repo/<owner-name>` (which
+repo), `agent/<name>` (`conductor|quark|iris|coach`). Flat labels in the
+catalogue: `standalone`, `epic`, `needs-human`, `conductor`, `autonomous`.
+
+**Reference board rows by their canonical `TOM-N` identifier** (e.g. `TOM-201`),
+never a bare `repo#N` — `#N` is a GitHub issue record, not a board task.
 
 ## Migration (Tier 1 → Tier 2)
 
