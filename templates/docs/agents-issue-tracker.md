@@ -17,8 +17,8 @@
 
 **Linear is the task source** (qute-code-kit ADR-0004): all work items — tasks, planning,
 priority, agent assignment — live in Linear (team `CHANGEME`). Jimek monitors Linear for
-assigned tasks; `jimek.yml` declares how declared workflows run. Humans and agents pull
-work from Linear only.
+assigned tasks; `conductor.yml` (stamped by `/jimek-onboard`) declares how work runs in
+Jimek-managed repos. Humans and agents pull work from Linear only.
 
 - Auth: `LINEAR_API_KEY` env var (personal API key) — interactive/local sessions only.
 - qute `/task` and `/repo-status` route here automatically via the marker above.

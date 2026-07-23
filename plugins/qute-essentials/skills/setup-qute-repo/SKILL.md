@@ -3,14 +3,15 @@ name: setup-qute-repo
 description: >-
   Guided repo onboarding wizard for the standard regime — the evolution of
   adopt-matt-workflow into a full setup flow. Walks a repo through: repo type
-  (webapp / quant package / quant lab / quant production / simple tool), Matt
+  (webapp / quant package / quant lab / quant production / simple tool / peer
+  product), Matt
   spine, task tracker (Linear default, TASKS.md for simple repos), Jimek
   management (conductor.yml), behavioral rules (.claude/rules), worktree
   config, shipping mode, research regime, guards + CI posture, and root files — each step defaulted by repo type,
   diff-first, idempotent, never clobbering. Use when onboarding or re-aligning
   a repo: "set up this repo", "setup qute repo", "adopt matt workflow",
   "set up the standard regime", "onboard this repo to the regime".
-argument-hint: "[webapp|quant-package|quant-lab|quant-production|simple] [--standalone]"
+argument-hint: "[webapp|quant-package|quant-lab|quant-production|simple|peer] [--standalone]"
 ---
 
 # /setup-qute-repo
@@ -29,6 +30,13 @@ place.
 
 ## Step 0 — Snapshot
 
+**Working-tree guard first:** run `git status` and check for a dirty tree or an
+in-progress operation (`.git/MERGE_HEAD`, rebase/cherry-pick state, unmerged
+paths). If found, do NOT stamp into that checkout — stop and offer either (a)
+let the user clean up first, or (b) stamp from a fresh worktree off the default
+branch (`git worktree add ... origin/<default>`) and land the result as a PR,
+leaving the dirty checkout untouched.
+
 Run the checks from `/check-agent-regime` (read-only) and show a one-screen
 table: what exists (CLAUDE.md, docs/agents/*, docs/adr/, tracker binding,
 conductor.yml, worktree.json, ship setup, research/), what's missing, what
@@ -39,20 +47,27 @@ Paperclip/gh-track references). This snapshot drives which later steps are
 ## Step 1 — Repo type
 
 Ask (or take from `$ARGUMENTS[0]`): **webapp | quant-package | quant-lab |
-quant-production | simple**. This is the master switch — it sets the default
-for every later step:
+quant-production | simple | peer**. This is the master switch — it sets the
+default for every later step:
 
-| Step | webapp | quant-package | quant-lab | quant-production | simple |
-|---|---|---|---|---|---|
-| Tracker | Linear | Linear | Linear | Linear | TASKS.md |
-| Jimek-managed | optional | yes | yes | yes | no |
-| Rigor default | standard | standard | trivial-friendly | **complex-leaning, live-capital escalation** | n/a |
-| Worktrees | ports via allocate-ports | uv venv | uv venv + `shared_dirs: [data, models, output]` | uv venv, PR-only | none |
-| Shipping | `gstack ship` | `/ship` (commitizen) | **none** (deliverables → `reports/`) | `/ship` (commitizen), tagged deploys | none |
-| Research regime | no | no | **yes** | no | no |
-| CI | app CI | ruff+pytest+review-gate | light (lint only) | full + review-gate required | none |
+| Step | webapp | quant-package | quant-lab | quant-production | simple | peer |
+|---|---|---|---|---|---|---|
+| Tracker | Linear | Linear | Linear | Linear | TASKS.md | Linear |
+| Jimek-managed | optional | yes | yes | yes | no | no |
+| Rigor default | standard | standard | trivial-friendly | **complex-leaning, live-capital escalation** | n/a | n/a |
+| Worktrees | ports via allocate-ports | uv venv | uv venv + `shared_dirs: [data, models, output]` | uv venv, PR-only | none | none |
+| Shipping | `gstack ship` | `/ship` (commitizen) | **none** (deliverables → `reports/`) | `/ship` (commitizen), tagged deploys | none | none (repo keeps its own) |
+| Research regime | no | no | **yes** | no | no | no |
+| CI | app CI | ruff+pytest+review-gate | light (lint only) | full + review-gate required | none | none (repo keeps its own) |
 
 Defaults are proposals — the user can override any cell.
+
+**`peer` — peer product, light touch.** A repo that is a full product with its
+own conventions and workflow (e.g. atlas): don't pull it under the regime, just
+bind it so fleet tooling can interoperate. Runs ONLY step 3 (tracker binding +
+repo label) and the `docs/adr/` part of step 10, then jumps to step 11. No
+conductor.yml, no `.claude/rules/`, no worktree/shipping/research stamping, and
+CLAUDE.md is left alone. (TOM-59 is the reference example.)
 
 ## Step 2 — Matt spine
 
