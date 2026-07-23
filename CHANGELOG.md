@@ -1,3 +1,9 @@
+## v3.3.0 (2026-07-23)
+
+### Feat
+
+- qute-coder + qute-reviewer thin wrappers — verbs re-homed to installed ~/bin binaries
+
 ## v3.2.0 (2026-07-23)
 
 ### Feat
