@@ -1,3 +1,9 @@
+## v3.2.0 (2026-07-23)
+
+### Feat
+
+- board — Linear write-identity conventions (ADR-0003)
+
 ## v3.1.0 (2026-07-23)
 
 ### Feat
