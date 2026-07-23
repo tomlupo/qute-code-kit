@@ -1,3 +1,9 @@
+## v3.1.0 (2026-07-23)
+
+### Feat
+
+- peer repo type + dirty-tree guard; fix stale jimek.yml mention
+
 ## v3.0.0 (2026-07-21)
 
 ### BREAKING
