@@ -1,0 +1,18 @@
+[project]
+name = "{{NAME}}"
+version = "1.0.0"
+description = "{{DESCRIPTION}}"
+requires-python = ">=3.11"
+dependencies = [
+    # PIN_TARGETS — /research-line stamps current SHAs; /research-repin re-resolves.
+{{PIN_TARGETS}}
+{{DEFAULT_DEPS}}
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+markers = [
+    "reproduction: slow golden-manifest re-run; /research-repin runs exactly these",
+]

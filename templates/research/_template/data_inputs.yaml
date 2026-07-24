@@ -1,0 +1,20 @@
+# data_inputs.yaml — the data plane of this line's reproducibility contract.
+#
+# The engine SHA pin (pyproject.toml) freezes the engine *package*. It does NOT
+# freeze the engine's generated data/config — a lab reads those live from the
+# sibling checkout by path, so a rename or schema change floats straight through
+# the pin. Declare every engine file this line consumes and its sha256 at pin time
+# here, so the data plane is part of the contract instead of an unpinned live read.
+#
+# Filled by `/research-freeze` (or by hand at conclude). The provenance-on-conclude
+# gate (check_research_pins.py) REQUIRES a non-null 64-hex sha256 on every input for
+# a concluded line whose reproducibility_class is `pinned` or `snapshot-frozen`.
+# `historical` / `live-data` lines are exempt from hashes — they carry a repro_note
+# in the line README instead.
+
+engine: <engine-repo>              # dm-evo, quantbox-datasets, …
+inputs:
+  - path: config/reference/<file>.csv
+    sha256: TBD                    # 64-hex; `/research-freeze` fills this
+  # - path: data/processed/<dataset>/<file>.parquet
+  #   sha256: TBD
