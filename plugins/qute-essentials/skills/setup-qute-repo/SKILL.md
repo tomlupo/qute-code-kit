@@ -103,13 +103,28 @@ state, parents carry structure, groups carry routing facets).
 
 ## Step 4 — Jimek management (conductor.yml)
 
-If the repo type says Jimek-managed (and the user agrees), run
-`/jimek-onboard` — it detects conventions and stamps a schema-valid
-**`conductor.yml`** (validated against the live loader,
-`dispatcher.jimek.load_contract`) plus the review-gate CI. Do not hand-write
-the contract here. For **quant-production** repos verify the stamped contract
-carries live-capital escalation (`escalation.block_on`) and PR-only rigor
-paths for all tiers.
+If the repo type says Jimek-managed (and the user agrees), onboard it to jimek
+here — this absorbs the old `/jimek-onboard` skill (which never existed as a
+standalone; ADR-0006 folds its job into this step):
+
+1. **Detect jimek.** Is a jimek checkout/runtime present (e.g.
+   `/opt/qute-platform/services/jimek`, or the dev clone under
+   `~/workspace/projects/qute-platform/services/jimek`)? If not, tell the user
+   the repo can still onboard standalone and can be promoted later — do not
+   fabricate jimek wiring.
+2. **Create `conductor.yml`** — the per-repo rigor-tier contract. **Render from
+   jimek's canonical template** `services/jimek/config/conductor.example.yml`
+   (the schema's single source of truth) when the jimek checkout is reachable;
+   otherwise scaffold the same minimal starter and point the user at jimek's
+   `ARCHITECTURE.md`. Rigor tiers (ADR-0005 §3): `trivial` = auto-merge on green,
+   `standard` = independent review + self-merge on ship, `complex` = independent
+   review + human merge. **Note:** tier *enforcement* is v1-pending in the jimek
+   runner — today `conductor.yml` is the documented policy the conductor/human
+   follows, so keep the file minimal.
+3. **Review-gate CI** — stamp the tier-aware `templates/review-gate.yml`.
+4. For **quant-production** repos, set `escalation.block_on` globs so
+   live-capital paths force the `complex` tier (human merge), and confirm PR-only
+   flow for all tiers.
 
 Not Jimek-managed → skip; note it in the final report so it's a decision,
 not an omission.
@@ -217,5 +232,7 @@ mode-correct `governance.md`, and every binding carries its machine marker.
 - qute never grows a parallel planning flow; `/task` publishes accepted
   work, it does not decompose unclear work.
 - GitHub PR **transport / bot identities** are Jimek's (ADR-0005/0006; the
-  `/qute-coder` + `/jimek-onboard` skills ship with jimek). Independent review
-  itself is `/qute-review` in essentials (it absorbed the retired `qute-reviewer`).
+  `/qute-coder` skill ships with jimek). Onboarding a repo *to* jimek
+  (conductor.yml) is Step 4 of this skill, not a separate `jimek-onboard` skill.
+  Independent review itself is `/qute-review` in essentials (it absorbed the
+  retired `qute-reviewer`).

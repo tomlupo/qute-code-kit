@@ -18,10 +18,11 @@ Matt Pocock's skills are the planning spine (assumed installed, never required);
 qute-essentials is the runtime + research regime. Do not add qute skills that
 duplicate Matt's generic planning roles (grilling, specs, tickets, implementation
 orchestration) — qute skills must be runtime (safety/release/continuity), research
-regime, or domain-specific. ADRs go to `docs/adr/`. GitHub PR/bot skills
-(`qute-coder`, `qute-reviewer`, `jimek-onboard`) now live in the jimek repo
-(ADR-0005, `docs/adr/0005-qute-jimek-boundary-governance-modes.md`) — jimek
-auto-installs them globally; don't re-add them here.
+regime, or domain-specific. ADRs go to `docs/adr/`. The GitHub PR/bot transport
+skill `qute-coder` lives in the jimek repo (ADR-0006 supersedes ADR-0005) — jimek
+installs its `skills/*` globally on boot; don't re-add it here. `qute-reviewer`
+was folded into `/qute-review` (essentials); `jimek-onboard` never shipped — its
+job (detect jimek + scaffold `conductor.yml`) is Step 4 of `/setup-qute-repo`.
 
 ## Layout
 
