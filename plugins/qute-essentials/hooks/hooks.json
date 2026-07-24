@@ -1,5 +1,5 @@
 {
-  "description": "Essential hooks: security guards (destructive/secrets/injection/provenance), Python formatting, dependency audit, usage logging, worktree lifecycle (setup + venv reap)",
+  "description": "Essential hooks: security guards (destructive/secrets/injection/provenance), Python formatting, dependency audit, worktree lifecycle (setup + venv reap)",
   "hooks": {
     "PreToolUse": [
       {
@@ -45,15 +45,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/format_python.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Skill|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/log_use.py"
           }
         ]
       },
@@ -107,16 +98,6 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/worktree_remove.py",
             "timeout": 60
-          }
-        ]
-      }
-    ],
-    "SubagentStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/log_use.py"
           }
         ]
       }
