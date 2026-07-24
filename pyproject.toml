@@ -13,3 +13,14 @@ version_files = [
 update_changelog_on_bump = true
 tag_format = "v$version"
 major_version_zero = false
+
+[tool.ruff.lint]
+# Pin an explicit, conservative rule set. Without this, `uvx ruff` follows the
+# floating ruff version's defaults, which drift and flip rules on/off across
+# releases (that broke the CI gate). Core correctness (E/F) + import order (I);
+# the plugin's hooks deliberately use blind-except / subprocess-without-check to
+# never break the tool chain, so we don't enforce those style opinions here.
+select = ["E", "F", "I"]
+# Line length is the formatter's job (`ruff format`); it intentionally leaves
+# long strings/URLs/comments, so E501 on top is redundant noise.
+ignore = ["E501"]
