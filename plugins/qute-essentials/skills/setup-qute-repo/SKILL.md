@@ -94,6 +94,13 @@ For Linear repos, confirm which Linear **project** the repo maps to (roughly
 repo = project; product surfaces may combine repos — e.g. dm-evo covers lab +
 app).
 
+Team TOM carries three issue **templates** — surface them so hand-filed issues
+match agent-filed ones: **Dispatchable task** (the What / Repro / Acceptance
+criteria / Pointers / Tier hint skeleton the `/task` engine emits, TOM-216),
+**Issue record → work** (a code-attached issue promoted into a task), and
+**Research idea** (a line for the research regime). New UI-authored issues
+should start from one of these.
+
 **Mint the repo label** (closed catalogue): onboarding is the ONE legitimate
 moment a new `repo`-group child label is created on the Linear team. Create
 `<owner>/<name>` under the `repo` group via the **Linear MCP**

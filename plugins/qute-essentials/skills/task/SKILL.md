@@ -165,6 +165,29 @@ the MCP.
 **Reference board rows by their canonical `TOM-N` identifier** (e.g. `TOM-201`),
 never a bare `repo#N` — `#N` is a GitHub issue record, not a board task.
 
+### Dispatchable-task skeleton (Linear `add`)
+
+`linear.py add` wraps the body in the **Dispatchable task** skeleton (TOM-216)
+so agent-filed issues match the UI-templated ones (team TOM's three templates:
+Dispatchable task / Issue record → work / Research idea). The skeleton is five
+headings: **What / Repro / Acceptance criteria / Pointers / Tier hint**. A body
+that already carries the `## What` + `## Acceptance criteria` headings passes
+through untouched (no double-wrap).
+
+Matt's `/tickets` output maps **1:1** onto the skeleton — when a `/tickets` run
+produced the work, drop each section straight into the matching heading:
+
+| `/tickets` section | Skeleton heading |
+|---|---|
+| Problem / goal ("what & why") | **What** |
+| Reproduction / current behaviour | **Repro** |
+| Acceptance criteria / definition of done | **Acceptance criteria** |
+| Relevant files / prior art | **Pointers** |
+| Size / complexity estimate | **Tier hint** |
+
+Pass the already-shaped body through `add` and it posts verbatim; pass bare
+free-text and `add` fills the skeleton with `_TODO_` placeholders to complete.
+
 ## Migration (Tier 1 → Tier 2)
 
 When the active store is TASKS.md, the repo is on GitHub, and the open count

@@ -126,12 +126,45 @@ def cmd_list() -> None:
         print(f"  {n['state']['name']:<12} {n['identifier']:<10} {n['title']}  [{who}]")
 
 
+# Headings of the "Dispatchable task" Linear template (team TOM). Agent-filed
+# issues emit the same skeleton so they match the UI-templated ones (TOM-216).
+SKELETON_HEADINGS = ("What", "Repro", "Acceptance criteria", "Pointers", "Tier hint")
+
+
+def dispatchable_body(body: str) -> str:
+    """Wrap free-text in the Dispatchable-task skeleton (TOM-216).
+
+    If the caller already supplied the skeleton (e.g. a `/tickets` body mapped
+    onto the headings — see skills/task/SKILL.md), pass it through untouched so
+    we never double-wrap.
+    """
+    text = (body or "").strip()
+    if re.search(r"(?mi)^#+\s*What\b", text) and re.search(
+        r"(?mi)^#+\s*Acceptance criteria\b", text
+    ):
+        return text
+    what = text or "_TODO: describe the task._"
+    return (
+        f"## What\n\n{what}\n\n"
+        "## Repro\n\n_TODO: steps / where it shows up (omit if N/A)._\n\n"
+        "## Acceptance criteria\n\n- [ ] _TODO_\n\n"
+        "## Pointers\n\n_TODO: files, symbols, prior art._\n\n"
+        "## Tier hint\n\n_TODO: trivial | standard | complex._"
+    )
+
+
 def cmd_add(title: str, body: str) -> None:
     tid = team_id(team_key())
     data = gql(
         """mutation($input:IssueCreateInput!){ issueCreate(input:$input) {
              success issue { identifier url } } }""",
-        {"input": {"teamId": tid, "title": title, "description": body or None}},
+        {
+            "input": {
+                "teamId": tid,
+                "title": title,
+                "description": dispatchable_body(body),
+            }
+        },
     )
     res = data["issueCreate"]
     if not res["success"]:
