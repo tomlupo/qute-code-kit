@@ -163,11 +163,8 @@ def setup_python(root: Path, pyproject: Path) -> int:
     if _warn_if_autobump_workflow(root):
         info("  (left in place — setup does not modify existing workflows)")
 
-    info(
-        "setup complete. Commit these changes, then run /ship to cut releases."
-    )
+    info("setup complete. Commit these changes, then run /ship to cut releases.")
     return 0
-
 
 
 def _warn_if_autobump_workflow(root: Path) -> bool:
@@ -202,6 +199,7 @@ def _warn_if_autobump_workflow(root: Path) -> bool:
             )
             found = True
     return found
+
 
 def _extract_version(pyproject_content: str) -> str | None:
     match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', pyproject_content)
