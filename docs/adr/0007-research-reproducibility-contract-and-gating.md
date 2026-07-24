@@ -1,7 +1,13 @@
 # ADR-0007: Reproducibility contract and gating for research lines
 
-**Status:** Proposed
+**Status:** Accepted 2026-07-24
 **Date:** 2026-07-24
+
+> Implementation lands in the same PR (#77): the canonical `templates/research/`
+> home (gate + `_template/` + `.research-config.yaml`), the `data_inputs.yaml`
+> manifest + `ref_resolver.py`, the provenance-on-conclude gate with unit tests, the
+> `reproducibility_class` contract in the regime doc, and the `/research-freeze`,
+> `/research-repin`, and `/research-status` staleness follow-ups.
 
 ## Builds on
 
