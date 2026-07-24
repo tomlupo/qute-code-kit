@@ -17,8 +17,8 @@ import os
 import sys
 import time
 from pathlib import Path
-from urllib.request import Request, urlopen
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 # Ensure unicode (emoji, ✓/✗) prints cleanly on Windows cp1250/cp1252 consoles.
 if sys.stdout and hasattr(sys.stdout, "reconfigure"):

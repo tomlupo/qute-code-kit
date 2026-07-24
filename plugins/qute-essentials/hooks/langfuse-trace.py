@@ -15,7 +15,6 @@ import os
 import sys
 from pathlib import Path
 
-
 # Max output size to log (avoid bloating traces)
 MAX_OUTPUT_LEN = 5000
 
