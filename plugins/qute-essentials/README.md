@@ -4,20 +4,21 @@ Essential hooks, guards, and skills for Claude Code. Provides prompt injection s
 
 ## Guard System
 
-Five security guards — toggleable via `/guard`. Two run PreToolUse (block before execution), three run PostToolUse (scan after):
+Six security guards — toggleable via `/guard`. Three run PreToolUse (before execution), three run PostToolUse (scan after):
 
 ```
                      ┌──────────────────────────────┐
                      │   Tool call (any tool)        │
                      └──────────────┬───────────────┘
                                     │
-          ┌─────────── PreToolUse ──┴──────┐
-          │                                │
- ┌────────▼──────────┐         ┌───────────▼──────┐
- │ Destructive Guard │         │  Secrets Guard   │
- │ blocks rm -rf,    │         │  blocks writes   │
- │ git reset --hard  │         │  with API keys   │
- └───────────────────┘         └──────────────────┘
+     ┌──────────────── PreToolUse ──┴───────────────┐
+     │                    │                         │
+┌────▼──────────┐ ┌───────▼──────────┐  ┌───────────▼──────┐
+│ Destructive   │ │  Secrets Guard   │  │ Provenance Guard │
+│ Guard         │ │  blocks writes   │  │ tags shared-rec  │
+│ blocks rm -rf │ │  with API keys   │  │ writes [agent:/  │
+│ git reset -H  │ │                  │  │ session:]        │
+└───────────────┘ └──────────────────┘  └──────────────────┘
                                     │
                                  executes
                                     │
@@ -74,6 +75,15 @@ Blocks dangerous commands before they execute. Context-aware: won't block `grep 
 
 Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert on every block.
 
+### Provenance Guard (PreToolUse)
+
+Stamps an identity tag on every automated write to a shared record, so `author != reviewer` is visible without any App (ADR-0006 §6/§7). Closes the one lane server-side stamping can't reach — direct MCP writes. Fires on:
+
+- **Linear MCP** write verbs — `save_issue`, `save_comment`, `save_document`, `save_status_update` (both linear MCP server-name variants)
+- **Bash** — `gh pr review|comment|create`
+
+One resolution rule: `QUTE_AGENT_NAME` set → `[agent: <name>]`; otherwise `[session: <name-or-cwd-basename>]`. Behavior is **idempotent auto-inject** — a valid leading tag no-ops; otherwise the tag is prepended (via `hookSpecificOutput.updatedInput`, plus a non-blocking reminder for harnesses that don't apply it). Fail-safe: on unresolved identity it injects `[session: <cwd-basename>]` rather than block — this guard **never denies a write**. On by default.
+
 ### Lakera Guard (PostToolUse)
 
 Screens tool outputs for prompt injection via the Lakera Guard API. The hook matcher is scoped to the untrusted-content ingestion surface only:
@@ -112,6 +122,7 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 /guard secrets off          # disable secrets guard (session override)
 /guard destructive off      # disable destructive command blocking
 /guard audit off            # disable auto pip-audit
+/guard provenance off       # disable identity-tag auto-injection
 /guard all on               # re-enable everything
 ```
 
@@ -142,14 +153,15 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 
 | Skill | Description |
 |-------|-------------|
-| `/guard` | Toggle any of the 5 security guards on/off, check status |
+| `/guard` | Toggle any of the 6 security guards on/off, check status |
 | `generating-commit-messages` | Conventional Commits guidance (auto-applied before any `git commit`) |
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
 | `/pickup` | Resume work from a previous handoff |
 | `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). Auto-runs first-time setup (commitizen + CHANGELOG + workflow) on Python projects |
 | `/task` | Add or close a task — tiered: manages `TASKS.md` by default, graduates to GitHub Issues once the list earns it; proposes migration once |
-| `/repo-status` | Git/worktree dashboard **plus** a read-only Open tasks glance at the repo's active store — `TASKS.md` (Tier 1) or GitHub Issues via `gh` (Tier 2), auto-detected (folds in the retired `/board`) |
+| `/repo-status` | Git/worktree dashboard **plus** a read-only Open tasks glance at the repo's active store — `TASKS.md` (Tier 1) or GitHub Issues via `gh` (Tier 2), auto-detected |
+| `/board` | Linear board write-identity conventions (ADR-0003/0006): interactive sessions write via the Linear MCP tagged `[session:]`; agents/crons via `linear-post` → dispatcher `:8002/post` tagged `[agent:]` |
 | `/audit` | Dependency vulnerability scan (Python, via pip-audit/uvx) |
 | `/test` | Run test suite, interpret failures, propose fixes |
 | `/worktrees` | Manage git worktrees for parallel development |

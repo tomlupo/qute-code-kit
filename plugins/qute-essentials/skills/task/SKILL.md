@@ -33,20 +33,27 @@ tiers, nothing project-specific:
   list outgrows a flat file — open-task count past the threshold (default 12,
   tunable), or a task needs what a checklist can't give: labels, assignees,
   sub-issues, or durability across sessions.
-- **Tier 3 (fleet board — Linear via fleet-track):** applies when the repo is
+- **Tier 3 (Linear board — two write lanes):** applies when the repo is
   fleet-managed — it has a `conductor.yml` and/or `docs/agents/issue-tracker.md`
   declares `linear` (see binding below). **Linear is the task source** — all
-  work items live on the fleet board (team `TOM`); the conductor monitors it for
+  work items live on the board (team `TOM`); the conductor monitors it for
   assigned tasks. **GitHub Issues track issues, not tasks**: bugs/defects/debt
   records attached to the code; an issue becomes work only when a Linear task
   references it ("fix issue #X") — never treat the Issues list as a queue.
 
-  **Route writes through `fleet-track` (the dispatcher `/board` gateway), never
-  the raw Linear API.** Per ADR-0004's amendment the gateway is the single
-  credential holder — fleet agents hold no Linear key. It enforces the status
-  vocabulary, fails closed, and dedups with the conductor's claim logic. Only a
-  human/interactive session acting as Tom (own Linear app/MCP/API auth) may go
-  to Linear directly. See "Fleet board commands" below for the exact CLI.
+  **Two write lanes, chosen by WHO is writing (ADR-0006 §4):**
+
+  | Writer | Path | Identity |
+  |---|---|---|
+  | **Agents** (fleet / headless / cron) | `linear-post` → dispatcher `:8002/post` (comment + issue-create) | `[agent: <name>]`, server-stamped |
+  | **Interactive sessions** | the **Linear MCP** directly | `[session: <name>]` first line |
+
+  There is **no board gateway** — `fleet-track`'s write verbs are retired (the
+  old `/board/*` dispatcher backend was retired 2026-07-23, no successor). Agents
+  hold no Linear key, so they post through `linear-post`; a session (Tom present)
+  legitimately uses the Linear MCP — the earlier "never the raw Linear API"
+  absolute is corrected. See `/board` for the full identity contract and "Board
+  writes (Tier 3)" below.
 
 A repo has exactly **one live task source** — TASKS.md OR GitHub Issues OR
 Linear (where Issues are then only an issue record, not a queue), never
@@ -130,29 +137,30 @@ GitHub writes flow through gh-track, which applies the prefix. The `task` verb i
 a general consumer tool — humans included — so it stays attribution-neutral
 rather than stamping a misleading `[agent:<cwd>]` on non-agent sessions.
 
-## Fleet board commands (Tier 3)
+## Board writes (Tier 3) — two lanes
 
-On a fleet-managed repo, file and move work through `fleet-track` — it fronts the
-dispatcher `/board` gateway. Never call the Linear API directly and never invent
-labels: the board uses a **closed label catalogue** (grouped facets). Applying an
-off-catalogue label is a design violation, not a missing feature.
+Which lane you take depends on WHO is writing (ADR-0006 §4; full identity
+contract in `/board`). Never invent labels: the board uses a **closed label
+catalogue** (grouped facets). Applying an off-catalogue label is a design
+violation, not a missing feature.
 
-```bash
-fleet-track new  "<title>" [--tier <t>] [--model <m>] [--reviewer <r>]   # file a fleet task
-fleet-track task "<title>" [--tier <t>] [--model <m>] [--reviewer <r>]   # alias of new
-```
+- **Agent / headless / cron** — never the MCP (it would author as bare Tom).
+  Post through `linear-post`, which fronts the dispatcher (`:8002` `/post`) with
+  the app identity; the `[agent: <name>]` prefix is stamped **server-side**:
 
-`--tier/--model/--reviewer` land on `fleet-track new/task` as of v0.4. Facet
-values (pick from the catalogue, never free-text):
+  ```bash
+  linear-post --agent coach --issue TOM-123 "note text"   # comment
+  linear-post --agent quark --team TOM --title "…" -       # new issue, body on stdin
+  ```
 
-- **tier** → `tier/{trivial,standard,complex}`
-- **model** → `model/{haiku,sonnet,opus,fable,codex}`
-- **reviewer** → `reviewer/by-{haiku,sonnet,opus,fable,codex}` (reviewer children
-  carry a `by-` prefix because Linear label names are team-unique across groups)
+- **Interactive session** (Tom present) — use the **Linear MCP** directly
+  (`save_issue`, `save_comment`, …). Any write the session initiates starts with
+  `[session: <name>]` on its own first line (the `provenance` guard auto-injects
+  it). Content Tom dictates verbatim posts as him — no prefix.
 
-The gateway also stamps the grouped facets it owns: `repo/<owner-name>` (which
-repo), `agent/<name>` (`conductor|quark|iris|coach`). Flat labels in the
-catalogue: `standalone`, `epic`, `needs-human`, `conductor`, `autonomous`.
+The write surface is deliberately tiny (comment + issue create); if you find
+yourself wanting more, that's the signal you're in an interactive context — use
+the MCP.
 
 **Reference board rows by their canonical `TOM-N` identifier** (e.g. `TOM-201`),
 never a bare `repo#N` — `#N` is a GitHub issue record, not a board task.

@@ -1,8 +1,9 @@
-<!-- qute-review-core v1 — THE canonical review prompt (ADR-0005: one review core,
-     two entry points). Consumed by: the /qute-review skill (interactive entry) and
-     jimek's dispatcher review runner (autonomous entry). Edit HERE only; the
-     runners load this file (jimek falls back to an embedded copy — keep it in
-     sync when bumping the version marker).
+<!-- qute-review-core v2 — THE canonical review prompt (ADR-0006, supersedes
+     ADR-0005: one review core). Consumed by: the /qute-review skill (interactive
+     entry) and the platform reviewer `agent-kit/bin/qute_reviewer_post.sh`
+     (autonomous entry, in qute-platform). Edit HERE only; the runners load this
+     file (the platform reviewer falls back to an embedded copy — keep it in sync
+     when bumping the version marker).
      CONTRACT: the last sentence must stay EXACTLY
      "BLOCKER if something must change before merge." — jimek uses it as the
      transcript-scrub sentinel. -->

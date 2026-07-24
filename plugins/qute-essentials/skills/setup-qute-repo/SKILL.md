@@ -96,10 +96,10 @@ app).
 
 **Mint the repo label** (closed catalogue): onboarding is the ONE legitimate
 moment a new `repo`-group child label is created on the Linear team. Create
-`<owner>/<name>` under the `repo` group (via the dispatcher gateway when
-reachable — a `POST /board/issue` for the repo mints it — or deliberately in
-the Linear UI). Never mint any other label; the catalogue is closed (statuses
-carry state, parents carry structure, groups carry routing facets).
+`<owner>/<name>` under the `repo` group via the **Linear MCP**
+(`create_issue_label`, this being an interactive session) or deliberately in the
+Linear UI. Never mint any other label; the catalogue is closed (statuses carry
+state, parents carry structure, groups carry routing facets).
 
 ## Step 4 — Jimek management (conductor.yml)
 
@@ -213,8 +213,9 @@ mode-correct `governance.md`, and every binding carries its machine marker.
 
 - Matt (when present) owns grill/spec/tickets/implement/TDD/code-review.
 - qute owns guards, task-store ops, handoff/pickup, ADRs, tests/audits,
-  `/qute-review`, `/ship`, research regime.
+  `/qute-review` (the single independent-review skill), `/ship`, research regime.
 - qute never grows a parallel planning flow; `/task` publishes accepted
   work, it does not decompose unclear work.
-- GitHub PR transport / bot identities are Jimek's (ADR-0005; the
-  `/qute-coder` / `/qute-reviewer` / `/jimek-onboard` skills ship with jimek).
+- GitHub PR **transport / bot identities** are Jimek's (ADR-0005/0006; the
+  `/qute-coder` + `/jimek-onboard` skills ship with jimek). Independent review
+  itself is `/qute-review` in essentials (it absorbed the retired `qute-reviewer`).

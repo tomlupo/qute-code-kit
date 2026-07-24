@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "qute-essentials",
-      "description": "Claude Code runtime layer (Matt-compatible): hooks (ruff, notifications, auto-audit, langfuse-trace) + 5 security guards (destructive, secrets, audit, lakera, langfuse) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, repo-status, task + research regime: research-line, finding, research-status, promote + regime setup: setup-qute-repo, check-agent-regime",
+      "description": "Claude Code runtime layer (Matt-compatible): hooks (ruff, notifications, auto-audit, langfuse-trace) + 6 security guards (destructive, secrets, audit, lakera, langfuse, provenance) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, board, repo-status, task + research regime: research-line, finding, research-status, promote + regime setup: setup-qute-repo, check-agent-regime",
       "version": "3.3.0",
       "author": {
         "name": "twilc"
