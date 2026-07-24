@@ -1,0 +1,40 @@
+# Research workspace config — read by /research-line, /research-freeze,
+# /research-repin, /research-status, and scripts/check_research_pins.py (the CI gate).
+#
+# Canonical template: qute-code-kit templates/research/.research-config.yaml
+# (stamped into the repo root by /setup-qute-repo). Set pin_targets to your engine
+# repo(s); the rest works out of the box for the Model C per-line-pinning pattern.
+
+research_root: research
+
+# Repos whose commits every research/<line>/pyproject.toml must pin to a 40-char SHA.
+# `name` is the package (== Python distribution) name; `repo` is the GitHub source.
+pin_targets:
+  - name: <engine-package>          # e.g. dm-evo, quantbox
+    repo: https://github.com/<owner>/<engine-repo>
+    # extras: [full]                # optional, applied as name[extras]
+
+# Default Python deps every line gets from the template.
+default_deps:
+  - "pandas>=2.2"
+  - "numpy>=2.0"
+  - "pyyaml>=6.0"
+
+# Path to the per-line scaffolding template (resolved relative to this file).
+template_dir: research/_template
+
+# Structural rules — checked by check_research_pins.py.
+structural_rules:
+  forbidden_dirs: []                # production dirs that must not appear in the lab
+  required_per_research:
+    - pyproject.toml
+    - uv.lock
+    - README.md
+  require_sha_pins: true
+
+# Pin-staleness thresholds — reported by /research-status (ADR-0007 #4). A line's pin
+# is flagged when it lags the engine default branch past either bound.
+staleness:
+  max_commits: 200
+  max_days: 60
+  default_branch: main
