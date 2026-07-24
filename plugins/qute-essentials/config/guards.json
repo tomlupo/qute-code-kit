@@ -20,5 +20,9 @@
   "audit": {
     "enabled": true,
     "description": "Auto-run pip-audit after uv add/sync/lock/pip install — reports dependency CVEs (informational, non-blocking)"
+  },
+  "provenance": {
+    "enabled": true,
+    "description": "Idempotently auto-inject the identity tag ([agent: …]/[session: …]) on automated writes to shared records — Linear MCP save_issue/comment/document/status_update and gh pr review/comment/create. Never blocks (ADR-0006 §6/§7)"
   }
 }

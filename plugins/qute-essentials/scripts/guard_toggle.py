@@ -11,7 +11,8 @@ USAGE
     guard_toggle.py <name> <on|off>             # toggle one guard
     guard_toggle.py all <on|off>                # toggle all guards
 
-Where <name> is one of: lakera, langfuse, secrets, audit, destructive.
+Where <name> is one of: lakera, langfuse, secrets, audit, destructive,
+provenance.
 
 GUARDS
 
@@ -41,6 +42,14 @@ GUARDS
                   May false-positive on legitimate cleanup commands
                   like 'rm -rf dist/' or 'git reset --hard' on a clean
                   feature branch — disable temporarily, then re-enable.
+
+    provenance    Idempotently auto-inject the identity tag on automated
+                  writes to shared records — Linear MCP (save_issue /
+                  save_comment / save_document / save_status_update) and
+                  Bash 'gh pr review|comment|create'. QUTE_AGENT_NAME set
+                  -> [agent: <name>]; else [session: <name-or-cwd>]. If a
+                  valid leading tag is already present it no-ops; never
+                  blocks a write (ADR-0006 §6/§7).
 
 CONFIG RESOLUTION
 
@@ -113,6 +122,10 @@ GUARDS = {
     "destructive": {
         "display": "Destructive Guard",
         "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE)",
+    },
+    "provenance": {
+        "display": "Provenance Guard",
+        "description": "Auto-inject the identity tag ([agent:]/[session:]) on automated shared-record writes (Linear MCP + gh pr) — idempotent, never blocks",
     },
 }
 
@@ -199,7 +212,7 @@ def main() -> None:
     # Toggle commands: <guard> <on|off>
     if len(args) != 2 or args[1].lower() not in ("on", "off"):
         print(
-            "USAGE: guard_toggle.py [status | <lakera|langfuse|secrets|audit|destructive|all> <on|off>]",
+            "USAGE: guard_toggle.py [status | <lakera|langfuse|secrets|audit|destructive|provenance|all> <on|off>]",
             file=sys.stderr,
         )
         sys.exit(1)

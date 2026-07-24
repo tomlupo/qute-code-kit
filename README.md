@@ -6,7 +6,7 @@ qute is **Matt-compatible by design**: [Matt Pocock's skills](https://github.com
 
 ## The plugin: `qute-essentials`
 
-Essential hooks, guards, and skills for Claude Code. Five toggleable security guards (block destructive commands, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs), a notification layer (ntfy push for blocks/detections), and universal skills covering the release-and-handoff lifecycle plus the standard research regime.
+Essential hooks, guards, and skills for Claude Code. Six toggleable security guards (block destructive commands, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs, tag automated shared-record writes with an identity marker), a notification layer (ntfy push for blocks/detections), and universal skills covering the release-and-handoff lifecycle plus the standard research regime.
 
 ```bash
 claude plugin marketplace add tomlupo/qute-code-kit
@@ -18,18 +18,18 @@ claude plugin install qute-essentials@qute-marketplace
 | | Components |
 |---|---|
 | **Hooks** | ruff-formatter, skill-use-logger, ntfy notifications, auto-audit, langfuse-trace |
-| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability) |
-| **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/task`, `/repo-status` (git dashboard + Open tasks glance) |
+| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability), provenance (auto-injects the `[agent:]`/`[session:]` identity tag on automated Linear-MCP / `gh pr` writes) |
+| **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/task`, `/board` (Linear write-identity conventions), `/repo-status` (git dashboard + Open tasks glance) |
 | **Workflow** | `/audit`, `/test`, `/decision` (ADRs → `docs/adr/`), `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
 | **Research regime** ([ADR-0002](docs/adr/0002-standard-research-regime.md)) | `/research-line` (open/register a line), `/finding` (verdict-forced results + atomic index update), `/research-status` (drift detector + index regenerator), `/promote` (finding → ADR + prod PR / wiki / plugin) |
 | **Regime setup** | `/setup-qute-repo` (guided onboarding wizard: repo type → tracker → conductor.yml → worktrees → shipping → research regime; supersedes adopt-matt-workflow), `/check-agent-regime` (audit for competing regimes / duplicate task stores) |
-| **PR flow** ([ADR-0005](docs/adr/0005-qute-jimek-boundary-governance-modes.md)) | optional tier-aware `review-gate.yml` CI template; the bot verbs `/qute-coder`, `/qute-reviewer`, `/jimek-onboard` moved to the jimek repo (auto-installed globally by the bot) |
+| **PR flow** ([ADR-0005](docs/adr/0005-qute-jimek-boundary-governance-modes.md) / [ADR-0006](docs/adr/0006-essentials-platform-contract-realignment.md)) | optional tier-aware `review-gate.yml` CI template; independent review is `/qute-review` (in essentials, it absorbed the retired `qute-reviewer`); the bot transport skill `/qute-coder` ships from the jimek repo (installed globally on jimek boot); onboarding a repo *to* jimek (`conductor.yml`) is Step 4 of `/setup-qute-repo`, not a separate skill |
 
 Full plugin reference (including the guard architecture diagram and per-hook event table): [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md).
 
 ### Why it exists
 
-- **Default-safe agent operation.** Two PreToolUse guards refuse destructive commands and secret writes before they run. Three PostToolUse guards screen dependency vulnerabilities, prompt injection, and trace every tool call.
+- **Default-safe agent operation.** Three PreToolUse guards refuse destructive commands, block secret writes, and tag automated shared-record writes with an identity marker before they run. Three PostToolUse guards screen dependency vulnerabilities, prompt injection, and trace every tool call.
 - **Single-command releases.** `/ship` detects whether the repo is a plugin marketplace or a Python project and dispatches accordingly. First-run setup is idempotent — no separate `/ship-setup` step.
 - **Cross-platform.** Hooks tested on Linux/macOS/Windows (Git Bash). No `jq`, `md5sum`, or `curl` dependencies in shell scripts (stdlib python everywhere).
 - **Observable.** Every tool call traces to Langfuse with session/project/host tags; long-running commands and waiting prompts push to ntfy.

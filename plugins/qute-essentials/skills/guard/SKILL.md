@@ -1,6 +1,6 @@
 ---
 name: guard
-description: Toggle qute-essentials security guards (lakera, langfuse, secrets, audit, destructive) or show status. Triggers — "guards on/off", "turn off lakera", "disable langfuse", "is X enabled", "guard status".
+description: Toggle qute-essentials security guards (lakera, langfuse, secrets, audit, destructive, provenance) or show status. Triggers — "guards on/off", "turn off lakera", "disable langfuse", "is X enabled", "guard status".
 argument-hint: "[status | <name> <on|off> | all <on|off>]"
 ---
 
