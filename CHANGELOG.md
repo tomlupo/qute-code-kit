@@ -1,3 +1,10 @@
+## v3.4.0 (2026-07-24)
+
+### Feat
+
+- fold jimek-onboard job into Step 4 (ADR-0006)
+- realign essentials↔platform contracts (ADR-0006)
+
 ## v3.3.0 (2026-07-23)
 
 ### Feat
