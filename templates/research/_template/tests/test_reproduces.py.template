@@ -1,0 +1,16 @@
+"""Reproduction test template — copy to research/<line>/tests/test_reproduces.py.
+
+Mark reproduction tests with ``@pytest.mark.reproduction`` so ``/research-repin``
+can re-run exactly them after moving the engine pin. Fill in the golden capture +
+tolerance for your engine, and keep the set of headline metrics whose drift is
+research-blocking small.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+
+@pytest.mark.reproduction
+def test_headline_metrics_match_golden() -> None:
+    pytest.skip("template — copy into research/<line>/tests/ and implement")

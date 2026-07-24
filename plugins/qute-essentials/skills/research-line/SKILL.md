@@ -24,7 +24,9 @@ accumulate inside it via `/finding`.
    - Exists but unregistered (no README frontmatter) → register it: add frontmatter
      (`status: active`, `question`, `started`), create `findings/` and `scratch/` if missing.
    - New → stamp from `research/_template/` when present (else minimal: `README.md`,
-     `findings/`, `scratch/`, `.gitignore`). Per-line `pyproject.toml` + engine pin when
+     `findings/`, `scratch/`, `.gitignore`). The template carries `data_inputs.yaml`
+     (hashed engine data-plane manifest) + `ref_resolver.py` (new-name-first
+     engine-path resolver) — keep both. Per-line `pyproject.toml` + engine pin when
      the repo uses Model C (detect from sibling lines).
 3. **Line README frontmatter** (the index is generated from this — keep it accurate):
 
@@ -32,11 +34,17 @@ accumulate inside it via `/finding`.
    ---
    line: <line-name>
    status: active   # active | paused | concluded | abandoned | superseded
+   reproducibility_class: pinned   # pinned | snapshot-frozen | live-data | historical
    question: "One sentence: what this line investigates"
    started: YYYY-MM-DD
    tracker: <issue/task ref, e.g. LIN-123 or #45>
    ---
    ```
+
+   `reproducibility_class` (ADR-0007) is gated on conclude by
+   `check_research_pins.py`: `pinned`/`snapshot-frozen` need hashed `data_inputs.yaml`
+   + filled `provenance`; `live-data`/`historical` need a `repro_note` instead of
+   hashes. Default to `pinned`; pick `live-data` for external-API lines up front.
 
 4. **Link the tracker.** Check `docs/agents/issue-tracker.md`; if the line has no tracker
    ref, offer to create one via `/task` (or record the existing Linear/GitHub ref).
