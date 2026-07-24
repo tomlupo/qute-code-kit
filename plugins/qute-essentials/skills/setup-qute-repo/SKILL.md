@@ -187,11 +187,25 @@ the local pattern only governs human/interactive worktrees). Verify
 
 ## Step 8 — Research regime (quant-lab only)
 
-Stamp `docs/agents/research-workflow.md` from the qute template; ensure
-`research/_template/` exists and the root `research/README.md` index is
-**generated** (run `/research-status` to build it). Lines via
-`/research-line`, results only via `/finding`
-(`YYYY-MM-DD-<verdict>-<slug>.md`), promotion via `/promote`.
+Stamp, all from the kit's `templates/research/` canonical sources (edit them
+there, never per-repo — ADR-0007 Rollout #1):
+
+- `docs/agents/research-workflow.md` from `templates/docs/agents-research-workflow.md`.
+- `research/_template/` from `templates/research/_template/` — includes
+  `data_inputs.yaml` (the hashed data-plane manifest) and `ref_resolver.py`
+  (new-name-first engine-path resolver).
+- `.research-config.yaml` at the repo root from `templates/research/.research-config.yaml`
+  (set `pin_targets` to the repo's engine; keep the `staleness` block).
+- `scripts/check_research_pins.py` from `templates/research/check_research_pins.py`
+  — the deterministic gate (Model C pins + ADR-0007 provenance-on-conclude). Wire
+  it into CI (`ruff`/`pytest` light job already present for quant-lab). If the repo
+  already carries a drifted copy, replace it with the canonical one.
+
+Ensure the root `research/README.md` index is **generated** (run `/research-status`
+to build it). Lines via `/research-line`, results only via `/finding`
+(`YYYY-MM-DD-<verdict>-<slug>.md`), promotion via `/promote`. Each line declares a
+`reproducibility_class` (`pinned | snapshot-frozen | live-data | historical`); the
+gate binds it on conclude.
 
 ## Step 9 — Guards + CI posture
 
