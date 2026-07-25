@@ -322,8 +322,24 @@ def is_safe_context(command: str) -> bool:
     if re.match(r"^(man|help|\w+\s+--help)\b", stripped):
         return True
 
-    # Dry run flags
-    if re.search(r"--dry-run|--dryrun|-n\b|--check\b|--whatif\b", stripped):
+    # Dry-run flags — LONG FORMS ONLY, and only on the FIRST command.
+    #
+    # This exemption skips ALL patterns below, so it has to be narrower than
+    # what it protects. It used to include bare `-n`, which is a dry-run flag
+    # for make/rsync/git-clean and something else entirely everywhere else:
+    # line numbers (grep), numeric sort (sort), a count (head/tail), quiet
+    # (sed), no-clobber (cp/mv), batch size (xargs). `\b` only needs a
+    # non-word char after the n, so `head -n 20` disarmed the guard — and
+    # because the search spanned the whole string, it disarmed it for every
+    # command chained alongside: `rm -rf /srv/data && tail -n 50 log` was
+    # exempt. So was `find . -type f | xargs -n 1 rm -rf`.
+    #
+    # Scoping to the first segment matters for the same reason: a dry run
+    # later in a pipeline says nothing about the destructive command before it.
+    first_segment = re.split(r"[;|]|&&|\|\|", stripped, maxsplit=1)[0]
+    if re.search(
+        r"--dry-run\b|--dryrun\b|--check\b|--whatif\b|--just-print\b", first_segment
+    ):
         return True
 
     return False
