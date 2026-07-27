@@ -28,23 +28,35 @@ concurrency:
     Merging: 1              # key must be declared in board_states.active above
 
 # ── Rigor tiers ──────────────────────────────────────────────────────────────
-# Tier names (trivial / standard / complex) are what the #159 rigor classifier +
-# enforcement engine expect. Unlike dispatcher, qute-code-kit's CLAUDE.md does
-# NOT forbid direct commits to the default branch, so the trivial tier commits
-# straight to main (matching the doc's generic example) — no PR, no review.
+# Tier names (trivial / standard / complex) are what the rigor engine expects.
+#
+# CHANGED 2026-07-25 (qute-platform ADR-0011): `trivial` was `path:
+# commit-to-default` — commit straight to main, no PR. That option is GONE from
+# the schema. The reason is timing, not policy: everything a tier controls
+# (which reviews run, who merges, what is stamped) happens AFTER the work, so
+# the tier is resolved at PR-open against the actual diff. "No PR at all" is the
+# one decision that would have to be made before the diff exists, which is what
+# made the tier unresolvable at the right moment in the previous generation.
+#
+# This repo was the ONLY one of six using commit-to-default, so it is the only
+# one this migration touches. `trivial` still skips the review gate — it just
+# does so on a PR now.
 rigor:
-  trivial:                  # tiny docs/config nudge — commit straight to main
-    path: commit-to-default
+  trivial:                  # tiny docs/config nudge — PR, but no required review
+    path: pr
     review: []
     reviewers_min: 0
+    merge: auto             # agent merges on green CI, no verdict awaited
   standard:                 # the DEFAULT flow: coder-pr → codex → independent reviewer
     path: pr
     review: [codex]
     reviewers_min: 1
+    merge: on-ship          # agent merges on a SHIP verdict + green CI
   complex:                  # risky/architectural — adds an independent Claude session review
     path: pr
     review: [codex, independent-session]
     reviewers_min: 1
+    merge: human            # a human merges
 
 # ── Worktree mechanism (REFERENCE only) ──────────────────────────────────────
 # Jimek does not reimplement worktrees; qute-essentials owns the mechanics.
