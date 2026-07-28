@@ -4,21 +4,21 @@ Essential hooks, guards, and skills for Claude Code. Provides prompt injection s
 
 ## Guard System
 
-Six security guards — toggleable via `/guard`. Three run PreToolUse (before execution), three run PostToolUse (scan after):
+Seven security guards — toggleable via `/guard`. Four run PreToolUse (before execution), three run PostToolUse (scan after):
 
 ```
                      ┌──────────────────────────────┐
                      │   Tool call (any tool)        │
                      └──────────────┬───────────────┘
                                     │
-     ┌──────────────── PreToolUse ──┴───────────────┐
-     │                    │                         │
-┌────▼──────────┐ ┌───────▼──────────┐  ┌───────────▼──────┐
-│ Destructive   │ │  Secrets Guard   │  │ Provenance Guard │
-│ Guard         │ │  blocks writes   │  │ tags shared-rec  │
-│ blocks rm -rf │ │  with API keys   │  │ writes [agent:/  │
-│ git reset -H  │ │                  │  │ session:]        │
-└───────────────┘ └──────────────────┘  └──────────────────┘
+   ┌───────────────── PreToolUse ───┴──────────────────────┐
+   │                │                  │                   │
+┌──▼────────────┐ ┌─▼────────────┐ ┌───▼──────────────┐ ┌──▼───────────────┐
+│ Destructive   │ │ Git Workflow │ │  Secrets Guard   │ │ Provenance Guard │
+│ Guard         │ │ blocks direct│ │  blocks writes   │ │ tags shared-rec  │
+│ blocks rm -rf │ │ commit/push  │ │  with API keys   │ │ writes [agent:/  │
+│ git reset -H  │ │ on main/dev  │ │                  │ │ session:]        │
+└───────────────┘ └──────────────┘ └──────────────────┘ └──────────────────┘
                                     │
                                  executes
                                     │
@@ -75,6 +75,37 @@ Blocks dangerous commands before they execute. Context-aware: won't block `grep 
 
 Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert on every block.
 
+### Git Workflow Guard (PreToolUse)
+
+The deterministic stand-in for GitHub branch protection, for repos where protection isn't available (private repos on the Free plan). Blocks one class of mistake: a direct `git commit` / `git push` onto a branch that work is supposed to reach through a PR.
+
+Two branches are guarded, and denial applies to both:
+
+| | Default | Notes |
+|---|---|---|
+| `protected_branch` | `main` | the release branch |
+| `integration_branch` | `dev` | **only if `origin/dev` exists** in that repo |
+
+The integration branch is guarded for the same reason as the protected one: that's where the review gate lives. Work arrives via a PR; a direct commit opens no PR, so it runs neither review nor CI.
+
+**Opt in per repo** by committing `.claude/git-guard.json`. The *presence* of that file is the opt-in — with no file the guard is a total no-op for that repo, which is what keeps it out of scratch repos and third-party clones. Every field is optional, so a repo that wants house defaults can commit `{}`:
+
+```json
+{
+  "protected_branch": "main",
+  "integration_branch": "dev",
+  "release_tool": "commitizen (/ship)"
+}
+```
+
+An explicit `"integration_branch": null` means *this repo genuinely has none* (feature → PR → `main`) and is never overridden by the `dev` default. `release_tool` only feeds the guidance text.
+
+Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `git -C <other> commit`, `--git-dir`/`--work-tree` all resolve to that repo's branch and config, not the session's.
+
+**Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.
+
+Fail-open by design: no config, malformed config, a non-git directory, or any internal error all allow. Deliberate gaps: a switch-then-act chain (`git checkout main && git commit`) reads the *current* branch and isn't caught, and `git push --all`/`--mirror` is only caught from a guarded branch. `/ship` needs no exemption — its git calls run inside a Python subprocess no PreToolUse hook observes, and its tag push carries a tag refspec, not a branch.
+
 ### Provenance Guard (PreToolUse)
 
 Stamps an identity tag on every automated write to a shared record, so `author != reviewer` is visible without any App (ADR-0006 §6/§7). Closes the one lane server-side stamping can't reach — direct MCP writes. Fires on:
@@ -121,6 +152,7 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 /guard langfuse off         # disable Langfuse tracing
 /guard secrets off          # disable secrets guard (session override)
 /guard destructive off      # disable destructive command blocking
+/guard git-workflow off     # allow direct commit/push on protected + integration branches
 /guard audit off            # disable auto pip-audit
 /guard provenance off       # disable identity-tag auto-injection
 /guard all on               # re-enable everything
@@ -152,7 +184,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 
 | Skill | Description |
 |-------|-------------|
-| `/guard` | Toggle any of the 6 security guards on/off, check status |
+| `/guard` | Toggle any of the 7 security guards on/off, check status |
 | `generating-commit-messages` | Conventional Commits guidance (auto-applied before any `git commit`) |
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |

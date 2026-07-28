@@ -13,8 +13,8 @@ live in one place. Two things matter:
    guards that send data off-box (lakera → Lakera API, langfuse → Langfuse)
    fail CLOSED (default off) — a corrupt config must never silently start
    shipping tool output to a third party. Deterministic local guards
-   (secrets, destructive, audit) fail OPEN (default on) so a corrupt config
-   never silently drops a safety net that costs nothing to keep.
+   (secrets, destructive, git-workflow, audit) fail OPEN (default on) so a
+   corrupt config never silently drops a safety net that costs nothing to keep.
 """
 
 from __future__ import annotations
@@ -79,7 +79,10 @@ def guard_enabled(name: str) -> bool:
     """
     if os.environ.get("CLAUDE_SKIP_GUARDS") == "1":
         return False
-    override = os.environ.get(f"CLAUDE_GUARD_{name.upper()}")
+    # Hyphenated guard names (git-workflow) map to an underscore env var —
+    # `CLAUDE_GUARD_GIT-WORKFLOW` is not a settable shell identifier.
+    env_name = name.upper().replace("-", "_")
+    override = os.environ.get(f"CLAUDE_GUARD_{env_name}")
     if override == "0":
         return False
     if override == "1":

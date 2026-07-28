@@ -218,6 +218,13 @@ gate binds it on conclude.
 
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
+- **Branch-workflow guard opt-in.** Offer `.claude/git-guard.json` — its
+  presence is what arms the `git-workflow` guard for this repo (no file = the
+  guard ignores the repo entirely). Every field is optional: commit `{}` for
+  the house defaults (protect `main`; also `dev` when `origin/dev` exists), or
+  set `protected_branch` / `integration_branch` / `release_tool` explicitly.
+  Write `"integration_branch": null` when the repo genuinely has none
+  (feature → PR → `main`). Skip for scratch repos and third-party clones.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).

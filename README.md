@@ -6,7 +6,7 @@ qute is **Matt-compatible by design**: [Matt Pocock's skills](https://github.com
 
 ## The plugin: `qute-essentials`
 
-Essential hooks, guards, and skills for Claude Code. Six toggleable security guards (block destructive commands, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs, tag automated shared-record writes with an identity marker), a notification layer (ntfy push for blocks/detections), and universal skills covering the release-and-handoff lifecycle plus the standard research regime.
+Essential hooks, guards, and skills for Claude Code. Seven toggleable security guards (block destructive commands, refuse direct commits/pushes on protected + integration branches, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs, tag automated shared-record writes with an identity marker), a notification layer (ntfy push for blocks/detections), and universal skills covering the release-and-handoff lifecycle plus the standard research regime.
 
 ```bash
 claude plugin marketplace add tomlupo/qute-code-kit
@@ -18,7 +18,7 @@ claude plugin install qute-essentials@qute-marketplace
 | | Components |
 |---|---|
 | **Hooks** | ruff-formatter, skill-use-logger, ntfy notifications, auto-audit, langfuse-trace |
-| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability), provenance (auto-injects the `[agent:]`/`[session:]` identity tag on automated Linear-MCP / `gh pr` writes) |
+| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), git-workflow (blocks direct commit/push on a repo's protected + integration branches; opt in per repo with `.claude/git-guard.json`), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability), provenance (auto-injects the `[agent:]`/`[session:]` identity tag on automated Linear-MCP / `gh pr` writes) |
 | **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/task`, `/board` (Linear write-identity conventions), `/repo-status` (git dashboard + Open tasks glance) |
 | **Workflow** | `/audit`, `/test`, `/decision` (ADRs → `docs/adr/`), `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
 | **Research regime** ([ADR-0002](docs/adr/0002-standard-research-regime.md)) | `/research-line` (open/register a line), `/finding` (verdict-forced results + atomic index update), `/research-status` (drift detector + index regenerator), `/promote` (finding → ADR + prod PR / wiki / plugin) |
@@ -29,7 +29,7 @@ Full plugin reference (including the guard architecture diagram and per-hook eve
 
 ### Why it exists
 
-- **Default-safe agent operation.** Three PreToolUse guards refuse destructive commands, block secret writes, and tag automated shared-record writes with an identity marker before they run. Three PostToolUse guards screen dependency vulnerabilities, prompt injection, and trace every tool call.
+- **Default-safe agent operation.** Four PreToolUse guards refuse destructive commands, refuse direct commits/pushes to protected branches, block secret writes, and tag automated shared-record writes with an identity marker before they run. Three PostToolUse guards screen dependency vulnerabilities, prompt injection, and trace every tool call.
 - **Single-command releases.** `/ship` detects whether the repo is a plugin marketplace or a Python project and dispatches accordingly. First-run setup is idempotent — no separate `/ship-setup` step.
 - **Cross-platform.** Hooks tested on Linux/macOS/Windows (Git Bash). No `jq`, `md5sum`, or `curl` dependencies in shell scripts (stdlib python everywhere).
 - **Observable.** Every tool call traces to Langfuse with session/project/host tags; long-running commands and waiting prompts push to ntfy.

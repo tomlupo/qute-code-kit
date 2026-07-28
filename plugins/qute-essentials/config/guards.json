@@ -13,6 +13,10 @@
     "enabled": true,
     "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE, etc.)"
   },
+  "git-workflow": {
+    "enabled": true,
+    "description": "Block direct `git commit`/`git push` on a repo's protected and integration branches (work must arrive via a PR). Opt-in per repo: only fires where `.claude/git-guard.json` exists"
+  },
   "secrets": {
     "enabled": true,
     "description": "Block Write/Edit that leaks secrets (API keys, private keys, tokens) or targets credential files (.env, *.pem, id_rsa, database.ini)"
