@@ -534,8 +534,10 @@ def test_agent_payload_outside_a_repo_fails_loudly(tmp_path):
     assert "not inside a git repository" in proc.stderr
 
 
-def test_unrecognised_payload_exits_zero(tmp_path):
-    """No name, no explicit trio: log and get out of the way."""
+def test_unrecognised_payload_exits_zero_but_is_loud(tmp_path):
+    """No name, no explicit trio: get out of the way (exit 0, nothing on
+    stdout) — but leave a diagnostic a reader can act on. Doing nothing
+    quietly would be indistinguishable from a broken hook."""
     proc = _hook(
         tmp_path,
         {
@@ -545,7 +547,14 @@ def test_unrecognised_payload_exits_zero(tmp_path):
         },
     )
     assert proc.returncode == 0
-    assert "unrecognised payload" in proc.stderr
+    assert proc.stdout.strip() == ""  # claims no path
+    err = proc.stderr
+    assert "unrecognised payload" in err and "DID NOTHING (exit 0)" in err
+    assert "received keys: cwd, hook_event_name, session_id" in err
+    assert "recognised shapes:" in err  # what it would have understood
+    assert "no worktree was created and no setup ran" in err
+    assert "exiting 0 on purpose" in err  # and why that is not a silent pass
+    assert "teach the hook about it" in err  # what to do next
 
 
 def test_remove_hook_payload_without_worktree_path_is_soft_skip(tmp_path):

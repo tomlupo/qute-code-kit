@@ -330,6 +330,41 @@ def git_worktree_add(base: Path, worktree: Path, branch: str) -> None:
         )
 
 
+def unrecognised_payload_report(payload: dict) -> str:
+    """Diagnostic for a payload matching no known shape.
+
+    The hook deliberately exits 0 here (see hook_main), so this text is the
+    only trace it leaves. It must therefore say what arrived, what would have
+    been understood, what was done, and what happens next — a hook that does
+    nothing quietly is indistinguishable from a hook that is broken.
+    """
+    keys = ", ".join(sorted(map(str, payload))) or "(none)"
+    return "\n".join(
+        [
+            "WorktreeCreate hook: unrecognised payload — DID NOTHING (exit 0).",
+            f"  received keys: {keys}",
+            f"  received event: {payload.get('hook_event_name', '(absent)')!r}",
+            "  recognised shapes:",
+            "    1. {name, cwd, ...}  — what Claude Code sends (--worktree, "
+            "/worktree, agent isolation); the hook picks the path and creates "
+            "the worktree",
+            "    2. {worktree_path, branch_name, base_path} — an explicit "
+            "instruction to create exactly that worktree",
+            "  no worktree was created and no setup ran, because neither "
+            "shape was present.",
+            "  exiting 0 on purpose: failing here would block worktree "
+            "creation over a payload this hook simply does not know "
+            "(the TOM-358 regression). Claude Code raises its own "
+            '"returned no worktree path" error when nothing is printed to '
+            "stdout, so the real failure surfaces there rather than being "
+            "masked by this hook's exit code.",
+            "  if this is a payload shape Claude Code now sends, teach the "
+            "hook about it (hooks/worktree_create.py, hook_main).",
+            f"  payload: {json.dumps(payload)[:500]}",
+        ]
+    )
+
+
 def hook_main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -382,13 +417,11 @@ def hook_main() -> int:
         )
         return 1
     else:
-        # Neither shape. Never fail the worktree over a payload we don't know.
-        print(
-            "WorktreeCreate hook: unrecognised payload (no name, no "
-            "worktree_path/branch_name/base_path) — skipping setup: "
-            f"{json.dumps(payload)[:500]}",
-            file=sys.stderr,
-        )
+        # Neither shape. Exit 0 — failing closed on a payload we don't
+        # understand is the bug this branch exists to prevent (TOM-358) — but
+        # say everything a reader needs, because doing nothing quietly is its
+        # own failure mode.
+        print(unrecognised_payload_report(payload), file=sys.stderr)
         return 0
 
     try:
