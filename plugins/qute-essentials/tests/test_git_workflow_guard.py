@@ -801,6 +801,30 @@ def test_a_dash_heredoc_terminator_strips_only_tabs(tmp_path, home):
     assert decision == "deny", "a tab-indented terminator DOES close a <<- body"
 
 
+@pytest.mark.parametrize(
+    "delim",
+    ["EOF", "\\EOF", "'EOF'", '"EOF"', 'E"OF"', "E'OF'", "EO\\F"],
+)
+def test_a_quoted_heredoc_delimiter_still_terminates(delim, tmp_path, home):
+    """Defect 34. Bash applies quote REMOVAL to the here-doc word, so
+    `<<\\EOF`, `<<E"OF"` and `<<'EOF'` are all closed by a plain `EOF` —
+    verified. Storing the delimiter with its quoting meant it never matched,
+    so the body ran to the end of the script and swallowed the real command
+    after the terminator."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"cat <<{delim}\nbody line\nEOF\ngit commit -m x", repo, home)
+    assert decision == "deny", delim
+    assert "main" in hso["permissionDecisionReason"], delim
+
+
+@pytest.mark.parametrize("delim", ["EOF", "\\EOF", "'EOF'", 'E"OF"'])
+def test_a_quoted_heredoc_delimiter_still_protects_its_body(delim, tmp_path, home):
+    """The other half: the body is still data whichever way it is quoted."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(f"cat <<{delim}\ngit commit -m x\nEOF", repo, home)
+    assert decision == "allow", delim
+
+
 def test_a_here_string_is_not_a_heredoc(tmp_path, home):
     """`<<<` is a here-STRING — one word, no body — so the command carrying it
     is still a real command."""

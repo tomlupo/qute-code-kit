@@ -126,11 +126,11 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27-32
-are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and are the
-reason that axis is written down at all. Most let something THROUGH; 24, 27 and
-29-32 BLOCKED something they should not have, which is a defect on the same
-footing — a guard that cries wolf gets turned off:
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
+34 are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and
+are the reason that axis is written down at all. Most let something THROUGH;
+24, 27 and 29-32 BLOCKED something they should not have, which is a defect on
+the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -232,7 +232,11 @@ footing — a guard that cries wolf gets turned off:
       only where the outcome was computable. `test -d /missing && cd ../feature
       ; git commit` has an uncomputable condition, and "might run" was applied
       as "did run", so the guard moved to `../feature` while the commit landed
-      on the guarded branch. Both candidate directories are now checked.
+      on the guarded branch. Both candidate directories are now checked;
+  34. a QUOTED here-doc delimiter (parsing) — bash quote-removes the word, so
+      `<<\\EOF` and `<<E"OF"` are closed by a plain `EOF`. Storing the quoting
+      meant the terminator never matched and the body ran to the end of the
+      script, swallowing a real `git commit` after it.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -419,6 +423,33 @@ def _current_branch(cwd: Path):
     return branch if branch and branch != "HEAD" else None
 
 
+def _dequote_word(word: str) -> str:
+    """Shell quote removal: drop the quoting, keep what it quoted.
+
+    `\\EOF`, `E"OF"`, `'EOF'` and `"EOF"` all name the same here-doc delimiter
+    `EOF`, because bash removes quotes from the word before matching the
+    terminator line against it.
+    """
+    out = []
+    i, n = 0, len(word)
+    while i < n:
+        c = word[i]
+        if c == "\\" and i + 1 < n:
+            out.append(word[i + 1])
+            i += 2
+        elif c in "'\"":
+            j = i + 1
+            while j < n and word[j] != c:
+                # Inside double quotes a backslash still escapes.
+                j += 2 if c == '"' and word[j] == "\\" and j + 1 < n else 1
+            out.append(_dequote_word(word[i + 1 : j]) if c == '"' else word[i + 1 : j])
+            i = min(j + 1, n)
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 def _segments(command: str):
     """Split a shell line into events: the individual commands joined by
     `&&`, `||`, `;`, `|` and newlines, plus the SUBSHELL boundaries between
@@ -536,26 +567,38 @@ def _segments(command: str):
         elif (
             c == "<" and command[i + 1 : i + 2] == "<" and command[i + 2 : i + 3] != "<"
         ):
-            # `<<WORD` / `<<-WORD` / `<< 'WORD'` — queue the body to skip once
-            # this line ends. (`<<<` is a here-string; it falls through.)
+            # `<<WORD` / `<<-WORD` — queue the body to skip once this line
+            # ends. (`<<<` is a here-string; it falls through.)
+            #
+            # The WORD is read whole and then quote-REMOVED, because bash
+            # applies quote removal to it: `<<\EOF`, `<<E"OF"` and `<<'EOF'`
+            # are all terminated by a plain `EOF`. Handling only a fully
+            # quoted word stored the delimiter as `\EOF`, which never matched,
+            # so the rest of the script — including a real `git commit` after
+            # the terminator — was swallowed as here-doc data (defect 34).
             j = i + 2
             strip_tabs = command[j : j + 1] == "-"
             if strip_tabs:
                 j += 1
             while j < n and command[j] in " \t":
                 j += 1
-            if j < n and command[j] in "'\"":
-                quote, j = command[j], j + 1
-                start = j
-                while j < n and command[j] != quote:
+            start, quote = j, None
+            while j < n:
+                ch = command[j]
+                if quote:
+                    if ch == quote:
+                        quote = None
                     j += 1
-                delim = command[start:j]
-                j = min(j + 1, n)
-            else:
-                start = j
-                while j < n and command[j] not in " \t\n;&|<>()":
+                elif ch == "\\" and j + 1 < n:
+                    j += 2
+                elif ch in "'\"":
+                    quote = ch
                     j += 1
-                delim = command[start:j]
+                elif ch in " \t\n;&|<>()":
+                    break
+                else:
+                    j += 1
+            delim = _dequote_word(command[start:j])
             if delim:
                 pending_heredocs.append((delim, strip_tabs))
             buf.append(command[i:j])
