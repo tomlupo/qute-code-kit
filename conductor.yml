@@ -139,5 +139,9 @@ release:
   tagPattern: "v*"
   forbiddenPaths: []
 
-adrDir: docs/decisions      # decision-verb ADRs land here (qute-essentials:decision)
+adrDir: docs/adr            # decision-verb ADRs land here (qute-essentials:decision).
+                            # NOT the schema default (docs/decisions): this repo's
+                            # CLAUDE.md and the /decision skill both use docs/adr, and
+                            # that is where all eight ADRs actually live. Stated
+                            # explicitly so the default cannot re-split the series.
 adrTemplate: ""             # '' = built-in template
