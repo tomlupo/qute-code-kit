@@ -2320,11 +2320,22 @@ def test_unknown_cwd_is_sticky_until_an_absolute_cd(tmp_path, home):
     session = _make_repo(tmp_path / "lab", "main", STD_CFG)
     other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
     # A relative cd from an unknown location is still unknown.
-    decision, _ = _run('cd "$D" && cd sub && git commit -m x', session, home)
+    decision, _ = _run('cd "$D" ; cd sub ; git commit -m x', session, home)
     assert decision == "deny"
     # An absolute cd re-anchors us, so we know again.
-    decision, _ = _run(f'cd "$D" && cd {other} && git commit -m x', session, home)
+    decision, _ = _run(f'cd "$D" ; cd {other} ; git commit -m x', session, home)
     assert decision == "allow"
+
+
+def test_an_absolute_cd_gated_on_an_unknown_status_keeps_both_places(tmp_path, home):
+    """With `&&` rather than `;`, the re-anchoring `cd` only runs if the first
+    one succeeded — which we cannot know. One of the two possible locations is
+    unknowable, so the guarded verb fails closed."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(f'cd "$D" && cd {other} && git commit -m x', session, home)
+    assert decision == "deny"
+    assert "cannot determine which repo" in hso["permissionDecisionReason"]
 
 
 def test_unknown_cwd_dies_with_the_subshell(tmp_path, home):
@@ -2802,6 +2813,63 @@ def test_a_skipped_subshell_is_not_entered(tmp_path, home):
     )
     assert decision == "deny"
     assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_cd_gated_on_an_unknown_status_is_checked_both_ways(tmp_path, home):
+    """Defect 33. `test -d /missing && cd ../feature ; git commit` — bash
+    skips the `cd`, so the commit lands on the guarded branch, but "might run"
+    was treated as "did run" and the guard moved to `../feature`. Both
+    candidate directories are now checked, and the guarded one denies."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(
+        f"test -d /missing && cd {other} ; git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_the_other_candidate_is_checked_too(tmp_path, home):
+    """Mirror: the repo we might have moved INTO is guarded, and that must
+    deny even though the one we started in is not."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(f"test -d /x && cd {other} ; git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_conditional_cd_does_not_deny_when_no_candidate_is_guarded(tmp_path, home):
+    """The reason this is checked per-candidate rather than failed closed:
+    when neither possibility is guarded there is nothing to report."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"test -d /x && cd {other} ; git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_a_conditional_cd_within_one_repo_is_not_noise(tmp_path, home):
+    """The common shape — `git add -A && cd subdir && git commit` — has both
+    candidates inside the SAME repo, so a blanket fail-closed would have been
+    pure noise. On a feature branch it stays allowed."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    (repo / "subdir").mkdir()
+    decision, _ = _run("git add -A && cd subdir && git commit -m x", repo, home)
+    assert decision == "allow"
+
+    guarded = _make_repo(tmp_path / "g", "main", STD_CFG)
+    (guarded / "subdir").mkdir()
+    decision, _ = _run("git add -A && cd subdir && git commit -m x", guarded, home)
+    assert decision == "deny", "…and on a guarded branch both candidates deny"
+
+
+def test_a_certain_cd_replaces_rather_than_adds(tmp_path, home):
+    """After `;` the `cd` definitely ran, so the old location is NOT a
+    candidate any more — otherwise every chain would accumulate ghosts."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"cd {other} ; git commit -m x", session, home)
+    assert decision == "allow"
 
 
 def test_an_unknown_status_leaves_both_branches_live(tmp_path, home):

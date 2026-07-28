@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27-32
-are parsing; 10-13, 16-18, 22, 25 and 26 are the environment axis, and are the
+are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and are the
 reason that axis is written down at all. Most let something THROUGH; 24, 27 and
 29-32 BLOCKED something they should not have, which is a defect on the same
 footing — a guard that cries wolf gets turned off:
@@ -227,7 +227,12 @@ footing — a guard that cries wolf gets turned off:
       on an indented ` EOF`, handing the rest of the data back as commands;
   32. `command -v` (parsing) — it LOOKS UP a name and prints it, running
       nothing, but the flag was skipped and `command -v git commit` read as a
-      commit.
+      commit;
+  33. a `cd` gated on an UNKNOWN status — defect 25 modelled the short-circuit
+      only where the outcome was computable. `test -d /missing && cd ../feature
+      ; git commit` has an uncomputable condition, and "might run" was applied
+      as "did run", so the guard moved to `../feature` while the commit landed
+      on the guarded branch. Both candidate directories are now checked.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1649,10 +1654,22 @@ def main():
             cfg_cache[key] = _load_config(repo_root)
         return cfg_cache[key]
 
-    # Whether we still know where the shell is (see `_resolve_cd`), and the
-    # directory a `cd -` would go back to.
-    base_unknown = False
+    # EVERY directory the shell might be in, as (dir, unknown) pairs — see
+    # `_resolve_cd` for what `unknown` means. Normally one, but a `cd` gated on
+    # a condition we cannot evaluate leaves TWO possibilities, and a guarded
+    # verb is then checked against both.
+    #
+    # `test -d /missing && cd ../feature ; git commit` is the shape that forced
+    # this: bash skips the `cd`, so the commit lands on the guarded branch, but
+    # treating "might run" as "did run" moved the guard to `../feature` and let
+    # it through. Blanket fail-closed would have been wrong in the other
+    # direction — `git add -A && cd subdir && git commit` has both candidates
+    # inside the SAME repo, so denying it would be pure noise. Checking each
+    # candidate is exact either way (environment-axis defect, round 15).
+    states = [(base_dir, False)]
     prev_dir = None
+    # Above this many possibilities, stop enumerating and fail closed instead.
+    max_states = 8
 
     # Shell state saved by an open subshell, restored when it closes.
     dir_stack: list = []
@@ -1677,8 +1694,12 @@ def main():
     # A skipped command leaves `last_status` untouched, which is what makes a
     # chain behave: `a && b && c` skips both b and c when a fails, while
     # `a && b || c` still runs c.
+    # `run_uncertain` is the other half: the command runs only if the unknown
+    # condition happened to hold, so a `cd` in it ADDS a possibility rather
+    # than replacing the current one.
     last_status = None
     run_next = True
+    run_uncertain = False
     skip_depth = 0
 
     for kind, seg in _segments(command):
@@ -1694,20 +1715,23 @@ def main():
             # element's process — so roll the shell back to where that element
             # started. `;`, `&&`, `||` and newlines keep the same shell.
             if state_before is not None and (seg in _SUBSHELL_SEPARATORS or after_pipe):
-                base_dir, base_unknown, prev_dir = state_before
+                states, prev_dir = state_before
             after_pipe = seg == "|"
             if seg == "&&":
                 run_next = last_status is not False
+                run_uncertain = last_status is None
             elif seg == "||":
                 run_next = last_status is not True
+                run_uncertain = last_status is None
             else:
                 run_next = True
+                run_uncertain = False
             continue
         if kind == "open":
             if not run_next:
                 skip_depth = 1
                 continue
-            dir_stack.append((base_dir, base_unknown, prev_dir))
+            dir_stack.append((list(states), prev_dir))
             continue
         if kind == "close":
             # A subshell's status is its own; we cannot compute it.
@@ -1715,7 +1739,7 @@ def main():
             # A subshell's `cd` dies with the subshell. An unmatched `)` (a
             # `case` arm, say) has nothing to restore and is ignored.
             if dir_stack:
-                base_dir, base_unknown, prev_dir = dir_stack.pop()
+                states, prev_dir = dir_stack.pop()
             continue
 
         if not run_next:
@@ -1724,7 +1748,7 @@ def main():
             # keeps `a && b && c` and `a && b || c` both correct.
             continue
 
-        state_before = (base_dir, base_unknown, prev_dir)
+        state_before = (list(states), prev_dir)
 
         tokens = _tokens(seg)
         # Redirections can sit anywhere, including before the command word.
@@ -1741,28 +1765,45 @@ def main():
         # cannot be determined, is refused rather than guessed at.
         is_cd, operand = _cd_argument(tokens)
         if is_cd:
-            was_dir, was_unknown = base_dir, base_unknown
-            if operand is None:
-                # Bare `cd` goes to $HOME, and the hook runs as the same user.
-                home_dir = Path.home()
-                base_dir, base_unknown = home_dir, False
-                last_status = home_dir.is_dir()
-            elif operand == "-":
-                # `cd -` returns to the previous directory. We know it only if
-                # we saw the `cd` that set it.
-                if prev_dir is None:
-                    base_unknown = True
-                    last_status = None
+            was = states[0]
+            moved = []
+            statuses = set()
+            for cur_dir, cur_unknown in states:
+                if operand is None:
+                    # Bare `cd` goes to $HOME, and the hook runs as the same user.
+                    home_dir = Path.home()
+                    moved.append((home_dir, False))
+                    statuses.add(home_dir.is_dir())
+                elif operand == "-":
+                    # `cd -` returns to the previous directory. We know it only
+                    # if we saw the `cd` that set it.
+                    if prev_dir is None:
+                        moved.append((cur_dir, True))
+                        statuses.add(None)
+                    else:
+                        moved.append((prev_dir, False))
+                        statuses.add(True)
                 else:
-                    base_dir, base_unknown = prev_dir, False
-                    last_status = True
-            else:
-                base_dir, base_unknown, last_status = _resolve_cd(
-                    base_dir, base_unknown, operand
-                )
+                    new_dir, new_unknown, ok = _resolve_cd(
+                        cur_dir, cur_unknown, operand
+                    )
+                    moved.append((new_dir, new_unknown))
+                    statuses.add(ok)
+            # A `cd` bash only MIGHT have run leaves the shell in either place.
+            candidates = (list(states) + moved) if run_uncertain else moved
+            deduped = list(dict.fromkeys(candidates))
+            if len(deduped) > max_states:
+                # Too many branches to enumerate — collapse to "unknown", which
+                # the guarded-verb check fails closed on.
+                deduped = [(deduped[0][0], True)]
+            states = deduped
+            # One agreed status, or none at all.
+            last_status = statuses.pop() if len(statuses) == 1 else None
+            if run_uncertain:
+                last_status = None
             # $OLDPWD only moves when the `cd` actually succeeded.
-            if (base_dir, base_unknown) != (was_dir, was_unknown):
-                prev_dir = None if was_unknown else was_dir
+            if states[0] != was:
+                prev_dir = None if was[1] else was[0]
             continue
 
         # Any other command: we cannot compute its exit status, so a following
@@ -1780,7 +1821,7 @@ def main():
             # block on the echo.
             if not _mentions_git(args):
                 continue
-            cfg = _cfg_for(base_dir)
+            cfg = _cfg_for(states[0][0])
             if cfg is None:
                 continue  # not opted in -> total no-op, as everywhere else
             wrapper = opts.get("wrapper", "env")
@@ -1800,217 +1841,229 @@ def main():
             # is nothing further to resolve here.
             continue
 
-        # Resolve the repo this specific git command targets, then load THAT
-        # repo's guard config and current branch.
-        target_dir, target_unknown = _resolve_git_target_dir(
-            base_dir, base_unknown, opts
+        # Check the command against EVERY directory the shell might be in. All
+        # but one of these is a singleton loop; the exception is a `cd` gated
+        # on a condition we could not evaluate. `_deny` exits, so the first
+        # candidate that violates wins.
+        for _cand_dir, _cand_unknown in states:
+            _check_git_command(
+                _cand_dir, _cand_unknown, sub, args, opts, _cfg_for, cfgmap_cache
+            )
+        continue
+
+    _allow()
+
+
+def _check_git_command(base_dir, base_unknown, sub, args, opts, _cfg_for, cfgmap_cache):
+    """Evaluate one `git commit` / `git push` against ONE candidate working
+    directory, denying (and exiting) if it would write to a guarded branch."""
+    # Resolve the repo this specific git command targets, then load THAT
+    # repo's guard config and current branch.
+    target_dir, target_unknown = _resolve_git_target_dir(base_dir, base_unknown, opts)
+
+    if target_unknown:
+        # Either a preceding `cd`, or one of this command's own path
+        # operands, used something we could not expand — so we cannot tell
+        # which repo it writes to. Fail closed, as everywhere else a check
+        # cannot verify. The gate is the LAST KNOWN directory's opt-in, so
+        # a repo that never opted in stays a total no-op (a documented
+        # limit — see the module docstring); and read-only subcommands
+        # never get here, so `cd "$D" && git status` is fine.
+        cfg = _cfg_for(base_dir)
+        if cfg is None:
+            return
+        _deny(
+            f"Blocked: cannot determine which repo `git {sub}` runs in — a "
+            "preceding `cd`, or a `-C`/`--git-dir` operand, used a path "
+            "this guard cannot expand (a variable, a command substitution "
+            f"or a glob), so the target may be '{cfg['protected']}'"
+            + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+            + ". Use a literal path.",
+            _guidance(cfg),
         )
 
-        if target_unknown:
-            # Either a preceding `cd`, or one of this command's own path
-            # operands, used something we could not expand — so we cannot tell
-            # which repo it writes to. Fail closed, as everywhere else a check
-            # cannot verify. The gate is the LAST KNOWN directory's opt-in, so
-            # a repo that never opted in stays a total no-op (a documented
-            # limit — see the module docstring); and read-only subcommands
-            # never get here, so `cd "$D" && git status` is fine.
-            cfg = _cfg_for(base_dir)
-            if cfg is None:
-                continue
-            _deny(
-                f"Blocked: cannot determine which repo `git {sub}` runs in — a "
-                "preceding `cd`, or a `-C`/`--git-dir` operand, used a path "
-                "this guard cannot expand (a variable, a command substitution "
-                f"or a glob), so the target may be '{cfg['protected']}'"
-                + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
-                + ". Use a literal path.",
-                _guidance(cfg),
-            )
+    cfg = _cfg_for(target_dir)
+    if cfg is None:
+        return  # not a resolvable repo, or not opted in -> no-op for it
 
-        cfg = _cfg_for(target_dir)
-        if cfg is None:
-            continue  # not a resolvable repo, or not opted in -> no-op for it
-
-        if sub not in ("commit", "push"):
-            # Unrecognised subcommand in an opted-in repo: it may be an alias,
-            # defined either on the command line (`-c alias.ci=commit`) or in
-            # the target repo's config. The config lookup is gated on BOTH
-            # conditions so ordinary traffic never pays for it.
-            expanded = _expand_alias(target_dir, sub, opts.get("aliases") or {})
-            if expanded is None:
-                if opts.get("unknown_global"):
-                    # We could not identify this subcommand AND we skipped a
-                    # global option of unknown arity — so that option may have
-                    # eaten a value we then read as the subcommand, hiding the
-                    # real one (`git --namespace foo commit -m x` reads as
-                    # subcommand `foo`). Deny rather than guess. Narrow by
-                    # construction: an unknown global in front of a subcommand
-                    # we DO recognise is unaffected, so `git --literal-pathspecs
-                    # status` and `git -p log` still cost nothing.
-                    _deny(
-                        f"Blocked: '{sub}' is neither a git subcommand nor an "
-                        "alias, and a preceding global option of unknown arity "
-                        "may have hidden the real one — it may be a commit or "
-                        f"push to '{cfg['protected']}'"
-                        + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
-                        + ". Run the git command without the unrecognised "
-                        "global option.",
-                        _guidance(cfg),
-                    )
-                continue  # no alias, or one that expands to a harmless builtin
-            alias_name = sub
-            sub, alias_args = expanded
-            if sub == _ALIAS_UNRESOLVABLE:
+    if sub not in ("commit", "push"):
+        # Unrecognised subcommand in an opted-in repo: it may be an alias,
+        # defined either on the command line (`-c alias.ci=commit`) or in
+        # the target repo's config. The config lookup is gated on BOTH
+        # conditions so ordinary traffic never pays for it.
+        expanded = _expand_alias(target_dir, sub, opts.get("aliases") or {})
+        if expanded is None:
+            if opts.get("unknown_global"):
+                # We could not identify this subcommand AND we skipped a
+                # global option of unknown arity — so that option may have
+                # eaten a value we then read as the subcommand, hiding the
+                # real one (`git --namespace foo commit -m x` reads as
+                # subcommand `foo`). Deny rather than guess. Narrow by
+                # construction: an unknown global in front of a subcommand
+                # we DO recognise is unaffected, so `git --literal-pathspecs
+                # status` and `git -p log` still cost nothing.
                 _deny(
-                    f"Blocked: the git alias '{alias_name}' expands to a shell "
-                    "command or to another alias, which this guard resolves "
-                    "one level only — so it cannot rule out a commit or push "
-                    f"to '{cfg['protected']}'"
+                    f"Blocked: '{sub}' is neither a git subcommand nor an "
+                    "alias, and a preceding global option of unknown arity "
+                    "may have hidden the real one — it may be a commit or "
+                    f"push to '{cfg['protected']}'"
                     + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
-                    + ". Run the underlying git command directly.",
+                    + ". Run the git command without the unrecognised "
+                    "global option.",
                     _guidance(cfg),
                 )
-            args = alias_args + args
+            return  # no alias, or one that expands to a harmless builtin
+        alias_name = sub
+        sub, alias_args = expanded
+        if sub == _ALIAS_UNRESOLVABLE:
+            _deny(
+                f"Blocked: the git alias '{alias_name}' expands to a shell "
+                "command or to another alias, which this guard resolves "
+                "one level only — so it cannot rule out a commit or push "
+                f"to '{cfg['protected']}'"
+                + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+                + ". Run the underlying git command directly.",
+                _guidance(cfg),
+            )
+        args = alias_args + args
 
-        protected = cfg["protected"]
-        integration = cfg["integration"]
-        branch = _current_branch(target_dir)
-        guidance = _guidance(cfg)
+    protected = cfg["protected"]
+    integration = cfg["integration"]
+    branch = _current_branch(target_dir)
+    guidance = _guidance(cfg)
 
-        if sub == "commit":
-            if _commit_is_dry_run(args):
-                continue  # writes nothing — see `_commit_is_dry_run`
-            if branch == protected:
-                _deny(
-                    f"Blocked: direct commit on protected branch '{protected}'.",
-                    guidance,
-                )
-            if integration and branch == integration:
-                _deny(
-                    f"Blocked: direct commit on integration branch '{integration}'.",
-                    guidance,
-                )
+    if sub == "commit":
+        if _commit_is_dry_run(args):
+            return  # writes nothing — see `_commit_is_dry_run`
+        if branch == protected:
+            _deny(
+                f"Blocked: direct commit on protected branch '{protected}'.",
+                guidance,
+            )
+        if integration and branch == integration:
+            _deny(
+                f"Blocked: direct commit on integration branch '{integration}'.",
+                guidance,
+            )
 
-        elif sub == "push":
-            (
-                targets,
-                had_refspec,
-                unresolvable,
-                remotes,
-                push_all,
-                tags_only,
-                dry_run,
-            ) = _push_targets(args, branch)
-            if dry_run:
-                # `--dry-run` / `-n` writes nothing, so by the guard's own
-                # criterion — will this command WRITE to a guarded branch? —
-                # there is nothing to block (defect 27).
-                continue
-            implicit_targets = []
-            remote_name = None
-            if push_all:
-                # `--all` / `--mirror` push every LOCAL branch and override
-                # push.default entirely, so the destinations are the local
-                # branch list — nothing on the command line names them. This
-                # was the last "documented gap", but `git push --all origin`
-                # from a feature branch is an ordinary invocation that writes
-                # the protected branch, so by this guard's own criterion it was
-                # a defect (20).
-                local = _local_branches(target_dir)
-                if local is None:
-                    _deny(
-                        "Blocked: `git push --all`/`--mirror` pushes every "
-                        "local branch and the branch list could not be read, "
-                        f"so it may include '{protected}'"
-                        + (f" or '{integration}'" if integration else "")
-                        + ". Push an explicit branch refspec instead.",
-                        guidance,
-                    )
-                for name, label in (
-                    (protected, "protected"),
-                    (integration, "integration"),
-                ):
-                    if name and name in local:
-                        _deny(
-                            "Blocked: `git push --all`/`--mirror` pushes every "
-                            f"local branch, including the {label} branch "
-                            f"'{name}'.",
-                            guidance,
-                        )
-            elif tags_only:
-                # `--tags` with no refspec pushes tags and no branch, so there
-                # is no implicit destination to resolve. `/ship` depends on
-                # this, and the docs have always claimed tag pushes are never
-                # blocked — the current-branch fallback was falsifying that
-                # from a guarded branch (defect 24).
-                pass
-            elif not had_refspec:
-                # "No refspec" does NOT mean "the current branch": git reads
-                # `remote.<name>.push` and `push.default`, and either can send
-                # the push to a different branch entirely. `remotes` holds more
-                # than one candidate only for the ambiguous `--repo` shape, and
-                # then every candidate is checked — the same fail-closed union
-                # already applied to that shape's positionals.
-                key = str(target_dir)
-                if key not in cfgmap_cache:
-                    cfgmap_cache[key] = _config_map(target_dir)
-                cmap = cfgmap_cache[key]
-                for candidate in remotes:
-                    name = _push_remote(cmap, candidate, branch)
-                    if remote_name is None:
-                        remote_name = name
-                    implicit, unresolvable_modes = _implicit_push_refspecs(
-                        cmap, name, branch
-                    )
-                    unresolvable = unresolvable + unresolvable_modes
-                    for ref in implicit:
-                        dst = _resolve_push_dst(ref, branch)
-                        if dst is None:
-                            unresolvable.append(ref)
-                        else:
-                            implicit_targets.append(dst)
-
-            if protected in targets:
+    elif sub == "push":
+        (
+            targets,
+            had_refspec,
+            unresolvable,
+            remotes,
+            push_all,
+            tags_only,
+            dry_run,
+        ) = _push_targets(args, branch)
+        if dry_run:
+            # `--dry-run` / `-n` writes nothing, so by the guard's own
+            # criterion — will this command WRITE to a guarded branch? —
+            # there is nothing to block (defect 27).
+            return
+        implicit_targets = []
+        remote_name = None
+        if push_all:
+            # `--all` / `--mirror` push every LOCAL branch and override
+            # push.default entirely, so the destinations are the local
+            # branch list — nothing on the command line names them. This
+            # was the last "documented gap", but `git push --all origin`
+            # from a feature branch is an ordinary invocation that writes
+            # the protected branch, so by this guard's own criterion it was
+            # a defect (20).
+            local = _local_branches(target_dir)
+            if local is None:
                 _deny(
-                    f"Blocked: push to protected branch '{protected}'.",
-                    guidance,
-                )
-            if integration and integration in targets:
-                _deny(
-                    f"Blocked: push to integration branch '{integration}'.",
-                    guidance,
-                )
-            # Fail CLOSED on a destination we could not resolve: it may well be
-            # a guarded branch, and a guard that cannot verify must not report
-            # success. (Distinct from the fail-OPEN cases above, which are all
-            # "this repo is not guarded at all".)
-            if unresolvable:
-                _deny(
-                    "Blocked: cannot resolve the push destination of "
-                    + ", ".join(repr(r) for r in unresolvable)
-                    + f" — it may target '{protected}'"
+                    "Blocked: `git push --all`/`--mirror` pushes every "
+                    "local branch and the branch list could not be read, "
+                    f"so it may include '{protected}'"
                     + (f" or '{integration}'" if integration else "")
                     + ". Push an explicit branch refspec instead.",
                     guidance,
                 )
-            # Destinations git supplies itself when no refspec was given.
-            for name, label in ((protected, "protected"), (integration, "integration")):
-                if name and name in implicit_targets:
-                    if name == branch:
-                        _deny(
-                            f"Blocked: push of current branch '{name}' "
-                            f"(the {label} branch).",
-                            guidance,
-                        )
+            for name, label in (
+                (protected, "protected"),
+                (integration, "integration"),
+            ):
+                if name and name in local:
                     _deny(
-                        f"Blocked: `git push` with no refspec sends '{branch}' to "
-                        f"the {label} branch '{name}' in this repo — git's own "
-                        f"config says so (`remote.{remote_name}.push` or "
-                        "`push.default`), even though no refspec names it.",
+                        "Blocked: `git push --all`/`--mirror` pushes every "
+                        f"local branch, including the {label} branch "
+                        f"'{name}'.",
                         guidance,
                     )
+        elif tags_only:
+            # `--tags` with no refspec pushes tags and no branch, so there
+            # is no implicit destination to resolve. `/ship` depends on
+            # this, and the docs have always claimed tag pushes are never
+            # blocked — the current-branch fallback was falsifying that
+            # from a guarded branch (defect 24).
+            pass
+        elif not had_refspec:
+            # "No refspec" does NOT mean "the current branch": git reads
+            # `remote.<name>.push` and `push.default`, and either can send
+            # the push to a different branch entirely. `remotes` holds more
+            # than one candidate only for the ambiguous `--repo` shape, and
+            # then every candidate is checked — the same fail-closed union
+            # already applied to that shape's positionals.
+            key = str(target_dir)
+            if key not in cfgmap_cache:
+                cfgmap_cache[key] = _config_map(target_dir)
+            cmap = cfgmap_cache[key]
+            for candidate in remotes:
+                name = _push_remote(cmap, candidate, branch)
+                if remote_name is None:
+                    remote_name = name
+                implicit, unresolvable_modes = _implicit_push_refspecs(
+                    cmap, name, branch
+                )
+                unresolvable = unresolvable + unresolvable_modes
+                for ref in implicit:
+                    dst = _resolve_push_dst(ref, branch)
+                    if dst is None:
+                        unresolvable.append(ref)
+                    else:
+                        implicit_targets.append(dst)
 
-    _allow()
+        if protected in targets:
+            _deny(
+                f"Blocked: push to protected branch '{protected}'.",
+                guidance,
+            )
+        if integration and integration in targets:
+            _deny(
+                f"Blocked: push to integration branch '{integration}'.",
+                guidance,
+            )
+        # Fail CLOSED on a destination we could not resolve: it may well be
+        # a guarded branch, and a guard that cannot verify must not report
+        # success. (Distinct from the fail-OPEN cases above, which are all
+        # "this repo is not guarded at all".)
+        if unresolvable:
+            _deny(
+                "Blocked: cannot resolve the push destination of "
+                + ", ".join(repr(r) for r in unresolvable)
+                + f" — it may target '{protected}'"
+                + (f" or '{integration}'" if integration else "")
+                + ". Push an explicit branch refspec instead.",
+                guidance,
+            )
+        # Destinations git supplies itself when no refspec was given.
+        for name, label in ((protected, "protected"), (integration, "integration")):
+            if name and name in implicit_targets:
+                if name == branch:
+                    _deny(
+                        f"Blocked: push of current branch '{name}' "
+                        f"(the {label} branch).",
+                        guidance,
+                    )
+                _deny(
+                    f"Blocked: `git push` with no refspec sends '{branch}' to "
+                    f"the {label} branch '{name}' in this repo — git's own "
+                    f"config says so (`remote.{remote_name}.push` or "
+                    "`push.default`), even though no refspec names it.",
+                    guidance,
+                )
 
 
 if __name__ == "__main__":
