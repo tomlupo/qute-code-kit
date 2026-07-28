@@ -113,7 +113,12 @@ from the session's `cwd`, applies this repo's `base_path` / `branch_pattern`
 when `.claude/worktree.json` exists, and otherwise falls back to Claude Code's
 own convention — `<repo>/.claude/worktrees/<name>` on branch
 `worktree-<name>`. Re-invoking for an existing worktree is a resume: setup
-re-runs, nothing is clobbered.
+re-runs in **preserve mode** — any `shared_dirs` / `copy_files` entry already
+present in the worktree is kept and logged rather than replaced, so a second
+invocation cannot delete or overwrite work in progress. (`--setup` takes
+`--preserve-existing` for the same reason when re-run by hand; on a freshly
+created worktree, whose only content is what `git worktree add` checked out,
+replacement is correct and stays the default.)
 
 ### 6. Work in Isolation
 

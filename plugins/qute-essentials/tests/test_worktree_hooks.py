@@ -513,6 +513,99 @@ def test_agent_payload_second_call_resumes(tmp_path):
     assert (wt / "scratch.txt").read_text() == "work in progress"
 
 
+def test_resume_does_not_clobber_configured_setup_entries(tmp_path):
+    """The dangerous half of resume: `shared_dirs` deletes what it replaces
+    and `copy_files` overwrites it. On a live worktree those names may hold
+    hours of work, so a second invocation must keep what is already there."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(
+        json.dumps({"shared_dirs": ["data"], "copy_files": ["local.toml"]})
+    )
+    (repo / "data").mkdir()
+    (repo / "data" / "from-main.bin").write_text("main")
+    (repo / "local.toml").write_text("[cfg]\nfrom = 'main'\n")
+
+    first = _hook(tmp_path, _agent_payload(repo))
+    assert first.returncode == 0, first.stderr
+    wt = Path(first.stdout.strip())
+    assert (wt / "data").is_symlink()  # fresh create still links
+    assert (wt / "local.toml").read_text() == "[cfg]\nfrom = 'main'\n"
+
+    # the agent works: edits the copied file, and replaces the shared symlink
+    # with real local data of its own
+    (wt / "local.toml").write_text("[cfg]\nfrom = 'the agent'\n")
+    (wt / "data").unlink()
+    (wt / "data").mkdir()
+    (wt / "data" / "agent-output.bin").write_text("hours of work")
+
+    second = _hook(tmp_path, _agent_payload(repo))
+    assert second.returncode == 0, second.stderr
+    assert second.stdout.strip() == str(wt)
+    assert (wt / "local.toml").read_text() == "[cfg]\nfrom = 'the agent'\n"
+    assert not (wt / "data").is_symlink()
+    assert (wt / "data" / "agent-output.bin").read_text() == "hours of work"
+    assert "KEEP local.toml" in second.stderr and "KEEP data" in second.stderr
+    # main checkout untouched throughout
+    assert (repo / "data" / "from-main.bin").read_text() == "main"
+
+
+def test_resume_relinks_a_shared_dir_that_went_missing(tmp_path):
+    """Preserve mode keeps what exists; it still creates what does not."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(
+        json.dumps({"shared_dirs": ["data"], "copy_files": ["local.toml"]})
+    )
+    (repo / "data").mkdir()
+    (repo / "local.toml").write_text("[cfg]")
+
+    wt = Path(_hook(tmp_path, _agent_payload(repo)).stdout.strip())
+    (wt / "data").unlink()
+    (wt / "local.toml").unlink()
+
+    second = _hook(tmp_path, _agent_payload(repo))
+    assert second.returncode == 0, second.stderr
+    assert (wt / "data").is_symlink()
+    assert (wt / "local.toml").read_text() == "[cfg]"
+
+
+def test_setup_preserve_existing_flag(tmp_path):
+    """The same guard is available to the skill's manual `--setup` re-runs."""
+    base, wt = _mk_project(
+        tmp_path, {"shared_dirs": ["data"], "copy_files": ["local.toml"]}
+    )
+    (base / "data").mkdir()
+    (base / "local.toml").write_text("[cfg]")
+    (wt / "local.toml").write_text("mine")
+    (wt / "data").mkdir()
+    (wt / "data" / "mine.bin").write_text("mine")
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--setup",
+            str(wt),
+            "--base",
+            str(base),
+            "--preserve-existing",
+        ],
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (wt / "local.toml").read_text() == "mine"
+    assert (wt / "data" / "mine.bin").read_text() == "mine"
+
+    # without the flag, the documented replace-on-setup behaviour is intact
+    proc = _setup(tmp_path, wt, base)
+    assert proc.returncode == 0, proc.stderr
+    assert (wt / "local.toml").read_text() == "[cfg]"
+    assert (wt / "data").is_symlink()
+
+
 def test_agent_payload_rejects_unsafe_names(tmp_path):
     repo = _mk_repo(tmp_path)
     for bad in ("../evil", "-b", ".hidden", "a b", "x;rm -rf /", 17):

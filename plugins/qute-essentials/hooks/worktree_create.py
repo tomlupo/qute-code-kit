@@ -18,7 +18,9 @@ Two entry points, one implementation:
       when present, else `<repo>/.claude/worktrees/<slug>` on branch
       `worktree-<slug>`, matching Claude Code's own built-in convention) and
       resolves the main checkout from `cwd`. Re-running with an existing
-      worktree is a resume: setup re-runs, the path is printed, no error.
+      worktree is a resume: setup re-runs in preserve mode (existing
+      shared_dirs/copy_files entries are kept, not replaced), the path is
+      printed, no error.
 
    b. `{worktree_path, branch_name, base_path}` — an explicit instruction to
       create exactly that worktree. Not emitted by Claude Code (verified
@@ -92,6 +94,14 @@ def load_config(base_path: Path) -> dict:
 MARKER_NAME = ".qute-worktree.json"
 
 
+def _points_at(link: Path, target: Path) -> bool:
+    """True if `link` is a symlink already resolving to `target`."""
+    try:
+        return os.path.realpath(link) == os.path.realpath(target)
+    except OSError:
+        return False
+
+
 def _safe_rel_name(name: object, kind: str) -> str:
     """Validate a shared_dirs/copy_files entry as a safe relative subpath.
 
@@ -135,8 +145,19 @@ def _dst_in_worktree(worktree: Path, name: str, kind: str) -> Path:
     return dst
 
 
-def setup_worktree(worktree: Path, base: Path) -> list[str]:
-    """Apply worktree.json setup + post-worktree.sh. Returns log of actions."""
+def setup_worktree(
+    worktree: Path, base: Path, preserve_existing: bool = False
+) -> list[str]:
+    """Apply worktree.json setup + post-worktree.sh. Returns log of actions.
+
+    `preserve_existing` is for re-running setup on a worktree that already
+    holds work (the resume path). Freshly created worktrees contain only what
+    `git worktree add` checked out, so replacing an entry there is safe; a
+    live worktree may hold hours of edits under exactly those names, and
+    `shared_dirs` deletes what it replaces while `copy_files` overwrites it.
+    With `preserve_existing`, anything already present is left alone and
+    logged instead — setup never destroys work it did not create.
+    """
     actions: list[str] = []
     cfg = load_config(base)
 
@@ -147,6 +168,15 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
             actions.append(f"shared_dirs: skip {name} (missing in main checkout)")
             continue
         dst = _dst_in_worktree(worktree, name, "shared_dirs")
+        if preserve_existing and (dst.is_symlink() or dst.exists()):
+            if dst.is_symlink() and _points_at(dst, src):
+                actions.append(f"shared_dirs: {name} already linked -> {src}")
+            else:
+                actions.append(
+                    f"shared_dirs: KEEP {name} (already exists in the worktree; "
+                    "resume does not replace it)"
+                )
+            continue
         if dst.is_symlink():
             dst.unlink()  # unlink removes the link itself, never the target
         elif dst.is_dir():
@@ -165,6 +195,12 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
             actions.append(f"copy_files: skip {name} (missing in main checkout)")
             continue
         dst = _dst_in_worktree(worktree, name, "copy_files")
+        if preserve_existing and (dst.is_symlink() or dst.exists()):
+            actions.append(
+                f"copy_files: KEEP {name} (already in the worktree; resume does "
+                "not overwrite it)"
+            )
+            continue
         if dst.is_symlink():
             dst.unlink()  # never write through a pre-existing symlink
         shutil.copy2(src, dst)
@@ -427,7 +463,7 @@ def hook_main() -> int:
     try:
         if not resume:
             git_worktree_add(base, worktree, branch_name)
-        actions = setup_worktree(worktree, base)
+        actions = setup_worktree(worktree, base, preserve_existing=resume)
     except SetupError as exc:
         print(f"WorktreeCreate hook: setup FAILED: {exc}", file=sys.stderr)
         return 1
@@ -443,6 +479,15 @@ def cli_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--setup", metavar="WORKTREE", required=True)
     parser.add_argument("--base", metavar="MAIN_CHECKOUT", required=True)
+    parser.add_argument(
+        "--preserve-existing",
+        action="store_true",
+        help=(
+            "re-running on a worktree that already holds work: leave any "
+            "shared_dirs/copy_files entry that already exists in place "
+            "instead of replacing it"
+        ),
+    )
     args = parser.parse_args(argv)
     worktree = Path(args.setup).resolve()
     base = Path(args.base).resolve()
@@ -450,7 +495,9 @@ def cli_main(argv: list[str]) -> int:
         print(f"setup: worktree {worktree} is not a directory", file=sys.stderr)
         return 1
     try:
-        actions = setup_worktree(worktree, base)
+        actions = setup_worktree(
+            worktree, base, preserve_existing=args.preserve_existing
+        )
     except SetupError as exc:
         print(f"setup FAILED: {exc}", file=sys.stderr)
         return 1
