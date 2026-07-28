@@ -118,6 +118,21 @@ def git_out(repo: Path, *args: str):
     return out.stdout.strip() if out.returncode == 0 else None
 
 
+def _describe_file_type(mode: int) -> str:
+    """Name what is sitting at a path, for a message someone has to act on."""
+    if stat.S_ISDIR(mode):
+        return "a directory"
+    if stat.S_ISLNK(mode):
+        return "a symlink"
+    if stat.S_ISFIFO(mode):
+        return "a FIFO"
+    if stat.S_ISSOCK(mode):
+        return "a socket"
+    if stat.S_ISBLK(mode) or stat.S_ISCHR(mode):
+        return "a device node"
+    return "not a regular file"
+
+
 class WriteRefused(Exception):
     """A write the gate would not perform. Carries the reason for the report."""
 
@@ -224,6 +239,33 @@ class WriteGate:
         """Write `content` to `dest`; return created | updated | unchanged."""
         dir_fd, name = self._descend(dest, create_dirs=True)
         try:
+            # Classify the destination BEFORE opening it. Symlinks are handled
+            # by O_NOFOLLOW below, but a directory raises IsADirectoryError and
+            # a FIFO is worse than that: opening one for reading BLOCKS until a
+            # writer appears, which hung the installer outright. Neither is a
+            # thing to write a hook into, and both must come back as a
+            # WriteRefused the caller reports, not as a traceback or a hang.
+            try:
+                st = os.lstat(name, dir_fd=dir_fd)
+            except FileNotFoundError:
+                st = None
+            except OSError as exc:
+                raise WriteRefused(
+                    self._describe_open_failure(name, dir_fd, exc)
+                ) from exc
+            if st is not None and not stat.S_ISREG(st.st_mode):
+                if stat.S_ISLNK(st.st_mode):
+                    # Keep the richer symlink wording — it names the target,
+                    # which is the whole point of that refusal.
+                    raise WriteRefused(
+                        self._describe_open_failure(name, dir_fd, OSError("symlink"))
+                    )
+                raise WriteRefused(
+                    f"{dest} exists and is {_describe_file_type(st.st_mode)}, "
+                    "not a regular file. Refusing to write there — remove it "
+                    "and re-run if it is not meant to be there."
+                )
+
             existing = None
             try:
                 rfd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
@@ -462,16 +504,31 @@ def detect_world(repo: Path) -> dict:
     pc_bin = shutil.which("pre-commit")
 
     slot_owner = "empty"
+    slot_kind = None
     if slot_is_symlink:
         slot_owner = "symlink"
-    elif hook_file and hook_file.exists():
-        text = hook_file.read_text(encoding="utf-8", errors="replace")
-        if DISPATCHER_MARKER in text:
-            slot_owner = "qute"
-        elif is_pre_commit_shim(hook_file):
-            slot_owner = "pre-commit"
-        else:
-            slot_owner = "foreign"
+    elif hook_file:
+        try:
+            slot_st = os.lstat(hook_file)
+        except OSError:
+            slot_st = None
+        if slot_st is not None:
+            if not stat.S_ISREG(slot_st.st_mode):
+                # Reading a directory raises; reading a FIFO BLOCKS FOREVER.
+                # Classify by mode and never open it.
+                slot_owner = "non-regular"
+                slot_kind = _describe_file_type(slot_st.st_mode)
+            else:
+                try:
+                    text = hook_file.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                if DISPATCHER_MARKER in text:
+                    slot_owner = "qute"
+                elif is_pre_commit_shim(hook_file):
+                    slot_owner = "pre-commit"
+                else:
+                    slot_owner = "foreign"
 
     # After `pre-commit install --hook-type pre-push` reclaims the slot, our
     # dispatcher is moved to `<slot>.legacy` — which pre-commit's shim runs
@@ -504,6 +561,7 @@ def detect_world(repo: Path) -> dict:
         "slot_symlink_path": slot_symlink_path,
         "slot_target": slot_target,
         "slot_owner": slot_owner,
+        "slot_kind": slot_kind,
         "legacy_is_qute": legacy_is_qute,
         "pre_commit_config": has_pc_config,
         "pre_commit_bin": pc_bin,
@@ -754,6 +812,17 @@ def verify(repo: Path, world: dict, allow_shared: bool = False) -> dict:
     result = {"reachable": False, "checks": [], "coverage": {}, "ok": False}
     hook_file = Path(world["hook_file"]) if world["hook_file"] else None
 
+    if world.get("slot_owner") == "non-regular":
+        result["checks"].append(
+            (
+                "hook slot is a regular file",
+                False,
+                f"{world['hook_file']} is {world['slot_kind']} — git cannot run "
+                "it, so this repo has no working guard",
+            )
+        )
+        return result
+
     if world.get("slot_is_symlink"):
         # --check writes nothing, so the WriteGate never runs and cannot be
         # what catches this. Without an explicit check here, a repo whose
@@ -998,7 +1067,15 @@ def main() -> int:
         # roots are settled here, once, and handed to the gate.
         # ------------------------------------------------------------------
         roots = _repo_boundaries(repo)
-        if world["slot_is_symlink"]:
+        if world["slot_owner"] == "non-regular":
+            actions.append(
+                f"BLOCKED: the hook slot {world['hook_file']} exists and is "
+                f"{world['slot_kind']}, not a regular file. git cannot run it "
+                "and this installer will not replace it blindly — remove it and "
+                "re-run if it is not meant to be there."
+            )
+            installed = False
+        elif world["slot_is_symlink"]:
             # Refused BEFORE the shared-path question, and NOT overridable by
             # --allow-shared-hooks-path. That flag is the operator accepting a
             # directory they were shown; a symlink in the hook slot is the
@@ -1094,6 +1171,7 @@ def main() -> int:
         "mechanism": mechanism,
         "hook_file": world["hook_file"],
         "slot_owner": world["slot_owner"],
+        "slot_kind": world["slot_kind"],
         "slot_symlink_path": world["slot_symlink_path"],
         "actions": actions,
         "verification": {

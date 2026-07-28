@@ -1578,3 +1578,75 @@ class TestSymlinkedApprovedRootIsDisclosedNotRefused:
             sandbox["env"],
         )
         assert got.stdout.strip() == "", "a clone must not inherit core.hooksPath"
+
+
+@pytestmark_git
+class TestNonRegularFilesReportInsteadOfCrashing:
+    """Directories/FIFOs where a regular file is expected.
+
+    `detect_world` read the hook slot blind and `WriteGate.write` opened the
+    destination blind. A directory raised `IsADirectoryError` before the
+    promised BLOCKED report could be printed; a FIFO was worse — opening one
+    for reading blocks until a writer appears, so the installer HUNG rather
+    than crashed. Both must come back as a reported refusal.
+    """
+
+    def test_hook_slot_as_a_directory_is_reported(self, sandbox):
+        (sandbox["repo"] / ".git" / "hooks" / "pre-push").mkdir(parents=True)
+        out = _install(sandbox)
+        assert out.returncode == 1, out.stdout + out.stderr
+        assert "Traceback" not in out.stderr
+        assert "is a directory" in out.stdout
+
+    def test_hook_slot_as_a_fifo_does_not_hang(self, sandbox):
+        hooks = sandbox["repo"] / ".git" / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        os.mkfifo(hooks / "pre-push")
+        out = _install(sandbox)  # would block forever before the fix
+        assert out.returncode == 1
+        assert "is a FIFO" in out.stdout
+        assert "Traceback" not in out.stderr
+
+    def test_check_mode_reports_a_fifo_slot_too(self, sandbox):
+        hooks = sandbox["repo"] / ".git" / "hooks"
+        hooks.mkdir(parents=True, exist_ok=True)
+        os.mkfifo(hooks / "pre-push")
+        out = _install(sandbox, "--check", "--json")
+        assert out.returncode == 1
+        report = json.loads(out.stdout)
+        assert report["slot_owner"] == "non-regular"
+        assert report["slot_kind"] == "a FIFO"
+        assert report["ok"] is False
+
+    def test_config_destination_as_a_directory_is_reported(self, sandbox):
+        cfg = sandbox["repo"] / ".claude" / "git-guard.json"
+        cfg.unlink()
+        cfg.mkdir()
+        out = _install(sandbox, "--opt-in")
+        assert out.returncode == 1
+        assert "Traceback" not in out.stderr
+        assert "not a regular file" in out.stdout
+
+    def test_guard_destination_as_a_directory_is_reported(self, sandbox):
+        (sandbox["repo"] / ".claude" / "hooks" / "pre-push-branch-guard").mkdir(
+            parents=True
+        )
+        out = _install(sandbox)
+        assert out.returncode == 1
+        assert "Traceback" not in out.stderr
+        assert "not a regular file" in out.stdout
+
+    def test_gate_refuses_a_non_regular_destination_directly(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        (root / "adir").mkdir()
+        gate = installer.WriteGate([root])
+        with pytest.raises(installer.WriteRefused, match="a directory"):
+            gate.write(root / "adir", "x")
+        os.mkfifo(root / "afifo")
+        with pytest.raises(installer.WriteRefused, match="a FIFO"):
+            gate.write(root / "afifo", "x")
+
+    def test_normal_repo_is_unaffected(self, sandbox):
+        out = _install(sandbox)
+        assert out.returncode == 0, out.stdout + out.stderr
