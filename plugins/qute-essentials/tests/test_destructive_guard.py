@@ -319,8 +319,24 @@ class TestWriteThenExecuteInOneCall:
         assert_allowed(
             "cat > /tmp/a <<'A'\ngit push --force\nA\n"
             "cat > /tmp/b <<'B'\ngit reset --hard\nB\n"
-            "git add /tmp/a /tmp/b"
+            "chmod 600 /tmp/a /tmp/b"
         )
+
+    @pytest.mark.parametrize(
+        "runner",
+        [
+            "git -c alias.x='!bash /tmp/x' x",  # alias with a shell escape
+            "git add /tmp/x",  # the cost: even benign git voids it
+            "sort --compress-program=/tmp/x /tmp/x",
+            "rg --pre=/tmp/x pattern /tmp/x",
+        ],
+    )
+    def test_tools_with_an_exec_escape_are_not_inert(self, runner):
+        """Review finding on #90 round 3: `git` was on the inert allowlist,
+        but `git -c alias.x='!…'` runs anything. `sort --compress-program` and
+        `rg --pre` are the same class, so all three are off the list — the bar
+        is "no option to this program spawns another one"."""
+        assert_denied(f"cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\n{runner}", RM_ROOT)
 
 
 class TestPythonPayloadAllowlist:
@@ -513,7 +529,9 @@ class TestExecutionSurface:
         assert guard.execution_surface(cmd) == "cat > /tmp/f <<'EOF'\n" + " " * 16
 
     def test_a_command_with_no_data_region_is_returned_unchanged(self):
-        cmd = "git push --force origin main && rm -rf /srv/data"
+        # Inert programs on purpose: a non-inert one would short-circuit at the
+        # executor gate and never reach the blanking path this asserts about.
+        cmd = "cat /tmp/notes && rm -rf /srv/data"
         assert guard.execution_surface(cmd) == cmd
 
     def test_python_payload_is_blanked_only_between_the_quotes(self):

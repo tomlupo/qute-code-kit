@@ -479,15 +479,27 @@ _PYTHON_CMD = re.compile(r"\Apython[0-9.]*\Z")
 # command does not put a blanked region back into play. An ALLOWLIST: anything
 # not named here — `bash`, `.`, `sudo`, `make`, `npm`, `./script`, or simply a
 # name this file has never heard of — voids every exemption in the command.
+#
+# The bar is "no option to this program spawns another one", and it is stricter
+# than intuition. Three obvious-looking candidates are deliberately ABSENT:
+#
+#     git   `git -c alias.x='!bash /tmp/x' x`, and hooks, difftool,
+#           mergetool, `-c core.pager=…`, submodule helpers
+#     sort  `sort --compress-program=/tmp/x`
+#     rg    `rg --pre=/tmp/x`
+#
+# Each would let a call write a script and run it while every segment still
+# looked harmless. `git` costs the most to leave out — `… <<'EOF' … EOF; git add
+# f` now loses the exemption — and it goes out anyway, because an allowlist that
+# admits one program with an exec escape is not an allowlist.
 INERT_PROGRAMS = frozenset(
     {
         "cat", "tee", "echo", "printf", "true", "false", "test", "[",
         "ls", "pwd", "cd", "mkdir", "rmdir", "touch", "mktemp",
         "chmod", "chown", "chgrp", "cp", "mv", "ln", "rm",
-        "stat", "file", "wc", "head", "tail", "sort", "uniq", "cut", "tr",
-        "diff", "cmp", "grep", "egrep", "fgrep", "rg",
+        "stat", "file", "wc", "head", "tail", "uniq", "cut", "tr",
+        "diff", "cmp", "grep", "egrep", "fgrep",
         "date", "sleep", "basename", "dirname", "realpath", "readlink",
-        "git",
     }
 )  # fmt: skip
 

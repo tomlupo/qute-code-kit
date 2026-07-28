@@ -99,10 +99,12 @@ bash /tmp/x
 ```
 
 Everything else keeps its text scanned — `bash <<EOF`, `psql <<EOF`, `sudo tee`,
-`perl -e`, `node -e`, `cat <<EOF | bash`, `python3 runner.py <<EOF`. Every list
-involved is an allowlist, so an unrecognised program or an unparseable payload
-resolves toward blocking; the route for a genuinely-blocked write is the Write
-tool (never screened) or `/guard destructive off`.
+`perl -e`, `node -e`, `cat <<EOF | bash`, `python3 runner.py <<EOF`. The inert
+list is strict about exec escapes, so `git` (`-c alias.x='!…'`), `sort`
+(`--compress-program`) and `rg` (`--pre`) are deliberately **not** on it. Every
+list involved is an allowlist, so an unrecognised program or an unparseable
+payload resolves toward blocking; the route for a genuinely-blocked write is the
+Write tool (never screened) or `/guard destructive off`.
 
 This is a text matcher over one tool call — it stops the accident, not the
 adversary (`X="rm -rf"; $X /` defeats it, and always did). Use `pre-push` +
