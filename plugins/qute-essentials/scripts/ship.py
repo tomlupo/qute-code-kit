@@ -397,17 +397,32 @@ def resolve_mode(
     if not (on_release or on_integration):
         return (None, _wrong_branch_message(topo))
 
-    if requested == MODE_TAG:
-        if not on_release:
-            return (
-                None,
-                f"`--tag` cuts the release tag, which belongs on `{topo.release}`; "
-                f"you are on `{topo.current}`. Merge the bump first, then run "
-                f"`/ship --tag` on `{topo.release}`.",
-            )
-        return (MODE_TAG, None)
+    # Every override that CREATES A TAG is confined to the release branch.
+    #
+    # `--bump-and-tag` used to be allowed anywhere a release was allowed, which
+    # left the incident's exact shape reachable behind one flag: a tag cut on
+    # `dev`, naming a commit a squash-merge never makes an ancestor of `main`.
+    # An override that reintroduces the failure the ADR removes is the failure,
+    # explicitness notwithstanding — and there is no case it serves. Its reason
+    # for existing is a hotfix bumped and tagged straight ON the release branch
+    # of a two-stage repo, which this still permits. `--bump-only` writes no tag
+    # and stays available on either branch.
+    if requested in (MODE_TAG, MODE_BUMP_AND_TAG) and not on_release:
+        flag = "--tag" if requested == MODE_TAG else "--bump-and-tag"
+        return (
+            None,
+            f"`{flag}` creates the release tag, which belongs on `{topo.release}`; "
+            f"you are on `{topo.current}`.\n"
+            f"  A tag cut here names a commit that a squash-merge never makes an "
+            f"ancestor of\n"
+            f"  `{topo.release}` — the tag would name code the release branch does "
+            f"not contain.\n"
+            f"  Bump here (`/ship` or `/ship --bump-only`), merge the release PR, "
+            f"then run\n"
+            f"  `/ship --tag` on `{topo.release}`. Nothing was written.",
+        )
 
-    if requested in (MODE_BUMP_ONLY, MODE_BUMP_AND_TAG):
+    if requested in (MODE_TAG, MODE_BUMP_ONLY, MODE_BUMP_AND_TAG):
         return (requested, None)
 
     if on_integration:

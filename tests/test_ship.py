@@ -1448,23 +1448,39 @@ class ModeSelection(unittest.TestCase):
             with self.subTest(requested=requested):
                 self.assertIsNone(mod.resolve_mode(topo, requested)[0])
 
-    def test_overrides_pick_the_act_on_a_release_capable_branch(self):
-        mod, topo = self.topo("dev")
-        self.assertEqual(
-            mod.resolve_mode(topo, mod.MODE_BUMP_AND_TAG)[0], mod.MODE_BUMP_AND_TAG
-        )
-        mod, topo = self.topo("main")
-        self.assertEqual(
-            mod.resolve_mode(topo, mod.MODE_BUMP_ONLY)[0], mod.MODE_BUMP_ONLY
-        )
+    def test_bump_only_is_available_on_either_branch(self):
+        """It writes no tag, so it cannot put one on the wrong branch."""
+        for current in ("dev", "main"):
+            with self.subTest(current=current):
+                mod, topo = self.topo(current)
+                self.assertEqual(
+                    mod.resolve_mode(topo, mod.MODE_BUMP_ONLY)[0], mod.MODE_BUMP_ONLY
+                )
 
-    def test_tag_belongs_on_the_release_branch(self):
-        mod, topo = self.topo("dev")
-        mode, refusal = mod.resolve_mode(topo, mod.MODE_TAG)
-        self.assertIsNone(mode)
-        self.assertIn("`main`", refusal)
-        mod, topo = self.topo("main")
-        self.assertEqual(mod.resolve_mode(topo, mod.MODE_TAG), (mod.MODE_TAG, None))
+    def test_every_tag_creating_override_is_confined_to_the_release_branch(self):
+        """Review blocker on PR #88 (third round), and a real one.
+
+        `--bump-and-tag` used to be accepted on the integration branch, which
+        left the incident's exact shape reachable behind one flag: a tag cut on
+        `dev`, naming a commit a squash-merge never makes an ancestor of
+        `main`. An override that reintroduces the failure the change removes is
+        that failure, explicitness notwithstanding — and it serves no case, the
+        hotfix it exists for being cut ON the release branch.
+        """
+        mod, dev = self.topo("dev")
+        for requested in (mod.MODE_TAG, mod.MODE_BUMP_AND_TAG):
+            with self.subTest(requested=requested):
+                mode, refusal = mod.resolve_mode(dev, requested)
+                self.assertIsNone(mode)
+                self.assertIn("`main`", refusal)
+                self.assertIn("squash-merge", refusal)
+
+        # Both remain available where a tag legitimately belongs.
+        _, main = self.topo("main")
+        self.assertEqual(mod.resolve_mode(main, mod.MODE_TAG)[0], mod.MODE_TAG)
+        self.assertEqual(
+            mod.resolve_mode(main, mod.MODE_BUMP_AND_TAG)[0], mod.MODE_BUMP_AND_TAG
+        )
 
     def test_detached_head_is_not_a_branch(self):
         mod, topo = self.topo(None)
@@ -1729,14 +1745,36 @@ class TwoStageBumpOnly(unittest.TestCase):
             self.assertIn("/ship --tag", out)
             self.assertIn("`main`", out)
 
-    def test_an_override_can_still_bump_and_tag_on_dev(self):
+    def test_bump_and_tag_is_refused_on_dev_end_to_end(self):
+        """No flag reopens the path that cuts a release tag on `dev`."""
         with tempfile.TemporaryDirectory() as d:
             _, work = make_two_stage(Path(d))
             env = cz_env(work)
             if env is None:
                 self.skipTest("commitizen not reachable via `cz` or `uv`")
             feature_commit(work)
+            head = git(work, "rev-parse", "HEAD").strip()
+
             result = run_ship(["--bump-and-tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("squash-merge", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            self.assertEqual(head, git(work, "rev-parse", "HEAD").strip())
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+
+    def test_bump_and_tag_is_a_hotfix_path_on_the_release_branch(self):
+        """The case the override exists for: bump AND tag ON `main`."""
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            git(work, "checkout", "-q", "main")
+            feature_commit(work, "hotfix.py")
+
+            result = run_ship(["--bump-and-tag"], work, env=env)
+
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
             self.assertEqual(
                 sorted(git(work, "tag", "--list").split()), ["v0.1.0", "v0.2.0"]

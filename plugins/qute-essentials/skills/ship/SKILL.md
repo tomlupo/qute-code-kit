@@ -116,8 +116,14 @@ bump commit. A stuck release is loud; a double-bump is silent.
 
 `--bump-only`, `--bump-and-tag` and `--tag` pick the act directly. Use
 `--bump-and-tag` for a hotfix cut straight on the release branch of a two-stage
-repo. They pick the **act**, never the branch: a feature branch is still
-refused with any of them.
+repo.
+
+They pick the **act**, never the branch. A feature branch is refused with any of
+them, and **the two that create a tag (`--tag`, `--bump-and-tag`) are confined
+to the release branch** — allowing `--bump-and-tag` on the integration branch
+would leave the original failure reachable behind one flag, which is the shape
+this whole design rejects. `--bump-only` writes no tag and is available on
+either branch.
 
 ### Plugin mode
 
