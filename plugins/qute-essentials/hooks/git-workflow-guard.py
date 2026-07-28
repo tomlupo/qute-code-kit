@@ -113,8 +113,9 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14 and 15 are parsing; 10-13 are
-the environment axis, and are the reason that axis is written down at all:
+not as a checklist that is now complete. 1-9, 14 and 15 are parsing; 10-13 and
+16 are the environment axis, and are the reason that axis is written down at
+all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -151,7 +152,12 @@ the environment axis, and are the reason that axis is written down at all:
   15. the Windows spelling (parsing) — `git.exe commit`,
       `/mingw64/bin/git.exe push origin main`, and any case variant of them,
       matched neither the executable check nor the `"git" in command` fast
-      path.
+      path;
+  16. an UNEXPANDED `cd` operand — `cd "$MAIN_REPO" && git commit` was read as
+      a failed `cd` (defect 10's fix, applied where it did not belong), so the
+      guard went on evaluating the current repo while bash expanded the
+      variable and committed somewhere else. `cd -` and a bare `cd` had the
+      same shape.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -729,16 +735,73 @@ def _git_subcommand(tokens):
     return tokens[i], tokens[i + 1 :], opts
 
 
-def _cd_target(tokens):
-    """If a segment is `cd <path>`, return the path, else None. A bare `cd`
-    (home) or `cd -` is ignored — we only track explicit relative/absolute
-    directory changes that could point git at a sibling repo."""
-    if len(tokens) >= 2 and tokens[0] == "cd":
-        target = tokens[1]
-        if target and target != "-" and not target.startswith("-"):
-            return target
-        return None
-    return None
+# `cd` options, none of which take a value.
+_CD_FLAGS = frozenset({"-L", "-P", "-e", "-@", "--"})
+
+# A `cd` operand holding any of these is one WE NEVER EXPANDED: parameter or
+# command substitution, or a glob. Bash resolves them and moves; we cannot, so
+# the shell's location becomes unknown rather than unchanged. (Same character
+# class as `_UNRESOLVABLE_RE` for refspecs, minus the ref-navigation syntax.)
+_UNEXPANDED_RE = re.compile(r"[$`*?\[]")
+
+
+def _cd_argument(tokens):
+    """For a `cd` segment return `(True, operand)`, else `(False, None)`.
+
+    `operand` is None for a bare `cd` (i.e. `$HOME`). Options are skipped, so
+    `cd -P /x` is the same `cd` as `cd /x`.
+    """
+    if not tokens or tokens[0] != "cd":
+        return (False, None)
+    for tok in tokens[1:]:
+        if tok in _CD_FLAGS:
+            continue
+        return (True, tok)
+    return (True, None)
+
+
+def _resolve_cd(base: Path, base_unknown: bool, operand: str):
+    """Where the shell ends up after `cd <operand>`, as `(dir, unknown)`.
+
+    Three outcomes, and telling them apart is the whole point:
+
+      RESOLVED   an existing directory — the shell moves, and so do we.
+      FAILED     a literal path that does not exist — `cd` errors and the shell
+                 STAYS PUT, so we stay too (defect 10).
+      UNKNOWN    an operand we did not expand: `cd "$MAIN_REPO"`, `cd $(…)`,
+                 `cd repo-*`. Bash expands it and moves somewhere we cannot
+                 name. Treating that as "failed, stay put" was wrong in exactly
+                 the direction that matters — from an unguarded repo the guard
+                 kept evaluating THIS repo while the commit landed in whatever
+                 the variable pointed at (defect 16). Unknown is therefore
+                 sticky and the caller fails closed on it.
+
+    `~` IS expanded, because that expansion is deterministic and doing it keeps
+    an extremely ordinary `cd ~/proj` out of the UNKNOWN bucket. A `~user` that
+    does not resolve stays UNKNOWN.
+    """
+    expanded = os.path.expanduser(operand)
+    if expanded.startswith("~") or _UNEXPANDED_RE.search(expanded):
+        return (base, True)
+    p = Path(expanded)
+    if p.is_absolute():
+        # An absolute target re-anchors us even from an unknown location.
+        return (p, False) if p.is_dir() else (base, base_unknown)
+    if base_unknown:
+        return (base, True)  # relative to nowhere we can name
+    target = base / p
+    return (target, False) if target.is_dir() else (base, False)
+
+
+def _target_is_cwd_independent(opts: dict) -> bool:
+    """Whether this git command's repo is pinned by its own options, so the
+    shell's location does not matter. Mirrors `_resolve_git_target_dir`: an
+    absolute `-C` anchors the fold, and an absolute `--git-dir` overrides it."""
+    anchored = any(Path(p).is_absolute() for p in (opts.get("C") or []))
+    git_dir = opts.get("git_dir")
+    if git_dir:
+        return Path(git_dir).is_absolute() or anchored
+    return anchored
 
 
 def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
@@ -1079,18 +1142,23 @@ def main():
             cfg_cache[key] = _load_config(repo_root)
         return cfg_cache[key]
 
-    # Working directories saved by an open subshell, restored when it closes.
+    # Whether we still know where the shell is (see `_resolve_cd`), and the
+    # directory a `cd -` would go back to.
+    base_unknown = False
+    prev_dir = None
+
+    # Shell state saved by an open subshell, restored when it closes.
     dir_stack: list = []
 
     for kind, seg in _segments(command):
         if kind == "open":
-            dir_stack.append(base_dir)
+            dir_stack.append((base_dir, base_unknown, prev_dir))
             continue
         if kind == "close":
             # A subshell's `cd` dies with the subshell. An unmatched `)` (a
             # `case` arm, say) has nothing to restore and is ignored.
             if dir_stack:
-                base_dir = dir_stack.pop()
+                base_dir, base_unknown, prev_dir = dir_stack.pop()
             continue
 
         tokens = _tokens(seg)
@@ -1102,24 +1170,26 @@ def main():
             tokens = tokens[:-1]
 
         # Track `cd` so a subsequent git command in the same chain resolves
-        # against the directory the shell actually moved into.
-        cd_to = _cd_target(tokens)
-        if cd_to is not None:
-            p = Path(cd_to)
-            target = p if p.is_absolute() else (base_dir / p)
-            # ONLY follow a `cd` that would succeed. A failing `cd` leaves the
-            # shell exactly where it was, so the guard has to stay there too:
-            # `cd /gone ; git commit` and `cd /gone || git commit` both run the
-            # commit in the ORIGINAL repo, and following the dead path made the
-            # guard evaluate a directory that is not a repo at all — so it
-            # allowed a direct commit on the protected branch. Checking that
-            # the directory exists IS the shell's semantics, which is why the
-            # `;` and `||` forms fall out of one test rather than needing the
-            # separators modelled. (`cd /gone && git commit` now evaluates the
-            # original repo and may deny a command the shell would never have
-            # run — a harmless over-deny on a line that is already an error.)
-            if target.is_dir():
-                base_dir = target
+        # against the directory the shell actually moved into — or, when that
+        # cannot be determined, is refused rather than guessed at.
+        is_cd, operand = _cd_argument(tokens)
+        if is_cd:
+            was_dir, was_unknown = base_dir, base_unknown
+            if operand is None:
+                # Bare `cd` goes to $HOME, and the hook runs as the same user.
+                base_dir, base_unknown = Path.home(), False
+            elif operand == "-":
+                # `cd -` returns to the previous directory. We know it only if
+                # we saw the `cd` that set it.
+                if prev_dir is None:
+                    base_unknown = True
+                else:
+                    base_dir, base_unknown = prev_dir, False
+            else:
+                base_dir, base_unknown = _resolve_cd(base_dir, base_unknown, operand)
+            # $OLDPWD only moves when the `cd` actually succeeded.
+            if (base_dir, base_unknown) != (was_dir, was_unknown):
+                prev_dir = None if was_unknown else was_dir
             continue
 
         sub, args, opts = _git_subcommand(tokens)
@@ -1152,6 +1222,26 @@ def main():
             # no config read. Git ignores aliases that shadow builtins, so there
             # is nothing further to resolve here.
             continue
+
+        if base_unknown and not _target_is_cwd_independent(opts):
+            # A preceding `cd` moved the shell somewhere we could not name, and
+            # this command's repo still depends on the cwd — so we cannot tell
+            # which repo it writes to. Fail closed, as everywhere else a check
+            # cannot verify. The gate is the LAST KNOWN directory's opt-in, so
+            # a repo that never opted in stays a total no-op; and read-only
+            # subcommands never get here, so `cd "$D" && git status` is fine.
+            cfg = _cfg_for(base_dir)
+            if cfg is None:
+                continue
+            _deny(
+                f"Blocked: cannot determine which repo `git {sub}` runs in — a "
+                "preceding `cd` used a path this guard cannot expand (a "
+                "variable, a command substitution or a glob), so the target "
+                f"may be '{cfg['protected']}'"
+                + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+                + ". Use a literal path, or `git -C <path>`.",
+                _guidance(cfg),
+            )
 
         # Resolve the repo this specific git command targets, then load THAT
         # repo's guard config and current branch.

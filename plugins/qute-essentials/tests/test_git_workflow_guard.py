@@ -1495,6 +1495,133 @@ def test_relative_cd_that_does_not_exist_is_not_followed(tmp_path, home):
     assert decision == "deny"
 
 
+# Defect 16, environment axis: a `cd` operand we never expanded is neither
+# "resolved" nor "failed" — it is UNKNOWN. Treating it as a failed `cd` meant
+# that from an unguarded repo the guard kept evaluating THIS repo while bash
+# expanded the variable and committed somewhere else entirely.
+
+UNEXPANDABLE_CD = [
+    'cd "$MAIN_REPO"',
+    "cd $MAIN_REPO",
+    "cd ${MAIN_REPO}",
+    "cd $(cat path.txt)",
+    "cd `cat path.txt`",
+    "cd repo-*",
+    "cd ../repo?",
+    "cd ~nosuchuser/x",
+]
+
+
+@pytest.mark.parametrize("cd", UNEXPANDABLE_CD)
+@pytest.mark.parametrize("branch", ["main", "dev", "feat/x"])
+def test_unexpandable_cd_fails_closed_for_guarded_verbs(cd, branch, tmp_path, home):
+    """Denied from EVERY branch, including a feature branch: the point is that
+    we do not know which repo the commit lands in."""
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    decision, hso = _run(f"{cd} && git commit -m x", repo, home)
+    assert decision == "deny", f"{cd} on {branch}"
+    assert "cannot determine which repo" in hso["permissionDecisionReason"], cd
+
+
+@pytest.mark.parametrize("cd", UNEXPANDABLE_CD)
+def test_unexpandable_cd_does_not_block_read_only_git(cd, tmp_path, home):
+    """Only the guarded verbs fail closed — an unknown cwd is no reason to
+    refuse `git status`."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(f"{cd} && git status", repo, home)
+    assert decision == "allow", cd
+
+
+def test_unexpandable_cd_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run('cd "$MAIN_REPO" && git commit -m x', repo, home)
+    assert decision == "allow"
+
+
+def test_unexpandable_cd_is_escaped_by_an_absolute_scoping_option(tmp_path, home):
+    """If the git command pins its own repo absolutely, the unknown cwd is
+    irrelevant and must not manufacture a denial."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f'cd "$D" && git -C {other} commit -m x', session, home)
+    assert decision == "allow"
+
+    on_main = _make_repo(tmp_path / "onmain", "main", STD_CFG)
+    decision, _ = _run(f'cd "$D" && git -C {on_main} commit -m x', session, home)
+    assert decision == "deny"
+
+
+def test_unknown_cwd_is_sticky_until_an_absolute_cd(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    # A relative cd from an unknown location is still unknown.
+    decision, _ = _run('cd "$D" && cd sub && git commit -m x', session, home)
+    assert decision == "deny"
+    # An absolute cd re-anchors us, so we know again.
+    decision, _ = _run(f'cd "$D" && cd {other} && git commit -m x', session, home)
+    assert decision == "allow"
+
+
+def test_unknown_cwd_dies_with_the_subshell(tmp_path, home):
+    """`(cd "$D" && …)` leaves the outer shell where it was, so a command after
+    the `)` is knowable again."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run('(cd "$D" && git status) && git commit -m x', repo, home)
+    assert decision == "allow"
+
+
+def test_tilde_is_expanded_rather_than_called_unknown(tmp_path, home):
+    """`cd ~/proj` is extremely ordinary and the expansion is deterministic, so
+    it must resolve rather than fail closed."""
+    fake_home = tmp_path / "home2"
+    _make_repo(fake_home / "proj", "feat/x", STD_CFG)
+    session = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(
+        "cd ~/proj && git commit -m x",
+        session,
+        home,
+        extra_env={"HOME": str(fake_home)},
+    )
+    assert decision == "allow"
+
+
+def test_bare_cd_goes_home(tmp_path, home):
+    fake_home = tmp_path / "home2"
+    _make_repo(fake_home, "feat/x", STD_CFG)
+    session = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(
+        "cd && git commit -m x", session, home, extra_env={"HOME": str(fake_home)}
+    )
+    assert decision == "allow"
+
+
+def test_cd_dash_returns_to_the_previous_directory(tmp_path, home):
+    """`cd -` goes back, so a commit after it lands in the ORIGINAL repo."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(f"cd {other} && cd - && git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_cd_dash_without_a_known_previous_directory_fails_closed(tmp_path, home):
+    """With no `cd` seen first, `$OLDPWD` is the shell's, which we never saw."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run("cd - && git commit -m x", repo, home)
+    assert decision == "deny"
+    assert "cannot determine which repo" in hso["permissionDecisionReason"]
+
+
+def test_cd_options_do_not_hide_the_target(tmp_path, home):
+    """`cd -P <path>` is the same `cd` — the flag must not be read as the
+    operand, or the directory change would be missed entirely."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    for flag in ("-P", "-L", "--"):
+        decision, _ = _run(f"cd {flag} {other} && git commit -m x", session, home)
+        assert decision == "deny", flag
+
+
 def test_work_tree_alone_does_not_move_the_repo(tmp_path, home):
     """Git identifies a repo by its GIT DIR. With `--work-tree` and no
     `--git-dir` it still discovers `.git` upward from the current directory, so

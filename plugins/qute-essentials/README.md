@@ -106,7 +106,7 @@ An explicit `"integration_branch": null` means *this repo genuinely has none* (f
 
 Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `(cd <other> && git commit)`, `git -C <other> commit` and `git --git-dir=<other>/.git commit` all resolve to that repo's branch and config, not the session's. `-C` and `--git-dir` **compose** in git's documented order — `-C` moves the cwd first (whatever order they appear in), then `--git-dir` names the repo, with a relative git dir resolved against the `-C` directory. Equally, the repo does *not* move where git and the shell don't move it either:
 
-- a `cd` to a directory that **doesn't exist** — it fails, so the shell stays put and the guard stays with it;
+- a `cd` to a directory that **doesn't exist** — it fails, so the shell stays put and the guard stays with it. A `cd` whose operand the guard *can't expand* (`cd "$MAIN_REPO"`, `cd $(…)`, `cd repo-*`, `cd -` with no prior `cd`) is a third case: the location becomes **unknown**, and a `git commit`/`git push` that still depends on the cwd is then **denied** rather than guessed at. `~` and a bare `cd` are expanded, not guessed;
 - **`--work-tree` without `--git-dir`** — git identifies a repo by its git dir and still discovers `.git` from the current directory, so `git --work-tree ../scratch commit` commits *here*;
 - a `cd` **inside `( … )`** — it dies with the subshell, so a command after the `)` is back in the original repo. Brace groups (`{ …; }`) run in the current shell and their `cd` does persist.
 
@@ -149,7 +149,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **It observes Claude tool calls only.** A human typing in their own terminal, a Makefile target, a CI job, or any script an agent launches that shells out to git internally are all invisible to it — no PreToolUse hook ever sees them.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14 and 15 are parsing; 10–13 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14 and 15 are parsing; 10–13 and 16 are the environment axis, and are why that axis is written down at all:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -168,6 +168,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 13 | environment | `-C` + `--git-dir` | `-C` was treated as overriding `--git-dir`, but git applies `-C` to the cwd and still lets `--git-dir` pick the repo, so `git -C ../feature --git-dir=/repo-on-main/.git commit` was evaluated against `../feature` |
 | 14 | parsing | shell control flow | reserved words sit in front of the command they introduce, so `if …; then git commit; fi` tokenized as `["then", "git", …]` and never registered as a git command |
 | 15 | parsing | the Windows spelling | `git.exe commit`, `/mingw64/bin/git.exe push origin main` and any case variant matched neither the executable check nor the `"git" in command` fast path |
+| 16 | environment | an unexpanded `cd` operand | `cd "$MAIN_REPO" && git commit` was read as a *failed* `cd`, so the guard kept evaluating the current repo while bash expanded the variable and committed elsewhere |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 
