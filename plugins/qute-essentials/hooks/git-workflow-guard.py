@@ -125,9 +125,9 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14 and 15 are parsing; 10-13, 16
-and 17 are the environment axis, and are the reason that axis is written down
-at all:
+not as a checklist that is now complete. 1-9, 14, 15 and 19 are parsing;
+10-13, 16, 17 and 18 are the environment axis, and are the reason that axis is
+written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -173,7 +173,13 @@ at all:
   17. where a refspec-less push GOES — `git push` with no refspec was read as
       "the current branch", but git consults config first, and both
       `push.default=upstream` and a configured `remote.<name>.push` send it to
-      `main` from a feature branch tracking `origin/main`.
+      `main` from a feature branch tracking `origin/main`;
+  18. pipelines and `&` — bash runs each pipeline element, and any command
+      ended by `&`, in its OWN process, so `cd other | git commit` commits in
+      the original repo. `|` was treated like `;`, letting the `cd` leak;
+  19. `--repo <r>` as two tokens — the value was skipped rather than captured,
+      so the no-refspec fallback read the DEFAULT remote's `push` refspec
+      instead of `<r>`'s.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -370,6 +376,14 @@ def _segments(command: str):
     the `cd` out past the `)` onto every later command. Environment-axis
     defect, round 6.
 
+    The SEPARATOR is reported too, because not all of them keep the shell in
+    one process. Bash runs every element of a pipeline, and any command ended
+    by `&`, in a SUBSHELL — verified: `cd sub | pwd` and `cd sub & wait; pwd`
+    both print the original directory, while `cd sub && pwd` prints `sub`. So a
+    `cd` on either side of a `|` never reaches the next command, and treating
+    `|` like `;` let `cd other | git commit` be evaluated against `other` while
+    bash committed in the original repo (environment-axis defect, round 9).
+
     The scan is quote-aware, so a `)` or a separator inside `git commit -m
     "done)"` is text, not syntax. `$(...)`, backticks and `((...))` produce
     balanced open/close pairs, which is harmless — a command substitution
@@ -416,8 +430,15 @@ def _segments(command: str):
             i += 2
         elif c in "&|;\n":
             flush()
-            # `&&` / `||` consume two chars; `&`, `|`, `;` and newline one.
-            i += 2 if c in "&|" and i + 1 < n and command[i + 1] == c else 1
+            nxt = command[i + 1] if i + 1 < n else ""
+            if c in "&|" and nxt == c:  # `&&` / `||`
+                sep, width = c * 2, 2
+            elif c == "|" and nxt == "&":  # `|&` is `2>&1 |`
+                sep, width = "|", 2
+            else:
+                sep, width = c, 1
+            events.append(("sep", sep))
+            i += width
         elif c in "()":
             flush()
             events.append(("open" if c == "(" else "close", None))
@@ -427,6 +448,12 @@ def _segments(command: str):
             i += 1
     flush()
     return events
+
+
+# Separators that put the command BEFORE them in its own process, so a `cd` in
+# that command dies with it: pipeline elements and background commands.
+# `;`, `&&`, `||` and a newline all keep the shell in one process.
+_SUBSHELL_SEPARATORS = frozenset({"|", "&"})
 
 
 # Shell reserved words that SIT IN FRONT OF a command, so the command we care
@@ -958,14 +985,22 @@ def _push_targets(args, current_branch):
     positionals = []
     remote_from_opt = None
     skip_value = False
+    value_is_repo = False
     for a in args:
         if skip_value:
+            # `--repo <r>` names the remote in the NEXT token; dropping it left
+            # the no-refspec fallback reading `remote.<default>.push` instead of
+            # `remote.<r>.push`.
+            if value_is_repo:
+                remote_from_opt = a
+                value_is_repo = False
             skip_value = False
             continue
         if a.startswith("-"):
             if a == _REPO_OPT:
-                remote_from_opt = ""  # value arrives as the next token
+                remote_from_opt = ""  # sentinel until the value arrives
                 skip_value = True
+                value_is_repo = True
             elif a.startswith(_REPO_OPT_EQ):
                 remote_from_opt = a[len(_REPO_OPT_EQ) :]
             elif a in _PUSH_OPTS_WITH_VALUE:
@@ -1247,8 +1282,22 @@ def main():
 
     # Shell state saved by an open subshell, restored when it closes.
     dir_stack: list = []
+    # State as it stood before the command segment currently being processed,
+    # so a `cd` that turns out to have run in its own process can be undone —
+    # and whether the previous separator opened a pipeline, whose LAST element
+    # is equally a subshell.
+    state_before = None
+    after_pipe = False
 
     for kind, seg in _segments(command):
+        if kind == "sep":
+            # A `cd` inside a pipeline element, or before a `&`, dies with that
+            # element's process — so roll the shell back to where that element
+            # started. `;`, `&&`, `||` and newlines keep the same shell.
+            if state_before is not None and (seg in _SUBSHELL_SEPARATORS or after_pipe):
+                base_dir, base_unknown, prev_dir = state_before
+            after_pipe = seg == "|"
+            continue
         if kind == "open":
             dir_stack.append((base_dir, base_unknown, prev_dir))
             continue
@@ -1258,6 +1307,8 @@ def main():
             if dir_stack:
                 base_dir, base_unknown, prev_dir = dir_stack.pop()
             continue
+
+        state_before = (base_dir, base_unknown, prev_dir)
 
         tokens = _tokens(seg)
         # Peel shell reserved words standing in front of the command, so

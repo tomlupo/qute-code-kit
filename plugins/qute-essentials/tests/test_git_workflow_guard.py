@@ -635,6 +635,30 @@ def test_remote_push_refspec_is_read_for_the_named_remote(tmp_path, home):
     assert decision == "allow"
 
 
+@pytest.mark.parametrize("spelling", ["--repo upstream", "--repo=upstream"])
+def test_repo_option_names_the_remote_for_the_config_lookup(spelling, tmp_path, home):
+    """Defect 19: the separate-token `--repo <r>` form dropped its value, so
+    the no-refspec fallback read the DEFAULT remote's push refspec instead of
+    `<r>`'s. Both spellings must reach `remote.upstream.push`."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.upstream.push", "refs/heads/feat/x:refs/heads/main")
+    decision, hso = _run(f"git push {spelling}", repo, home)
+    assert decision == "deny", spelling
+    assert "main" in hso["permissionDecisionReason"], spelling
+
+
+@pytest.mark.parametrize("spelling", ["--repo other", "--repo=other"])
+def test_repo_option_remote_without_a_push_refspec_is_unaffected(
+    spelling, tmp_path, home
+):
+    """The control: naming a remote that has no configured refspec falls back
+    to push.default, so a feature branch stays allowed."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.upstream.push", "refs/heads/feat/x:refs/heads/main")
+    decision, _ = _run(f"git push {spelling}", repo, home)
+    assert decision == "allow", spelling
+
+
 def test_push_remote_precedence_is_followed(tmp_path, home):
     """With no remote on the command line, `branch.<cur>.pushRemote` wins over
     `remote.pushDefault`, which wins over `branch.<cur>.remote`."""
@@ -2019,6 +2043,64 @@ def test_unmatched_closing_paren_is_harmless(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     decision, _ = _run("case $x in a) echo hi;; esac; git commit -m x", repo, home)
     assert decision == "deny"
+
+
+# Defect 18, environment axis: bash runs every pipeline element, and any
+# command ended by `&`, in its own process — verified, `cd sub | pwd` and
+# `cd sub & wait; pwd` both print the ORIGINAL directory while `cd sub && pwd`
+# prints `sub`. Treating `|` like `;` let a `cd` leak across a boundary the
+# shell never crosses.
+
+
+@pytest.mark.parametrize("sep", ["|", "|&", "&"])
+def test_cd_does_not_cross_a_subshell_separator(sep, tmp_path, home):
+    """The commit runs in the ORIGINAL repo, so a guarded branch there is
+    caught even though the `cd` names an unguarded repo."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(f"cd {other} {sep} git commit -m x", session, home)
+    assert decision == "deny", sep
+    assert "main" in hso["permissionDecisionReason"], sep
+
+
+@pytest.mark.parametrize("sep", ["|", "&"])
+def test_subshell_separator_does_not_manufacture_a_denial(sep, tmp_path, home):
+    """Mirror: staying put must mean staying put, not denying blindly."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"cd {other} {sep} git commit -m x", session, home)
+    assert decision == "allow", sep
+
+
+def test_cd_in_a_later_pipeline_element_also_dies(tmp_path, home):
+    """The LAST element of a pipeline is a subshell too, so its `cd` must not
+    reach a command after the pipeline ends."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(f"echo hi | cd {other} ; git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_cd_still_propagates_across_non_subshell_separators(tmp_path, home):
+    """`;`, `&&` and `||` keep the shell in one process — the control that
+    must not regress."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    for i, sep in enumerate((";", "&&", "||")):
+        other = _make_repo(tmp_path / f"other{i}", "main", STD_CFG)
+        decision, _ = _run(f"cd {other} {sep} git commit -m x", session, home)
+        assert decision == "deny", sep
+
+
+def test_pipeline_inside_a_chain_only_rolls_back_its_own_elements(tmp_path, home):
+    """A `cd` before the pipeline still applies after it."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(
+        f"cd {other} && git status | cat && git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
 
 
 def test_command_substitution_does_not_disturb_the_base_dir(tmp_path, home):
