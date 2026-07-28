@@ -113,8 +113,8 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9 and 14 are parsing; 10-13 are the
-environment axis, and are the reason that axis is written down at all:
+not as a checklist that is now complete. 1-9, 14 and 15 are parsing; 10-13 are
+the environment axis, and are the reason that axis is written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -147,7 +147,11 @@ environment axis, and are the reason that axis is written down at all:
   14. shell control flow (parsing) — reserved words sit in FRONT of the command
       they introduce, so `if …; then git commit; fi` and `while …; do git push
       origin main; done` tokenized as `["then", "git", …]` and never registered
-      as git commands at all.
+      as git commands at all;
+  15. the Windows spelling (parsing) — `git.exe commit`,
+      `/mingw64/bin/git.exe push origin main`, and any case variant of them,
+      matched neither the executable check nor the `"git" in command` fast
+      path.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -575,15 +579,27 @@ def _strip_run_wrapper(tokens):
     return tokens[i:]
 
 
-def _is_git_executable(token: str) -> bool:
-    """Whether this token invokes git.
+def _exe_name(token: str) -> str:
+    """The program a token invokes, normalised for comparison: BASENAME,
+    lowercased, with a Windows `.exe` suffix removed.
 
-    Matched on the BASENAME, so `/usr/bin/git` and `./git` count. Absolute paths
-    to git are ordinary — scripts and cron entries use them constantly — and
-    `tokens[0] == "git"` missed every one of them. `git-foo`, `gitk` and the
-    like have a different basename and are correctly excluded.
+    Basename, because absolute paths to a program are ordinary — scripts and
+    cron entries use them constantly — and matching `tokens[0] == "git"` missed
+    every one of them.
+
+    Lowercase + `.exe`, because Git Bash and Windows spell it `git.exe`
+    (`/mingw64/bin/git.exe push origin main`), and a case-insensitive
+    filesystem means the spelling is not even stable. Neither variant was
+    recognised, so both sailed past the guard.
     """
-    return PurePosixPath(token).name == "git"
+    name = PurePosixPath(token).name.lower()
+    return name[:-4] if name.endswith(".exe") else name
+
+
+def _is_git_executable(token: str) -> bool:
+    """Whether this token invokes git. `git-foo`, `gitk` and the like have a
+    different name and are correctly excluded."""
+    return _exe_name(token) == "git"
 
 
 # Git GLOBAL options (before the subcommand) that consume the FOLLOWING token.
@@ -646,7 +662,7 @@ def _git_subcommand(tokens):
         if not tokens:
             break
         head = tokens[0]
-        if PurePosixPath(head).name == "env":
+        if _exe_name(head) == "env":
             stripped = _strip_env(tokens)
             if stripped is None:
                 return (_WRAPPER_UNRESOLVABLE, original, {"wrapper": "env"})
@@ -1036,7 +1052,10 @@ def main():
         _allow()
 
     command = (hook_input.get("tool_input") or {}).get("command", "")
-    if not command or "git" not in command:
+    # Case-insensitive: the whole point of normalising the executable name is
+    # that `GIT.EXE` is a real spelling, and a case-sensitive fast path here
+    # would throw those commands away before the parser ever ran.
+    if not command or "git" not in command.lower():
         _allow()
 
     # Base dir the command runs in. `cd` segments earlier in the same chained

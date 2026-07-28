@@ -116,7 +116,7 @@ The segment scan is quote-aware, so a `)` or a `;` inside `git commit -m "done)"
 
 The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positional is treated as a refspec rather than one being swallowed as the remote.
 
-**Git is matched on the basename of the executable, and wrappers are peeled first.** `/usr/bin/git commit`, `command git push`, `builtin`/`exec`, and `env GIT_AUTHOR_NAME=x git commit` (including `/usr/bin/env`, `-i`, `-u NAME`, and `-C dir`, which scopes the target repo exactly like git's own `-C`) all resolve to the git command underneath. A wrapper whose command can't be pinned down — `env -S`/`--split-string`, or any wrapper option the parser doesn't know, since a new option could swallow the token we'd read as `git` — is **denied**, not allowed. Lookalikes (`gitk`, `git-secret`) are correctly excluded.
+**Git is matched on the normalised name of the executable, and wrappers are peeled first.** The name is the basename, lowercased, with a Windows `.exe` suffix stripped — so `/usr/bin/git`, `git.exe` and `/mingw64/bin/git.exe` all count. `command git push`, `builtin`/`exec`, and `env GIT_AUTHOR_NAME=x git commit` (including `/usr/bin/env`, `-i`, `-u NAME`, and `-C dir`, which scopes the target repo exactly like git's own `-C`) all resolve to the git command underneath. A wrapper whose command can't be pinned down — `env -S`/`--split-string`, or any wrapper option the parser doesn't know, since a new option could swallow the token we'd read as `git` — is **denied**, not allowed. Lookalikes (`gitk`, `git-secret`) are correctly excluded.
 
 **An unrecognised subcommand is resolved one level as an alias** — from `-c alias.<name>=<expansion>` on the command line first (git prefers it over config, and so does the guard), then `git config --get alias.<name>` in the *target* repo — so `git ci` and `git publish` are read as the `commit`/`push` they expand to. The lookup is gated on the subcommand being unrecognised *and* the repo being opted in, so ordinary commands cost nothing. Resolution is deliberately **non-recursive**: an alias that expands to another alias, or to a `!shell` command, is **denied** rather than chased — chasing either re-opens exactly the unbounded-parser problem below. That over-denies a `!git status` alias in an opted-in repo; `/guard git-workflow off` is the escape hatch.
 
@@ -149,7 +149,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **It observes Claude tool calls only.** A human typing in their own terminal, a Makefile target, a CI job, or any script an agent launches that shells out to git internally are all invisible to it — no PreToolUse hook ever sees them.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9 and 14 are parsing; 10–13 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14 and 15 are parsing; 10–13 are the environment axis, and are why that axis is written down at all:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -167,6 +167,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 12 | environment | subshell grouping | `(cd ../other && git commit)` was evaluated against the original repo — the segment splitter dropped `(` and `)` instead of scoping the working directory to them |
 | 13 | environment | `-C` + `--git-dir` | `-C` was treated as overriding `--git-dir`, but git applies `-C` to the cwd and still lets `--git-dir` pick the repo, so `git -C ../feature --git-dir=/repo-on-main/.git commit` was evaluated against `../feature` |
 | 14 | parsing | shell control flow | reserved words sit in front of the command they introduce, so `if …; then git commit; fi` tokenized as `["then", "git", …]` and never registered as a git command |
+| 15 | parsing | the Windows spelling | `git.exe commit`, `/mingw64/bin/git.exe push origin main` and any case variant matched neither the executable check nor the `"git" in command` fast path |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 

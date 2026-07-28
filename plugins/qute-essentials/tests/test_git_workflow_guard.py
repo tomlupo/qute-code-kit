@@ -1113,6 +1113,8 @@ def test_invocation_form_scoping_options_still_apply(form, tmp_path, home):
         "gitk commit -m x",
         "/usr/bin/git-secret commit -m x",
         "mygit commit -m x",
+        "gitk.exe commit -m x",
+        "git-secret.exe commit -m x",
     ],
 )
 def test_lookalike_executables_are_not_git(cmd, tmp_path, home):
@@ -1120,6 +1122,59 @@ def test_lookalike_executables_are_not_git(cmd, tmp_path, home):
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     decision, _ = _run(cmd, repo, home)
     assert decision == "allow", cmd
+
+
+# Defect 15, parsing axis: Git Bash and Windows spell it `git.exe`, and a
+# case-insensitive filesystem means the spelling isn't even stable — so
+# `git.exe commit` and `/mingw64/bin/git.exe push origin main` were not
+# recognised as git at all.
+
+WINDOWS_GIT_FORMS = [
+    "git.exe",
+    "GIT.EXE",
+    "Git.exe",
+    "/mingw64/bin/git.exe",
+    "/c/Git/bin/git.exe",
+    '"/c/Program Files/Git/bin/git.exe"',
+    "env.exe VAR=x git.exe",
+    "command git.exe",
+]
+
+
+@pytest.mark.parametrize("form", WINDOWS_GIT_FORMS)
+def test_windows_git_spelling_commit_denied_on_protected(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"{form} commit -m x", repo, home)
+    assert decision == "deny", form
+    assert "main" in hso["permissionDecisionReason"], form
+
+
+@pytest.mark.parametrize("form", WINDOWS_GIT_FORMS)
+def test_windows_git_spelling_commit_allowed_on_feature_branch(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(f"{form} commit -m x", repo, home)
+    assert decision == "allow", form
+
+
+@pytest.mark.parametrize("form", WINDOWS_GIT_FORMS)
+def test_windows_git_spelling_push_to_protected_denied(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(f"{form} push origin main", repo, home)
+    assert decision == "deny", form
+    assert "main" in hso["permissionDecisionReason"], form
+
+
+def test_windows_git_spelling_keeps_scoping_and_aliases(tmp_path, home):
+    """`.exe` normalisation must not disturb anything downstream of it."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(tmp_path / "other", "main", STD_CFG)
+    _set_alias(sibling, "ci", "commit")
+    decision, _ = _run(f"git.exe -C {sibling} ci -m x", session, home)
+    assert decision == "deny"
+
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git.exe -c alias.ci=commit ci -m x", repo, home)
+    assert decision == "deny"
 
 
 def test_exec_dash_a_consumes_its_value(tmp_path, home):
