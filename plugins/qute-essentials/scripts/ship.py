@@ -182,11 +182,29 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     if rc := check_forbidden_paths(root):
         return rc
 
-    # 2. First-time setup — idempotent; safe to call every time.
+    # 2. First-time setup — idempotent; safe to call every time. Under
+    #    --dry-run it stays read-only: it still reads, queries git and computes
+    #    the reconciled seed version, but reports every write instead of making
+    #    it, so a dry run leaves the working tree exactly as it found it.
     from ship_setup import setup_python
 
-    if rc := setup_python(root, pyproject):
+    if rc := setup_python(root, pyproject, dry_run=parsed.dry_run):
         return rc
+
+    # 2b. A dry run against an unconfigured repo stops here. Setup only
+    #     *reported* the `[tool.commitizen]` block it would create, so there is
+    #     no config for cz to bump against — and reaching for cz via `uv run`
+    #     would materialize `.venv`/`uv.lock`, i.e. write to the very tree the
+    #     dry run promised to leave alone.
+    if parsed.dry_run and "[tool.commitizen]" not in pyproject.read_text(
+        encoding="utf-8"
+    ):
+        info(
+            "dry run complete; setup has not been applied yet, so the bump "
+            "itself was not simulated. No files written, no commit or tag "
+            "created."
+        )
+        return 0
 
     # 3. Build the cz command.
     #
