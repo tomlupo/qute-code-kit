@@ -34,6 +34,25 @@ and a `refs/heads/` prefix are stripped, and only the dst half of `src:dst`
 counts. A destination that cannot be resolved confidently is DENIED rather than
 allowed — see `_resolve_push_dst` for the exact list of unresolvable shapes.
 
+CALIBRATE YOUR TRUST IN THIS PARSER. It infers intent from a shell command
+string, and independent review has now found THREE bypasses in it:
+
+  1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
+  2. refspecs whose destination could not be resolved were allowed, not denied;
+  3. `--repo <remote>` supplies the remote, so every positional is a refspec —
+     `git push --repo=origin main` parsed as "no refspec at all".
+
+Each was a shape the parser had simply never met, and that tail has no
+principled end. The contract above is what we know about, NOT what exists.
+
+The structural answer is not more parsing. It is the `pre-push` hook tracked as
+TOM-348: git invokes `pre-push` with the actual resolved local/remote refs it is
+about to send, so it needs no command-line parser and is immune to this entire
+class of bug. This hook remains the early, in-agent feedback path — it explains
+the route before the command runs — but `pre-push` is what makes the guarantee.
+Anyone tempted to harden the parser further should weigh that against landing
+TOM-348 instead.
+
 Documented gaps (deliberate — these are explicit acts, not the accidental
 footgun this guards, and catching them would risk false blocks):
   - `git checkout main && git commit ...` in one line — the hook reads the
@@ -302,9 +321,30 @@ def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
 # `git push` options that consume the FOLLOWING token as their value. Without
 # this the value would be mistaken for the remote or a refspec and shift every
 # positional by one (`git push -o ci.skip origin HEAD` is the live example).
-_PUSH_OPTS_WITH_VALUE = frozenset(
-    {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
-)
+# `--repo` also consumes a value but is handled separately below, because it
+# changes what the REMAINING positionals mean.
+_PUSH_OPTS_WITH_VALUE = frozenset({"-o", "--push-option", "--receive-pack", "--exec"})
+
+# Bounded sweep for siblings of the `--repo` bug — options that change what the
+# positionals MEAN (not merely options that take a value). What was found:
+#
+#   `--repo <r>` / `--repo=<r>`  CHANGES IT. The remote comes from the option,
+#       so positional #0 is a refspec, not the remote. Handled below.
+#   URL as the remote (`git push https://host/x.git main`)  no change — a URL
+#       still occupies the remote slot; positional #0 is still the remote.
+#   the deletion flag  no change — positionals keep their slots, and with it
+#       the ref names a DESTINATION to remove, which is exactly how a bare
+#       refspec is already read, so `origin main` denies today.
+#   the all-tags flag  no change — pushes refs/tags IN ADDITION to any
+#       refspec; slots untouched, and a tag dst is not a guarded branch.
+#   the all-branches / mirror flags  no change to slots (positional #0 is
+#       still the remote), but they push guarded branches with no refspec
+#       naming them.
+#       That is the pre-existing DOCUMENTED gap below, unchanged here: caught
+#       only when standing on a guarded branch. It is a coverage hole, not a
+#       parsing one, and `pre-push` (TOM-348) closes it for good.
+_REPO_OPT = "--repo"
+_REPO_OPT_EQ = "--repo="
 
 # `HEAD` and `@` name whatever branch HEAD currently points at; git pushes them
 # to that branch, so they must be resolved before comparing against a guarded
@@ -365,18 +405,36 @@ def _push_targets(args, current_branch):
     refspecs whose destination could not be pinned down.
     """
     positionals = []
+    remote_from_opt = False
     skip_value = False
     for a in args:
         if skip_value:
             skip_value = False
             continue
         if a.startswith("-"):
-            if a in _PUSH_OPTS_WITH_VALUE:
+            if a == _REPO_OPT:
+                remote_from_opt = True
+                skip_value = True
+            elif a.startswith(_REPO_OPT_EQ):
+                remote_from_opt = True
+            elif a in _PUSH_OPTS_WITH_VALUE:
                 skip_value = True
             continue
         positionals.append(a)
-    # First positional is the remote; the rest are refspecs.
-    refspecs = positionals[1:]
+
+    if remote_from_opt:
+        # `--repo` already named the remote, so EVERY positional is a refspec.
+        # Git does ignore `--repo` when a positional repository is ALSO given,
+        # and we cannot tell those two readings apart without knowing the
+        # repo's remotes — so take the fail-closed union of both: treat all
+        # positionals as refspecs, AND keep the current-branch fallback alive
+        # unless a second positional proves the first one was the remote.
+        refspecs = positionals
+        had_refspec = len(positionals) > 1
+    else:
+        # First positional is the remote; the rest are refspecs.
+        refspecs = positionals[1:]
+        had_refspec = len(refspecs) > 0
     targets = []
     unresolvable = []
     for ref in refspecs:
@@ -385,7 +443,7 @@ def _push_targets(args, current_branch):
             unresolvable.append(ref)
         else:
             targets.append(dst)
-    return targets, len(refspecs) > 0, unresolvable
+    return targets, had_refspec, unresolvable
 
 
 def _guidance(cfg: dict) -> str:

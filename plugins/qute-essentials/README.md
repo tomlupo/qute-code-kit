@@ -106,6 +106,10 @@ Each git command in a chain is scoped to the repo it actually targets — `cd <o
 
 **Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.
 
+The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positional is treated as a refspec rather than one being swallowed as the remote.
+
+**Calibrate your trust in the parser.** It infers intent from a shell command string, and independent review has found three bypasses in it so far (bare `HEAD`; unresolvable refspecs being allowed; `--repo` supplying the remote). Each was a shape it had never met, and that tail has no principled end — the contract above is what we know about, not what exists. The structural fix is the `pre-push` hook (TOM-348): git hands it the actual resolved refs it is about to send, so it needs no parser and is immune to this whole class. This guard stays as the early, in-agent feedback path; `pre-push` is what makes the guarantee.
+
 Fail-open by design: no config, malformed config, a non-git directory, or any internal error all allow. Deliberate gaps: a switch-then-act chain (`git checkout main && git commit`) reads the *current* branch and isn't caught, and `git push --all`/`--mirror` is only caught from a guarded branch. `/ship` needs no exemption — its git calls run inside a Python subprocess no PreToolUse hook observes, and its tag push carries a tag refspec, not a branch.
 
 ### Provenance Guard (PreToolUse)

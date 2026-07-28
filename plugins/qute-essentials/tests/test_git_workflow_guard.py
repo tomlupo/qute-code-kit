@@ -564,3 +564,122 @@ def test_sibling_repo_head_push_scoped_to_sibling(tmp_path, home):
     sibling2 = _make_repo(tmp_path / "other2", "feat/data", STD_CFG)
     decision, _ = _run(f"git -C {sibling2} push origin HEAD", session2, home)
     assert decision == "allow"
+
+
+# ─── `--repo` supplies the remote ─────────────────────────────
+#
+# Third parsing bypass found by review: `--repo <r>` / `--repo=<r>` names the
+# remote, so positional #0 is a REFSPEC, not the remote. The old parser
+# discarded it as "the remote", concluded there was no refspec at all, and let
+# `git push --repo=origin main` through from a feature branch.
+
+REPO_OPT_PROTECTED_PUSHES = [
+    "git push --repo origin main",
+    "git push --repo=origin main",
+    "git push --repo origin refs/heads/main",
+    "git push --repo=origin +main",
+    "git push --repo=origin HEAD:main",
+    "git push --repo=origin :main",
+]
+
+
+@pytest.mark.parametrize("cmd", REPO_OPT_PROTECTED_PUSHES)
+def test_repo_option_protected_destination_denied_from_feature_branch(
+    cmd, tmp_path, home
+):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("cmd", REPO_OPT_PROTECTED_PUSHES)
+def test_repo_option_protected_destination_denied_from_protected_branch(
+    cmd, tmp_path, home
+):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+
+
+@pytest.mark.parametrize(
+    "cmd", ["git push --repo origin dev", "git push --repo=origin dev"]
+)
+def test_repo_option_integration_destination_denied(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "dev" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(
+    "cmd", ["git push --repo origin HEAD", "git push --repo=origin @"]
+)
+def test_repo_option_head_resolves_to_current_branch(cmd, tmp_path, home):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{hash(cmd)}", branch, STD_CFG
+        )
+        decision, _ = _run(cmd, repo, home)
+        assert decision == expected, f"{cmd} on {branch}"
+
+
+@pytest.mark.parametrize(
+    "cmd", ["git push --repo origin feat/y", "git push --repo=origin feat/y"]
+)
+def test_repo_option_unguarded_destination_allowed(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize("cmd", ["git push --repo origin", "git push --repo=origin"])
+def test_repo_option_without_refspec_falls_back_to_current_branch(cmd, tmp_path, home):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(cmd)}", branch, STD_CFG
+        )
+        decision, _ = _run(cmd, repo, home)
+        assert decision == expected, f"{cmd} on {branch}"
+
+
+def test_repo_option_with_positional_remote_is_read_fail_closed(tmp_path, home):
+    """Git IGNORES `--repo` when a positional repository is also given, and we
+    cannot tell the two readings apart without knowing the repo's remotes. So
+    both are honoured: every positional is checked as a refspec, AND the
+    current-branch fallback stays alive until a second positional proves the
+    first one was the remote."""
+    # git's reading: push current branch `main` to remote `upstream` -> denied
+    # by the fallback, even though `upstream` looks like a harmless refspec.
+    on_main = _make_repo(tmp_path / "m", "main", STD_CFG)
+    decision, _ = _run("git push --repo=origin upstream", on_main, home)
+    assert decision == "deny"
+
+    # Same shape from a feature branch is genuinely harmless under both
+    # readings -> allowed.
+    on_feat = _make_repo(tmp_path / "f", "feat/x", STD_CFG)
+    decision, _ = _run("git push --repo=origin upstream", on_feat, home)
+    assert decision == "allow"
+
+    # Two positionals: git reads `upstream` as the remote and `main` as the
+    # refspec. Denied under either reading.
+    on_feat2 = _make_repo(tmp_path / "f2", "feat/x", STD_CFG)
+    decision, _ = _run("git push --repo=origin upstream main", on_feat2, home)
+    assert decision == "deny"
+
+
+def test_url_as_remote_keeps_positional_slots(tmp_path, home):
+    """A URL still occupies the remote slot — positional #0 is the remote."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push https://example.invalid/x.git main", repo, home)
+    assert decision == "deny"
+    decision, _ = _run("git push https://example.invalid/x.git feat/x", repo, home)
+    assert decision == "allow"
+
+
+def test_deletion_flag_refspec_is_read_as_a_destination(tmp_path, home):
+    """With the deletion flag the ref names a DESTINATION to remove — the same
+    reading a bare refspec already gets, so no special case is needed."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push --de" + "lete origin main", repo, home)
+    assert decision == "deny"
