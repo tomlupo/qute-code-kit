@@ -58,7 +58,7 @@ default for every later step:
 | Worktrees | ports via allocate-ports | uv venv | uv venv + `shared_dirs: [data, models, output]` | uv venv, PR-only | none | none |
 | Shipping | `gstack ship` | `/ship` (commitizen) | **none** (deliverables → `reports/`) | `/ship` (commitizen), tagged deploys | none | none (repo keeps its own) |
 | Research regime | no | no | **yes** | no | no | no |
-| CI | app CI | ruff+pytest+review-gate | light (lint only) | full + review-gate required | none | none (repo keeps its own) |
+| CI | app CI + lock check | ruff+pytest+review-gate+release/lock guards | light (lint) + lock check | full + review-gate required + release/lock guards | none | none (repo keeps its own) |
 
 Defaults are proposals — the user can override any cell.
 
@@ -221,6 +221,32 @@ gate binds it on conclude.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).
+
+**Release/lock guards** — stamp into `.github/workflows/`, same mechanism as
+review-gate (copy the template, adjust only the marked lines). Both degrade to
+a silent pass in repos they don't apply to, so stamping them is cheap:
+
+| Template | Stamp when | Adjust at stamp time |
+|---|---|---|
+| `templates/release-tag-guard.yml` | the repo cuts `v*` release tags (shipping mode `/ship` or CI-owned) | `RELEASE_BRANCH` job env; the `tags:` pattern if `tag_format` isn't `v$version` |
+| `templates/lockfile-check.yml` | any repo — meaningful once a `uv.lock` exists | the `push: branches:` list if the default branch isn't `main` |
+
+- **`release-tag-guard.yml`** carries two jobs. `tag-on-release-branch` asserts
+  the tagged commit is an **ancestor of the release branch** — the check the
+  quantbox `version-guard.yml` ancestor lacked, which let a tag cut on an
+  integration branch survive a squash-merge pointing at code the release branch
+  never contained. `version-matches-tag` is the generalised version-string
+  check, driven off commitizen's own `version_files` rather than hardcoded
+  paths. Both need `fetch-depth: 0`; leave it alone.
+- **`RELEASE_BRANCH` resolution:** leave it `""` and the workflow uses the
+  repo's GitHub default branch — correct for every repo tagging off `main`, and
+  the reason nothing is hardcoded. Set it explicitly ONLY when the repo's
+  `conductor.yml` carries a `release.branch` that differs from the default
+  branch (step 4 already read that file; reuse the value).
+- **`lockfile-check.yml`** runs `uv lock --check` (staleness), not
+  `--check-exists` (presence only). A repo's own version lives in its lockfile,
+  so every `/ship` bump staleness the lock — this is what catches it. No
+  `uv.lock` → the job reports the absence and passes.
 
 ## Step 10 — Root files + discipline pointer
 
