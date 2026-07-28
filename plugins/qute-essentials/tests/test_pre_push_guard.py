@@ -578,67 +578,144 @@ class TestPreCommitWorld:
 
 
 @pytestmark_git
-class TestSharedHooksPathIsNotAPerRepoInstall:
-    """`git config --get core.hooksPath` reads global config too.
+class TestSharedHookPathIsNotAPerRepoInstall:
+    """The rule is WHERE THE HOOK PATH POINTS, not which config named it.
 
-    A repo that only inherits a user-wide `core.hooksPath` has a hook file
-    shared by every repo of that user, so writing there is not the per-repo
-    install the caller asked for. It must be refused by default.
+    `git config --local core.hooksPath /home/me/.githooks` is exactly as shared
+    as the global form: every repo pointed at that directory gets the same hook
+    file, and the second repo to be "installed" silently inherits the first
+    one's. Judging config scope instead of the resolved path let both of the
+    repo-local shapes below straight through.
     """
 
-    def _set_global_hooks_path(self, sandbox, tmp_path):
+    def _global_hooks_path(self, sandbox, tmp_path):
         shared = tmp_path / "shared-hooks"
-        shared.mkdir()
+        shared.mkdir(exist_ok=True)
         cfg = sandbox["home"] / "gitconfig"
         cfg.write_text(cfg.read_text() + f'[core]\n  hooksPath = "{shared}"\n')
-        # precondition: effective but not local
-        assert _run(
-            ["git", "config", "--get", "core.hooksPath"],
+        return shared
+
+    def _local_hooks_path(self, sandbox, value):
+        _run(
+            ["git", "config", "--local", "core.hooksPath", str(value)],
             sandbox["repo"],
             sandbox["env"],
-        ).stdout.strip()
-        assert not _run(
+        )
+
+    # --- the shapes the scope-based rule let straight through -------------
+
+    def test_repo_local_absolute_path_outside_the_tree_is_refused(
+        self, sandbox, tmp_path
+    ):
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir(exist_ok=True)
+        self._local_hooks_path(sandbox, shared)
+        # precondition: git considers this LOCAL config, so the old scope rule
+        # would have called it a per-repo install
+        assert _run(
             ["git", "config", "--local", "--get", "core.hooksPath"],
             sandbox["repo"],
             sandbox["env"],
         ).stdout.strip()
-        return shared
 
-    def test_refuses_without_the_flag_and_writes_nothing(self, sandbox, tmp_path):
-        shared = self._set_global_hooks_path(sandbox, tmp_path)
+        out = _install(sandbox)
+        assert out.returncode != 0, out.stdout
+        assert "BLOCKED" in out.stdout
+        assert list(shared.iterdir()) == []
+
+    def test_repo_local_relative_path_escaping_the_tree_is_refused(
+        self, sandbox, tmp_path
+    ):
+        escaped = sandbox["repo"].parent / "shared-hooks"
+        escaped.mkdir(exist_ok=True)
+        self._local_hooks_path(sandbox, "../shared-hooks")
+        out = _install(sandbox)
+        assert out.returncode != 0, out.stdout
+        assert "BLOCKED" in out.stdout
+        assert list(escaped.iterdir()) == []
+
+    def test_second_repo_does_not_silently_inherit_the_first_ones_hook(
+        self, sandbox, tmp_path
+    ):
+        """The concrete harm behind the rule."""
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir(exist_ok=True)
+        self._local_hooks_path(sandbox, shared)
+        assert _install(sandbox, "--allow-shared-hooks-path").returncode == 0
+        assert (shared / "pre-push").exists()
+
+        second = tmp_path / "second"
+        _run(["git", "init", "-q", str(second)], tmp_path, sandbox["env"])
+        (second / ".claude").mkdir()
+        (second / ".claude" / "git-guard.json").write_text("{}\n")
+        _run(
+            ["git", "config", "--local", "core.hooksPath", str(shared)],
+            second,
+            sandbox["env"],
+        )
+        out = _run(
+            [sys.executable, str(INSTALLER), "--repo", str(second)],
+            second,
+            sandbox["env"],
+        )
+        assert out.returncode != 0
+        # and the refusal must point at the hook that is already there
+        assert "already" in out.stdout.lower()
+
+    # --- the legitimate in-tree case must NOT need the flag ---------------
+
+    def test_in_tree_hooks_path_installs_without_the_flag(self, sandbox):
+        (sandbox["repo"] / ".githooks").mkdir()
+        self._local_hooks_path(sandbox, ".githooks")
+        out = _install(sandbox)
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert (sandbox["repo"] / ".githooks" / "pre-push").exists()
+        report = json.loads(_install(sandbox, "--check", "--json").stdout)
+        assert report["hook_path_location"] == "in-repo"
+
+    def test_default_git_hooks_dir_is_in_repo(self, sandbox):
+        report = json.loads(_install(sandbox, "--json").stdout)
+        assert report["hook_path_location"] == "in-repo"
+        assert report["ok"] is True
+
+    # --- global scope, refused by that same one rule ----------------------
+
+    def test_global_hooks_path_is_refused_by_the_same_rule(self, sandbox, tmp_path):
+        shared = self._global_hooks_path(sandbox, tmp_path)
         out = _install(sandbox)
         assert out.returncode != 0
         assert "BLOCKED" in out.stdout
-        assert "USER-WIDE" in out.stdout
         assert list(shared.iterdir()) == []
 
-    def test_report_names_the_scope_and_the_origin(self, sandbox, tmp_path):
-        self._set_global_hooks_path(sandbox, tmp_path)
-        report = json.loads(_install(sandbox, "--json").stdout)
-        assert report["hooks_path_scope"] == "shared"
-        assert "gitconfig" in report["hooks_path_origin"]
+    def test_refusal_says_what_it_detected(self, sandbox, tmp_path):
+        self._global_hooks_path(sandbox, tmp_path)
+        out = _install(sandbox)
+        assert "git runs:" in out.stdout
+        assert "this repo is at:" in out.stdout
+        assert "OUTSIDE the repository" in out.stdout
+        assert "gitconfig" in out.stdout
+        assert "--allow-shared-hooks-path" in out.stdout
 
     def test_proceeds_with_the_explicit_flag(self, sandbox, tmp_path):
-        shared = self._set_global_hooks_path(sandbox, tmp_path)
+        shared = self._global_hooks_path(sandbox, tmp_path)
         out = _install(sandbox, "--allow-shared-hooks-path")
         assert out.returncode == 0, out.stdout + out.stderr
         assert (shared / "pre-push").exists()
 
-    def test_repo_local_hooks_path_needs_no_flag(self, sandbox):
-        (sandbox["repo"] / ".githooks").mkdir()
+    def test_config_scope_no_longer_decides_anything(self, sandbox, tmp_path):
+        """Same path, two config scopes, one verdict."""
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir(exist_ok=True)
+        self._local_hooks_path(sandbox, shared)
+        local_rc = _install(sandbox).returncode
         _run(
-            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            ["git", "config", "--local", "--unset", "core.hooksPath"],
             sandbox["repo"],
             sandbox["env"],
         )
-        out = _install(sandbox)
-        assert out.returncode == 0, out.stdout + out.stderr
-        assert (
-            json.loads(_install(sandbox, "--check", "--json").stdout)[
-                "hooks_path_scope"
-            ]
-            == "local"
-        )
+        self._global_hooks_path(sandbox, tmp_path)
+        global_rc = _install(sandbox).returncode
+        assert local_rc == global_rc != 0
 
 
 @pytestmark_git

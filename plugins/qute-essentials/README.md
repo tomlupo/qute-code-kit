@@ -181,14 +181,22 @@ alike.
 - **A later `pre-commit install --hook-type pre-push` reclaims the slot** and
   moves the dispatcher to `<slot>.legacy` — which pre-commit's shim runs first
   with the raw stdin, ORing its exit code into its own, so full coverage
-  survives (measured, not assumed; see the test suite). But `pre-commit install
-  -f` **deletes** that legacy hook and removes the guard, so re-run with
-  `--check` after any forced install; it detects the loss.
-- **A `core.hooksPath` inherited from global or system config is refused by
-  default.** `git config --get core.hooksPath` reads those scopes too, so that
-  hook file is shared by every repo of that user — writing to it is not the
-  per-repo install the caller asked for. The installer reads the local scope
-  separately and requires `--allow-shared-hooks-path` to touch a shared one.
+  survives (measured, not assumed; see the test suite).
+- **Residual risk you should know about: `pre-commit install -f --hook-type
+  pre-push` DELETES `<slot>.legacy`, which silently uninstalls this guard.**
+  Nothing here can prevent that — pre-commit owns the `-f` semantics and it runs
+  long after onboarding. What the installer can do is detect it, so **re-run
+  `--check` after any forced pre-commit install**, and treat a `NOT OK` there as
+  "the safety net is gone", not as a cosmetic warning. This is exactly the kind
+  of thing that quietly stops protecting a repo months later.
+- **A hook path that resolves outside the repository is refused by default** —
+  judged on the resolved path, never on which config scope named it. A
+  repo-local `core.hooksPath = /home/me/.githooks` or `../shared-hooks` is
+  exactly as shared as a global one: every repo pointed at that directory gets
+  the same file, and the second repo "installed" silently inherits the first
+  one's hook. `--allow-shared-hooks-path` accepts that deliberately; the refusal
+  names the resolved path, the repo it is not inside, the config file that set
+  it, and anything already sitting in that directory.
 - **`git push --no-verify` bypasses it.** That is the contract of a client-side
   hook and it is what makes it safe to install: it catches the accidental push
   and yields to the deliberate one. It is **not** a substitute for server-side

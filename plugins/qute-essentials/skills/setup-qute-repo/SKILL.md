@@ -300,15 +300,19 @@ gate binds it on conclude.
     old hook moves to `<hooks dir>/pre-push.d/00-legacy-pre-push` and the qute
     dispatcher runs in front of it, replaying the ref lines so the adopted hook
     still gets its stdin.
-  - **A user-wide `core.hooksPath` is refused by default.** If the setting comes
-    only from global/system config, the hook file is shared by every repo that
-    user has — the installer says so and stops rather than editing outside the
-    repo you pointed it at. Either set a repo-local path or pass
-    `--allow-shared-hooks-path` deliberately.
+  - **A hook path resolving outside the repo is refused by default** — judged on
+    the path, not on which config scope set it, because a repo-local
+    `core.hooksPath = /home/me/.githooks` or `../shared-hooks` is exactly as
+    shared as a global one. Read the refusal: it names the resolved path, the
+    repo it is not inside, the config file that set it, and what is already in
+    that directory. Fix the path, or pass `--allow-shared-hooks-path`
+    deliberately — do not pass it just to make the message go away.
   - **Re-check after any `pre-commit install`.** It reclaims the hook slot and
-    moves the dispatcher to `<slot>.legacy`, where coverage survives intact — but
-    `pre-commit install -f` deletes that file and removes the guard. `--check`
-    detects both.
+    moves the dispatcher to `<slot>.legacy`, where coverage survives intact —
+    **but `pre-commit install -f` deletes that file and silently uninstalls the
+    guard.** Nothing prevents that; only `--check` detects it. Say so in the
+    onboarding report, because it is the kind of thing that quietly stops
+    protecting a repo months after anyone remembers this step.
   - **`git push --no-verify` bypasses it**, as it does every client-side hook.
     That is the design, not a defect: this catches the accidental push and
     yields to the deliberate one. It is not a substitute for server-side branch
