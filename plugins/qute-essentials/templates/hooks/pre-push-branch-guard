@@ -492,7 +492,13 @@ def refusal_message(branch, kind, remote_name, cfg, source) -> str:
         "",
         "    git switch -c <type>/<slug>        # feat/… fix/… docs/… chore/…",
         "    git push -u origin <type>/<slug>",
-        "    gh pr create --base " + cfg["protected"],
+        # Base the PR on the branch they were actually trying to reach, NOT
+        # always `protected`. Under the documented model feature work lands on
+        # the integration branch first, so a refusal for `dev` that says
+        # "--base main" sends the change to the wrong place — and a refusal
+        # whose instructions are wrong is worse than a bare refusal, because it
+        # gets followed.
+        f"    gh pr create --base {branch}",
         "",
         f"  Guarded branches ({guarded}) come from .claude/git-guard.json.",
     ]

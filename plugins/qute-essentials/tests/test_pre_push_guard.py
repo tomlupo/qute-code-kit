@@ -1179,3 +1179,104 @@ class TestQualifiedRefAndBadOptInOnRealPushes:
         assert any("usable" in c["name"] for c in report["verification"]["checks"]), (
             out.stdout
         )
+
+
+@pytestmark_git
+class TestWritesReplaceRatherThanTruncate:
+    """`O_TRUNC` writes through whatever inode is already at the destination.
+
+    Symlinks are refused, but a hard link is not a redirect — it IS the file —
+    so truncating would destroy the content at every other name for that inode.
+    Note git cannot deliver this: it does not preserve hard links on checkout,
+    so a hostile *repository* cannot set it up; the exposure is a link already
+    present in the working tree. Replace-by-rename closes it and makes the
+    update atomic besides — a reader (including git, about to exec the hook)
+    sees the old file or the new one, never a half-written script.
+    """
+
+    def test_hard_linked_destination_does_not_corrupt_the_other_name(
+        self, sandbox, tmp_path
+    ):
+        outside = tmp_path / "outside-file"
+        outside.write_text("PRECIOUS\n")
+        hooks = sandbox["repo"] / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        os.link(outside, hooks / "pre-push-branch-guard")
+        assert outside.stat().st_nlink == 2
+
+        out = _install(sandbox)
+        assert out.returncode == 0, out.stdout + out.stderr
+        # the other name is untouched...
+        assert outside.read_text() == "PRECIOUS\n"
+        assert outside.stat().st_nlink == 1
+        # ...and the destination is now a different inode holding the guard
+        dest = hooks / "pre-push-branch-guard"
+        assert dest.stat().st_ino != outside.stat().st_ino
+        assert "qute pre-push branch guard" in dest.read_text()
+
+    def test_hard_linked_hook_slot_does_not_corrupt_the_other_name(
+        self, sandbox, tmp_path
+    ):
+        # a REAL hook script — it gets adopted into the chain and then executed,
+        # so a non-script here would fail the push with 127 and prove nothing
+        outside = tmp_path / "slot-target"
+        outside.write_text("#!/bin/sh\n# PRECIOUS\nexit 0\n")
+        (sandbox["repo"] / ".githooks").mkdir()
+        os.link(outside, sandbox["repo"] / ".githooks" / "pre-push")
+        _run(
+            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        # a foreign hook still needs --adopt-existing; adopting RENAMES it,
+        # which moves the repo's name away and leaves the other name alone
+        out = _install(sandbox, "--adopt-existing")
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert outside.read_text() == "#!/bin/sh\n# PRECIOUS\nexit 0\n"
+        assert (
+            "qute-pre-push-dispatcher"
+            in (sandbox["repo"] / ".githooks" / "pre-push").read_text()
+        )
+
+    def test_no_temp_files_are_left_behind(self, sandbox):
+        _install(sandbox)
+        leftovers = [
+            p.name
+            for p in (sandbox["repo"] / ".claude" / "hooks").iterdir()
+            if p.name.startswith(".qute-tmp-")
+        ]
+        assert leftovers == []
+
+    def test_still_idempotent(self, sandbox):
+        assert _install(sandbox).returncode == 0
+        second = _install(sandbox)
+        assert second.returncode == 0
+        assert "unchanged" in second.stdout
+
+
+class TestRefusalNamesTheRightPullRequestBase:
+    """`gh pr create --base` was hardcoded to the protected branch.
+
+    Under the documented model feature work lands on the integration branch
+    first, so a refusal for `dev` that says `--base main` sends the change to
+    the wrong place. A refusal whose instructions are wrong is worse than a bare
+    refusal, because it gets followed.
+    """
+
+    CFG = {"protected": "main", "integration": "dev", "release_tool": None}
+
+    def _msg(self, branch):
+        return guard.refusal_message(branch, "update", "origin", self.CFG, "stdin")
+
+    def test_protected_branch_refusal_bases_on_protected(self):
+        assert "gh pr create --base main" in self._msg("main")
+
+    def test_integration_branch_refusal_bases_on_integration(self):
+        msg = self._msg("dev")
+        assert "gh pr create --base dev" in msg
+        assert "--base main" not in msg
+
+    def test_custom_branch_names_are_carried_through(self):
+        cfg = {"protected": "release", "integration": "staging", "release_tool": None}
+        msg = guard.refusal_message("staging", "update", "origin", cfg, "stdin")
+        assert "gh pr create --base staging" in msg

@@ -238,6 +238,12 @@ alike.
   directory". A symlinked hook slot is refused outright, and
   `--allow-shared-hooks-path` does **not** override that — the flag accepts a
   directory the operator was shown, not a destination the repository picked.
+  Writes go to a fresh inode and are `rename`d into place rather than
+  truncating what is already there, so a hard link at the destination cannot
+  corrupt the file's other name (git cannot deliver a hard link — it does not
+  preserve them on checkout — but truncating a shared inode is the wrong shape
+  regardless, and the rename also makes each install atomic for anything about
+  to exec the hook).
 
 ## Notifications
 

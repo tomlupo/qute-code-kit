@@ -240,30 +240,57 @@ class WriteGate:
             if existing == content:
                 if executable:
                     st = os.stat(name, dir_fd=dir_fd)
-                    if not st.st_mode & stat.S_IXUSR:
-                        self._chmod_exec(dir_fd, name)
-                        return "updated"
-                return "unchanged"
+                    if st.st_mode & stat.S_IXUSR:
+                        return "unchanged"
+                else:
+                    return "unchanged"
 
             verb = "updated" if existing is not None else "created"
-            try:
-                wfd = os.open(
-                    name,
-                    os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-                    0o644,
-                    dir_fd=dir_fd,
-                )
-            except OSError as exc:
-                raise WriteRefused(
-                    self._describe_open_failure(name, dir_fd, exc)
-                ) from exc
-            with os.fdopen(wfd, "w", encoding="utf-8") as fh:
-                fh.write(content)
-            if executable:
-                self._chmod_exec(dir_fd, name)
+            self._replace(dir_fd, name, content, executable)
             return verb
         finally:
             os.close(dir_fd)
+
+    def _replace(self, dir_fd: int, name: str, content: str, executable: bool) -> None:
+        """Write via a fresh inode + rename, never by truncating the old one.
+
+        `O_TRUNC` on the existing destination writes THROUGH whatever inode is
+        already there. Symlinks are already blocked, but a hard link is not a
+        redirect — it IS the file — so truncating would destroy the content at
+        every other name for that inode. (Note git cannot deliver this: it does
+        not preserve hard links on checkout, so a hostile *repository* cannot
+        set it up; the exposure is a link already present in the working tree.
+        Cheap to close regardless, and replace-by-rename is the correct shape
+        anyway.)
+
+        Creating a new file with O_EXCL and renaming it over the name also makes
+        the update atomic: a reader — including git, about to exec this hook —
+        sees either the old file or the new one, never a half-written script.
+        """
+        tmp = f".qute-tmp-{os.getpid()}-{name}"
+        try:
+            fd = os.open(
+                tmp,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                0o644,
+                dir_fd=dir_fd,
+            )
+        except OSError as exc:
+            raise WriteRefused(
+                f"could not create a temporary file next to {name!r}: {exc}"
+            ) from exc
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            if executable:
+                self._chmod_exec(dir_fd, tmp)
+            os.rename(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+        except Exception:
+            try:
+                os.unlink(tmp, dir_fd=dir_fd)
+            except OSError:
+                pass
+            raise
 
     def _chmod_exec(self, dir_fd: int, name: str) -> None:
         fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
