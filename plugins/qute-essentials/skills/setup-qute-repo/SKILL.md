@@ -108,30 +108,49 @@ moment a new `repo`-group child label is created on the Linear team. Create
 Linear UI. Never mint any other label; the catalogue is closed (statuses carry
 state, parents carry structure, groups carry routing facets).
 
-**The catalogue spans TWO axes — don't collapse them.** Both already exist on
-team `TOM`; neither is mintable here.
+**A grouped label's name is the BARE child — never `group:child`.** Write
+`autonomous`, not `lane:autonomous`; `tomlupo/qute-platform`, not
+`repo:tomlupo/qute-platform`. The group is how Linear displays it, not part of the
+string. This is not cosmetic: the issue-create path **silently skips** a label name
+it cannot resolve, so a prefixed string produces an unlabelled — and therefore
+unroutable — card. Prefixed forms are tolerated only when *reading* an owner.
 
-- **Dispatch** — `lane` (`autonomous`/`interactive`/`human`), `agent`, `machine`,
-  `tier`. Who executes it, where, supervised or not. jimek routes ownership off
-  the `agent:<name>` label.
-- **Intake** — `intake` (`needs-triage`, `needs-info`, `ready-for-agent`,
-  `ready-for-human`, `wontfix`) and `kind` (`bug`, `enhancement`). Is this request
-  real, specified, and ready for whom. Driven by the `triage` skill
+**The catalogue spans TWO axes — don't collapse them.** All of these already exist
+on team `TOM`; none is mintable here.
+
+- **Dispatch** — who executes it, where, and supervised or not:
+  `lane` (`autonomous`/`interactive`/`human`), `agent`, `machine` (`core`/`forge`),
+  `tier`, `repo`, plus `model` and `reviewer` — the last two exist as override
+  knobs that **nothing currently reads** (see TOM-376). jimek routes ownership off
+  the `agent` group; only the personas in the live roster (`GET :8002/agents`)
+  resolve, so `conductor` and `none` fall through.
+- **Intake** — is this request real, specified, and ready for whom:
+  `intake` (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+  `wontfix`) and `kind` (`bug`, `enhancement`). Driven by the `triage` skill
   (mattpocock/skills), whose five canonical roles are kept verbatim as label
   strings. Both are Linear label **groups**, so "exactly one state role" is
   enforced server-side.
 
 The two pairs that look redundant and are not: `ready-for-agent` means a brief
-exists that an agent can act on cold, while `lane:autonomous` means it may run
-unsupervised — an issue can be `ready-for-agent` + `lane:interactive` because it
-touches production. And `ready-for-human` is an intake verdict, while
-`needs-human` is the conductor's hand-off flag. Separately, the standalone
-`triage` label is *provenance* (auto-recorded alarm finding, one deduped card per
+exists that an agent can act on cold, while the `lane` label `autonomous` means it
+may run unsupervised — an issue can carry `ready-for-agent` + `interactive` because
+it touches production. And `ready-for-human` is an intake verdict, while
+`needs-human` is the conductor's hand-off flag. Separately, the standalone `triage`
+label is *provenance* (auto-recorded alarm finding, one deduped card per
 fingerprint), not "a human should evaluate this" — that is `needs-triage`.
 
+**Verify against the registry, never against a code comment or usage count.**
+`list_issue_labels` is the only authority. Two claims in qute-platform's jimek
+source are stale as of 2026-07-28: it says there is no `machine` group (there is,
+with both children described) and that an `executor` group is deliberately retained
+(it is absent entirely). A zero-usage label is indistinguishable from a missing one
+unless you enumerate.
+
 If a repo adopts the mattpocock engineering skills, `/setup-matt-pocock-skills`
-writes `docs/agents/triage-labels.md` recording the mapping; onboarding should
-leave that file alone rather than restating the vocabulary.
+writes `docs/agents/triage-labels.md` recording the mapping — and it does so only
+when the `triage` skill is installed. Where that file exists, onboarding leaves it
+alone rather than restating the vocabulary; where it does not, onboarding neither
+creates nor references it.
 
 ## Step 4 — Jimek management (conductor.yml)
 
