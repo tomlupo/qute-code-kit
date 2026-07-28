@@ -28,6 +28,12 @@ deliberate guard toggle: `/guard git-workflow off`.
 It does NOT lint/format (git pre-commit hooks already do that) and it does NOT
 touch normal feature-branch work.
 
+Push destinations are resolved, not string-matched: `HEAD` and `@` (bare or on
+the source side of a refspec) resolve to the current branch, a `+` force sigil
+and a `refs/heads/` prefix are stripped, and only the dst half of `src:dst`
+counts. A destination that cannot be resolved confidently is DENIED rather than
+allowed — see `_resolve_push_dst` for the exact list of unresolvable shapes.
+
 Documented gaps (deliberate — these are explicit acts, not the accidental
 footgun this guards, and catching them would risk false blocks):
   - `git checkout main && git commit ...` in one line — the hook reads the
@@ -293,26 +299,93 @@ def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
     return d
 
 
-def _strip_ref(name: str) -> str:
-    # Drop the force-push sigil (`+main`) and the fully-qualified prefix so
-    # `+refs/heads/main` and `main` compare equal to the protected name.
-    return name.lstrip("+").replace("refs/heads/", "")
+# `git push` options that consume the FOLLOWING token as their value. Without
+# this the value would be mistaken for the remote or a refspec and shift every
+# positional by one (`git push -o ci.skip origin HEAD` is the live example).
+_PUSH_OPTS_WITH_VALUE = frozenset(
+    {"-o", "--push-option", "--receive-pack", "--exec", "--repo"}
+)
+
+# `HEAD` and `@` name whatever branch HEAD currently points at; git pushes them
+# to that branch, so they must be resolved before comparing against a guarded
+# branch name. This is the hole the original guard had: bare `HEAD` compared as
+# the literal string "HEAD", which never equals `main`.
+_HEAD_ALIASES = frozenset({"HEAD", "@"})
+
+# Characters that mean "this destination is not a literal branch name we can
+# resolve": shell expansion we never ran ($VAR, $(cmd), `cmd`), refspec globs
+# (`refs/heads/*:refs/heads/*`), and git's ref-navigation syntax (`main^`,
+# `HEAD~1`, `@{-1}`, `@{u}`). None of these can appear in a real branch name
+# (git check-ref-format forbids `~ ^ ? * [`), so matching them cannot shadow a
+# legitimate push.
+_UNRESOLVABLE_RE = re.compile(r"[$`*?\[\]~^]|@\{")
 
 
-def _push_targets(args):
+def _resolve_push_dst(ref: str, current_branch):
+    """The branch a single `git push` refspec would land on, or None if the
+    destination cannot be determined confidently.
+
+    Resolved shapes:
+      ``main``                      -> ``main``
+      ``+main`` / ``refs/heads/main``  -> ``main``   (force sigil, full ref)
+      ``HEAD`` / ``@``              -> the current branch
+      ``HEAD:topic`` / ``@:topic``  -> ``topic``     (only the dst side counts)
+      ``src:refs/heads/main``       -> ``main``
+      ``:main``                     -> ``main``      (branch deletion)
+
+    DELIBERATELY treated as unresolvable (-> the caller denies, because a check
+    that cannot verify must not report success):
+      * anything holding shell/glob/ref-navigation syntax we do not expand —
+        ``$BRANCH``, ``$(cmd)``, ``` `cmd` ```, ``refs/heads/*:refs/heads/*``,
+        ``@{-1}``, ``HEAD~1``, ``main^``;
+      * an empty destination (``main:``);
+      * ``HEAD``/``@`` while the repo is on a detached HEAD — there is no
+        branch name to compare against.
+    """
+    spec = ref.lstrip("+")
+    dst = (spec.split(":", 1)[1] if ":" in spec else spec).strip()
+    if not dst:
+        return None
+    if _UNRESOLVABLE_RE.search(dst):
+        return None
+    if dst.startswith("refs/heads/"):
+        dst = dst[len("refs/heads/") :]
+    if dst in _HEAD_ALIASES:
+        # None here == detached HEAD == unresolvable, which is the answer we want.
+        return current_branch
+    return dst
+
+
+def _push_targets(args, current_branch):
     """
     Destination branch names for a `git push` invocation.
-    Returns (targets, had_explicit_refspec).
+
+    Returns (targets, had_explicit_refspec, unresolvable) — `targets` are the
+    branch names the push would land on, and `unresolvable` holds the raw
+    refspecs whose destination could not be pinned down.
     """
-    positionals = [a for a in args if not a.startswith("-")]
+    positionals = []
+    skip_value = False
+    for a in args:
+        if skip_value:
+            skip_value = False
+            continue
+        if a.startswith("-"):
+            if a in _PUSH_OPTS_WITH_VALUE:
+                skip_value = True
+            continue
+        positionals.append(a)
     # First positional is the remote; the rest are refspecs.
-    refspecs = positionals[1:] if len(positionals) >= 1 else []
+    refspecs = positionals[1:]
     targets = []
+    unresolvable = []
     for ref in refspecs:
-        # src:dst -> dst is the destination branch; bare ref -> same name.
-        dst = ref.split(":", 1)[1] if ":" in ref else ref
-        targets.append(_strip_ref(dst))
-    return targets, len(refspecs) > 0
+        dst = _resolve_push_dst(ref, current_branch)
+        if dst is None:
+            unresolvable.append(ref)
+        else:
+            targets.append(dst)
+    return targets, len(refspecs) > 0, unresolvable
 
 
 def _guidance(cfg: dict) -> str:
@@ -418,7 +491,7 @@ def main():
                 )
 
         elif sub == "push":
-            targets, had_refspec = _push_targets(args)
+            targets, had_refspec, unresolvable = _push_targets(args, branch)
             if protected in targets:
                 _deny(
                     f"Blocked: push to protected branch '{protected}'.",
@@ -427,6 +500,19 @@ def main():
             if integration and integration in targets:
                 _deny(
                     f"Blocked: push to integration branch '{integration}'.",
+                    guidance,
+                )
+            # Fail CLOSED on a destination we could not resolve: it may well be
+            # a guarded branch, and a guard that cannot verify must not report
+            # success. (Distinct from the fail-OPEN cases above, which are all
+            # "this repo is not guarded at all".)
+            if unresolvable:
+                _deny(
+                    "Blocked: cannot resolve the push destination of "
+                    + ", ".join(repr(r) for r in unresolvable)
+                    + f" — it may target '{protected}'"
+                    + (f" or '{integration}'" if integration else "")
+                    + ". Push an explicit branch refspec instead.",
                     guidance,
                 )
             # No explicit refspec -> pushes the current branch. If that's a

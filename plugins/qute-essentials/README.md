@@ -100,6 +100,8 @@ The integration branch is guarded for the same reason as the protected one: that
 
 An explicit `"integration_branch": null` means *this repo genuinely has none* (feature → PR → `main`) and is never overridden by the `dev` default. `release_tool` only feeds the guidance text.
 
+**Push destinations are resolved, not string-matched.** `git push origin HEAD` (and `@`) resolves to the branch you are standing on, a `+` force sigil and a `refs/heads/` prefix are stripped, and in `src:dst` only `dst` counts — so `HEAD`, `@`, `+main`, `refs/heads/main`, `HEAD:refs/heads/main` and `:main` are all recognised as the protected branch. A destination the guard *cannot* resolve — an unexpanded `$BRANCH`, a glob refspec (`refs/heads/*:refs/heads/*`), ref navigation (`@{-1}`, `HEAD~1`, `main^`), an empty dst (`main:`), or `HEAD` on a detached HEAD — is **denied**, not allowed: a check that cannot verify must not report success.
+
 Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `git -C <other> commit`, `--git-dir`/`--work-tree` all resolve to that repo's branch and config, not the session's.
 
 **Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.

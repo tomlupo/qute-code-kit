@@ -381,3 +381,186 @@ def test_denial_guidance_without_integration_branch(tmp_path, home):
     guidance = hso["additionalContext"]
     assert "'main' is the protected branch" in guidance
     assert "/guard git-workflow off" in guidance
+
+
+# ─── push destination resolution ──────────────────────────────
+#
+# The regression class the original guard missed entirely: it compared the
+# refspec text against the branch name, so `git push origin HEAD` — the shape
+# an agent reaches for most naturally — was read as destination "HEAD", never
+# equal to "main", and sailed through on the protected branch. These tests pin
+# every refspec shape that resolves to a guarded branch, on BOTH a guarded
+# branch and a feature branch, so the same hole cannot be reopened.
+
+# Shapes that must be DENIED while standing on the guarded branch itself,
+# because they all resolve to the current (guarded) branch.
+CURRENT_BRANCH_PUSHES = [
+    "git push origin HEAD",
+    "git push origin @",
+    "git push origin +HEAD",
+    "git push origin +@",
+    "git push --force-with-lease origin HEAD",
+    "git push -u origin HEAD",
+    "git push -o ci.skip origin HEAD",
+]
+
+# Shapes that name a guarded branch outright and must be denied from ANY
+# branch, feature branches included.
+EXPLICIT_MAIN_PUSHES = [
+    "git push origin main",
+    "git push origin +main",
+    "git push origin refs/heads/main",
+    "git push origin +refs/heads/main",
+    "git push origin HEAD:main",
+    "git push origin @:main",
+    "git push origin HEAD:refs/heads/main",
+    "git push origin +HEAD:refs/heads/main",
+    "git push origin feat/x:main",
+    "git push origin :main",
+]
+
+# Destinations the guard cannot resolve. Fail CLOSED: they may target a
+# guarded branch, and a check that cannot verify must not report success.
+UNRESOLVABLE_PUSHES = [
+    "git push origin $BRANCH",
+    "git push origin refs/heads/*:refs/heads/*",
+    "git push origin @{-1}",
+    "git push origin HEAD~1",
+    "git push origin main^",
+    "git push origin main:",
+]
+
+
+@pytest.mark.parametrize("cmd", CURRENT_BRANCH_PUSHES)
+def test_current_branch_push_shapes_denied_on_protected(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("cmd", CURRENT_BRANCH_PUSHES)
+def test_current_branch_push_shapes_denied_on_integration(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "dev", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "dev" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("cmd", CURRENT_BRANCH_PUSHES)
+def test_current_branch_push_shapes_allowed_on_feature_branch(cmd, tmp_path, home):
+    """Same shapes, standing on a feature branch: they resolve to `feat/x`,
+    which is not guarded, so they must sail through."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize("cmd", EXPLICIT_MAIN_PUSHES)
+def test_explicit_protected_destination_denied_from_feature_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("cmd", EXPLICIT_MAIN_PUSHES)
+def test_explicit_protected_destination_denied_from_protected_branch(
+    cmd, tmp_path, home
+):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push origin dev",
+        "git push origin refs/heads/dev",
+        "git push origin +refs/heads/dev",
+        "git push origin HEAD:dev",
+        "git push origin @:refs/heads/dev",
+    ],
+)
+def test_explicit_integration_destination_denied_from_feature_branch(
+    cmd, tmp_path, home
+):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "dev" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("cmd", UNRESOLVABLE_PUSHES)
+def test_unresolvable_destination_denied_on_protected(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "cannot resolve" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("cmd", UNRESOLVABLE_PUSHES)
+def test_unresolvable_destination_denied_on_feature_branch(cmd, tmp_path, home):
+    """Fail-closed applies everywhere: `refs/heads/*:refs/heads/*` from a
+    feature branch still writes to `main`."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "cannot resolve" in hso["permissionDecisionReason"], cmd
+
+
+def test_head_push_on_detached_head_is_unresolvable(tmp_path, home):
+    """Detached HEAD has no branch name, so `HEAD` cannot be resolved — deny
+    rather than guess. (git itself rejects this push; denying costs nothing.)"""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG, detached=True)
+    decision, hso = _run("git push origin HEAD", repo, home)
+    assert decision == "deny"
+    assert "cannot resolve" in hso["permissionDecisionReason"]
+
+
+def test_unresolvable_push_is_a_noop_in_a_repo_without_config(tmp_path, home):
+    """Fail-CLOSED on unresolvable destinations must not leak into repos that
+    never opted in — those stay a total no-op."""
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run("git push origin $BRANCH", repo, home)
+    assert decision == "allow"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push origin feat/x",
+        "git push origin main:feat/x",  # only the dst half counts
+        "git push origin HEAD:feat/x",
+        "git push origin refs/tags/v1.2.3",
+        "git push origin v1.2.3",
+    ],
+)
+def test_unguarded_destinations_allowed_from_protected_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize("cmd", ["git push", "git push origin", "git push -u origin"])
+def test_bare_push_fallback_not_regressed(cmd, tmp_path, home):
+    """The no-refspec fallback (push the current branch) predates this fix and
+    must keep working: denied on guarded branches, allowed on feature ones."""
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+        decision, _ = _run(cmd, repo, home)
+        assert decision == expected, f"{cmd} on {branch}"
+
+
+def test_sibling_repo_head_push_scoped_to_sibling(tmp_path, home):
+    """`HEAD` resolves against the TARGET repo's branch, not the session's."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"git -C {sibling} push origin HEAD", session, home)
+    assert decision == "deny"
+
+    session2 = _make_repo(tmp_path / "lab2", "main", STD_CFG)
+    sibling2 = _make_repo(tmp_path / "other2", "feat/data", STD_CFG)
+    decision, _ = _run(f"git -C {sibling2} push origin HEAD", session2, home)
+    assert decision == "allow"
