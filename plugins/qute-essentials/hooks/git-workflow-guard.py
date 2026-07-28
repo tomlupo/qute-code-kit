@@ -126,11 +126,11 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23 and 24 are
-parsing; 10-13, 16-18, 22 and 25 are the environment axis, and are the reason
-that axis is written down at all. All but 24 let something THROUGH; 24 blocked
-something it should not have, which is a defect on the same footing — a guard
-that cries wolf gets turned off:
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27 are
+parsing; 10-13, 16-18, 22, 25 and 26 are the environment axis, and are the
+reason that axis is written down at all. Most let something THROUGH; 24 and 27
+BLOCKED something they should not have, which is a defect on the same footing
+— a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -205,7 +205,13 @@ that cries wolf gets turned off:
       never blocked — and would have broken `/ship`;
   25. `&&` / `||` short-circuit — a `cd` bash SKIPS was applied anyway, so
       `cd /missing && cd ../feature ; git commit` evaluated `../feature` while
-      the commit really happened in the original, guarded repo.
+      the commit really happened in the original, guarded repo;
+  26. a wrapped `cd` — `FOO=1 cd /guarded`, `command cd /guarded` and
+      `builtin cd /guarded` all move the shell, but only a bare `cd` was
+      recognised, so the guard stayed in the previous repo;
+  27. dry runs treated as writes (parsing) — the second OVER-denial.
+      `git commit --dry-run` and `git push --dry-run`/`-n` write nothing, and
+      the criterion is whether the command WRITES to a guarded branch.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -868,12 +874,25 @@ _CD_FLAGS = frozenset({"-L", "-P", "-e", "-@", "--"})
 _UNEXPANDED_RE = re.compile(r"[$`*?\[]")
 
 
+# Prefixes a `cd` can hide behind and STILL move the shell. Verified: `FOO=1
+# cd sub`, `command cd sub` and `builtin cd sub` all leave the shell in `sub`.
+# `env` and `exec` are deliberately absent — they look up an EXTERNAL program,
+# and there is no `cd` binary, so `env cd sub` fails with "No such file or
+# directory" and moves nothing. Stripping them would invent a move that never
+# happened.
+_CD_WRAPPERS = frozenset({"command", "builtin"})
+
+
 def _cd_argument(tokens):
     """For a `cd` segment return `(True, operand)`, else `(False, None)`.
 
     `operand` is None for a bare `cd` (i.e. `$HOME`). Options are skipped, so
-    `cd -P /x` is the same `cd` as `cd /x`.
+    `cd -P /x` is the same `cd` as `cd /x`, and leading assignments/wrappers
+    are peeled so `FOO=1 cd /x` and `command cd /x` are seen as the directory
+    changes they are (defect 26).
     """
+    while tokens and (_ASSIGN_RE.fullmatch(tokens[0]) or tokens[0] in _CD_WRAPPERS):
+        tokens = tokens[1:]
     if not tokens or tokens[0] != "cd":
         return (False, None)
     for tok in tokens[1:]:
@@ -1116,6 +1135,7 @@ def _push_targets(args, current_branch):
     value_is_repo = False
     push_all = False
     all_tags = follow_tags = False
+    dry_run = False
     for a in args:
         if skip_value:
             # `--repo <r>` names the remote in the NEXT token; dropping it left
@@ -1141,6 +1161,12 @@ def _push_targets(args, current_branch):
                 all_tags = True
             elif a == _FOLLOW_TAGS_OPT:
                 follow_tags = True
+            elif a in ("--dry-run", "-n"):
+                # For `git push`, `-n` IS `--dry-run` (unlike `git commit -n`,
+                # which is `--no-verify` and really commits). Only these exact
+                # spellings count — a bundle like `-nf` is left to deny, which
+                # is the safe direction for a flag whose presence means allow.
+                dry_run = True
             continue
         positionals.append(a)
 
@@ -1188,7 +1214,55 @@ def _push_targets(args, current_branch):
     # implicit branch destination to work out. With a refspec, or alongside
     # `--follow-tags`, a branch IS pushed and the normal reading applies.
     tags_only = all_tags and not follow_tags and not had_refspec
-    return targets, had_refspec, unresolvable, remotes, push_all, tags_only
+    return targets, had_refspec, unresolvable, remotes, push_all, tags_only, dry_run
+
+
+# `git commit` options that consume the FOLLOWING token. Needed only so a
+# value can never be mistaken for the dry-run flag: `git commit -m --dry-run`
+# is a REAL commit whose message happens to be `--dry-run`, and reading it as a
+# dry run would be a bypass — the opposite of the false positive being fixed.
+_COMMIT_OPTS_WITH_VALUE = frozenset(
+    {
+        "-m",
+        "--message",
+        "-F",
+        "--file",
+        "--author",
+        "--date",
+        "-C",
+        "--reuse-message",
+        "-c",
+        "--reedit-message",
+        "--fixup",
+        "--squash",
+        "--cleanup",
+        "-t",
+        "--template",
+        "--trailer",
+        "--pathspec-from-file",
+    }
+)
+
+
+def _commit_is_dry_run(args) -> bool:
+    """Whether this `git commit` writes nothing.
+
+    ONLY `--dry-run`. `git commit -n` is `--no-verify`, which is a real commit
+    that merely skips hooks — verified: HEAD moves. Conflating the two would
+    turn the busiest bypass in the file into an allow.
+    """
+    skip_value = False
+    for a in args:
+        if skip_value:
+            skip_value = False
+            continue
+        if a == "--":
+            break  # pathspecs from here on
+        if a == "--dry-run":
+            return True
+        if a in _COMMIT_OPTS_WITH_VALUE:
+            skip_value = True
+    return False
 
 
 def _local_branches(target_dir: Path):
@@ -1668,6 +1742,8 @@ def main():
         guidance = _guidance(cfg)
 
         if sub == "commit":
+            if _commit_is_dry_run(args):
+                continue  # writes nothing — see `_commit_is_dry_run`
             if branch == protected:
                 _deny(
                     f"Blocked: direct commit on protected branch '{protected}'.",
@@ -1687,7 +1763,13 @@ def main():
                 remotes,
                 push_all,
                 tags_only,
+                dry_run,
             ) = _push_targets(args, branch)
+            if dry_run:
+                # `--dry-run` / `-n` writes nothing, so by the guard's own
+                # criterion — will this command WRITE to a guarded branch? —
+                # there is nothing to block (defect 27).
+                continue
             implicit_targets = []
             remote_name = None
             if push_all:

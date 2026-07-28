@@ -572,7 +572,7 @@ PUSH_ALL_FORMS = [
     "git push --mirror origin",
     "git push origin --all",
     "git push --all",
-    "git push --all --dry-run origin",
+    "git push --all --force-with-lease origin",
 ]
 
 
@@ -647,6 +647,88 @@ def test_tags_flag_is_not_an_all_branches_push(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
     decision, _ = _run("git push --tags origin feat/x", repo, home)
     assert decision == "allow"
+
+
+# ─── dry runs write nothing ───────────────────────────────────
+#
+# Defect 27, an over-denial like 24. The criterion is "will this command WRITE
+# to a guarded branch?", and a dry run does not. Verified: `git commit
+# --dry-run` leaves HEAD where it was. The `-n` spelling is where care is
+# needed — for `git push` it IS `--dry-run`, but for `git commit` it is
+# `--no-verify`, which really commits (HEAD moves), so it must stay blocked.
+
+
+@pytest.mark.parametrize("branch", ["main", "dev", "feat/x"])
+def test_commit_dry_run_is_allowed(branch, tmp_path, home):
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    for cmd in (
+        "git commit --dry-run",
+        "git commit --dry-run -m x",
+        "git commit -a --dry-run",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", f"{cmd} on {branch}"
+
+
+def test_commit_dash_n_is_no_verify_and_still_blocked(tmp_path, home):
+    """`git commit -n` skips hooks but really commits — HEAD moves. Reading it
+    as a dry run would turn the guard's main case into an allow."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in ("git commit -n -m x", "git commit --no-verify -m x"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+
+
+def test_a_dry_run_option_value_is_not_a_dry_run(tmp_path, home):
+    """`git commit -m --dry-run` is a real commit whose MESSAGE is
+    `--dry-run`; option values must not be read as flags, or the fix for a
+    false positive becomes a bypass."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in (
+        "git commit -m --dry-run",
+        "git commit --message --dry-run",
+        "git commit -F --dry-run",
+        "git commit --author --dry-run -m x",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+
+
+def test_commit_dry_run_after_a_double_dash_is_a_pathspec(tmp_path, home):
+    """After `--` everything is a path, so a file called `--dry-run` must not
+    disarm the guard."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git commit -m x -- --dry-run", repo, home)
+    assert decision == "deny"
+
+
+@pytest.mark.parametrize("branch", ["main", "dev", "feat/x"])
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push --dry-run",
+        "git push -n",
+        "git push --dry-run origin main",
+        "git push -n origin main",
+        "git push --all --dry-run origin",
+        "git push --mirror -n origin",
+        "git push --dry-run origin $BRANCH",
+    ],
+)
+def test_push_dry_run_is_allowed(cmd, branch, tmp_path, home):
+    """Nothing is sent, so nothing is blocked — including the shapes that
+    would otherwise deny on an unresolvable destination or `--all`."""
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", f"{cmd} on {branch}"
+
+
+def test_push_dry_run_as_an_option_value_is_not_a_dry_run(tmp_path, home):
+    """`-o` consumes its value, so `git push -o --dry-run origin main` really
+    pushes."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push -o --dry-run origin main", repo, home)
+    assert decision == "deny"
 
 
 # ─── tag pushes are never branch pushes ───────────────────────
@@ -2083,6 +2165,43 @@ def test_cd_dash_without_a_known_previous_directory_fails_closed(tmp_path, home)
     decision, hso = _run("cd - && git commit -m x", repo, home)
     assert decision == "deny"
     assert "cannot determine which repo" in hso["permissionDecisionReason"]
+
+
+# Defect 26, environment axis: a `cd` can hide behind an assignment prefix or
+# a `command`/`builtin` wrapper and still move the shell. Verified in bash —
+# `FOO=1 cd sub`, `command cd sub` and `builtin cd sub` all end up in `sub`,
+# while `env cd sub` and `exec cd sub` FAIL (no `cd` binary exists) and move
+# nothing, so those two must not be stripped.
+
+
+@pytest.mark.parametrize(
+    "prefix", ["FOO=1", "FOO=1 BAR=2", "command", "builtin", "FOO=1 command"]
+)
+def test_a_wrapped_cd_still_moves_the_guard(prefix, tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / f"other{len(prefix)}", "main", STD_CFG)
+    decision, hso = _run(f"{prefix} cd {other} && git commit -m x", session, home)
+    assert decision == "deny", prefix
+    assert "main" in hso["permissionDecisionReason"], prefix
+
+
+@pytest.mark.parametrize("prefix", ["FOO=1", "command", "builtin"])
+def test_a_wrapped_cd_does_not_manufacture_a_denial(prefix, tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / f"other{len(prefix)}", "feat/data", STD_CFG)
+    decision, _ = _run(f"{prefix} cd {other} && git commit -m x", session, home)
+    assert decision == "allow", prefix
+
+
+@pytest.mark.parametrize("prefix", ["env", "exec"])
+def test_env_and_exec_cannot_run_cd_so_the_shell_stays(prefix, tmp_path, home):
+    """`env cd sub` and `exec cd sub` look up an external `cd` that does not
+    exist — they fail and move nothing, so the commit stays in this repo."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / f"other{len(prefix)}", "feat/data", STD_CFG)
+    decision, hso = _run(f"{prefix} cd {other} ; git commit -m x", session, home)
+    assert decision == "deny", prefix
+    assert "main" in hso["permissionDecisionReason"], prefix
 
 
 def test_cd_options_do_not_hide_the_target(tmp_path, home):
