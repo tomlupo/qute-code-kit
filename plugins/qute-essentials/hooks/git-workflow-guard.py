@@ -125,7 +125,7 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15 and 19 are parsing;
+not as a checklist that is now complete. 1-9, 14, 15, 19 and 20 are parsing;
 10-13, 16, 17 and 18 are the environment axis, and are the reason that axis is
 written down at all:
 
@@ -179,7 +179,10 @@ written down at all:
       the original repo. `|` was treated like `;`, letting the `cd` leak;
   19. `--repo <r>` as two tokens — the value was skipped rather than captured,
       so the no-refspec fallback read the DEFAULT remote's `push` refspec
-      instead of `<r>`'s.
+      instead of `<r>`'s;
+  20. `--all` / `--mirror` — they push every LOCAL branch and override
+      `push.default`, so `git push --all origin` from a feature branch writes
+      the protected branch with nothing on the command line naming it.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -196,9 +199,14 @@ Documented gaps (deliberate — these are explicit acts, not the accidental
 footgun this guards, and catching them would risk false blocks):
   - `git checkout main && git commit ...` in one line — the hook reads the
     *current* branch, so a switch-then-act chain is not caught.
-  - `git push --all` / `git push --mirror` from an unguarded branch — only
-    caught when standing on a guarded branch.
   - anything that reaches git without going through the Bash tool.
+
+(`git push --all` / `--mirror` used to sit in this list, "caught only when
+standing on a guarded branch". It does not belong: it is an ordinary
+invocation that writes the protected branch from anywhere, which the coverage
+claim above makes a defect rather than an omission. Closed as defect 20 — the
+destinations are the local branch list, which is enumerable, so no guessing
+is involved.)
 
 Opt-in: `.claude/git-guard.json` in the TARGET repo root. The PRESENCE of that
 file is what opts a repo in — no file means a total no-op for that repo, which
@@ -914,13 +922,17 @@ _PUSH_OPTS_WITH_VALUE = frozenset(
 #   the all-tags flag  no change — pushes refs/tags IN ADDITION to any
 #       refspec; slots untouched, and a tag dst is not a guarded branch.
 #   the all-branches / mirror flags  no change to slots (positional #0 is
-#       still the remote), but they push guarded branches with no refspec
-#       naming them.
-#       That is the pre-existing DOCUMENTED gap below, unchanged here: caught
-#       only when standing on a guarded branch. It is a coverage hole, not a
-#       parsing one, and `pre-push` (TOM-348) closes it for good.
+#       still the remote), but they push guarded branches with NO refspec
+#       naming them, and they override `push.default` too. Handled separately
+#       via `_local_branches` — see `_PUSH_ALL_OPTS`.
 _REPO_OPT = "--repo"
 _REPO_OPT_EQ = "--repo="
+
+# Options that push EVERY local branch, so the destination set is the local
+# branch list rather than anything on the command line. Verified: from `feat/x`
+# with a local `main`, `git push --all origin --dry-run` reports `main -> main`.
+# `--branches` is git's newer spelling of `--all`.
+_PUSH_ALL_OPTS = frozenset({"--all", "--branches", "--mirror"})
 
 # `HEAD` and `@` name whatever branch HEAD currently points at; git pushes them
 # to that branch, so they must be resolved before comparing against a guarded
@@ -976,16 +988,18 @@ def _push_targets(args, current_branch):
     """
     Destination branch names for a `git push` invocation.
 
-    Returns (targets, had_explicit_refspec, unresolvable, remote) — `targets`
-    are the branch names the push would land on, `unresolvable` holds the raw
-    refspecs whose destination could not be pinned down, and `remote` is the
+    Returns (targets, had_explicit_refspec, unresolvable, remote, push_all) —
+    `targets` are the branch names the push would land on, `unresolvable` holds
+    the raw refspecs whose destination could not be pinned down, `remote` is the
     remote named on the command line (or None), which the no-refspec fallback
-    needs in order to read `remote.<name>.push`.
+    needs in order to read `remote.<name>.push`, and `push_all` marks
+    `--all`/`--mirror`, whose destinations are every LOCAL branch.
     """
     positionals = []
     remote_from_opt = None
     skip_value = False
     value_is_repo = False
+    push_all = False
     for a in args:
         if skip_value:
             # `--repo <r>` names the remote in the NEXT token; dropping it left
@@ -1005,6 +1019,8 @@ def _push_targets(args, current_branch):
                 remote_from_opt = a[len(_REPO_OPT_EQ) :]
             elif a in _PUSH_OPTS_WITH_VALUE:
                 skip_value = True
+            elif a in _PUSH_ALL_OPTS:
+                push_all = True
             continue
         positionals.append(a)
 
@@ -1031,7 +1047,16 @@ def _push_targets(args, current_branch):
             unresolvable.append(ref)
         else:
             targets.append(dst)
-    return targets, had_refspec, unresolvable, remote
+    return targets, had_refspec, unresolvable, remote, push_all
+
+
+def _local_branches(target_dir: Path):
+    """Every local branch name, or None if they could not be enumerated (which
+    the caller must treat as "cannot verify" rather than "none")."""
+    out = _git(target_dir, "for-each-ref", "--format=%(refname:short)", "refs/heads/")
+    if out is None:
+        return None
+    return [line.strip() for line in out.splitlines() if line.strip()]
 
 
 def _config_map(target_dir: Path) -> dict:
@@ -1458,10 +1483,41 @@ def main():
                 )
 
         elif sub == "push":
-            targets, had_refspec, unresolvable, remote = _push_targets(args, branch)
+            targets, had_refspec, unresolvable, remote, push_all = _push_targets(
+                args, branch
+            )
             implicit_targets = []
             remote_name = None
-            if not had_refspec:
+            if push_all:
+                # `--all` / `--mirror` push every LOCAL branch and override
+                # push.default entirely, so the destinations are the local
+                # branch list — nothing on the command line names them. This
+                # was the last "documented gap", but `git push --all origin`
+                # from a feature branch is an ordinary invocation that writes
+                # the protected branch, so by this guard's own criterion it was
+                # a defect (20).
+                local = _local_branches(target_dir)
+                if local is None:
+                    _deny(
+                        "Blocked: `git push --all`/`--mirror` pushes every "
+                        "local branch and the branch list could not be read, "
+                        f"so it may include '{protected}'"
+                        + (f" or '{integration}'" if integration else "")
+                        + ". Push an explicit branch refspec instead.",
+                        guidance,
+                    )
+                for name, label in (
+                    (protected, "protected"),
+                    (integration, "integration"),
+                ):
+                    if name and name in local:
+                        _deny(
+                            "Blocked: `git push --all`/`--mirror` pushes every "
+                            f"local branch, including the {label} branch "
+                            f"'{name}'.",
+                            guidance,
+                        )
+            elif not had_refspec:
                 # "No refspec" does NOT mean "the current branch": git reads
                 # `remote.<name>.push` and `push.default`, and either can send
                 # the push to a different branch entirely.

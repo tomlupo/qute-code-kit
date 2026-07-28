@@ -557,6 +557,98 @@ def test_bare_push_fallback_not_regressed(cmd, tmp_path, home):
         assert decision == expected, f"{cmd} on {branch}"
 
 
+# ─── `--all` / `--mirror` push every local branch ─────────────
+#
+# Defect 20, and the last of the old "documented gaps". `git push --all origin`
+# from a feature branch is an ordinary invocation, and verified against real
+# git it writes `main -> main` when a local `main` exists — so by this guard's
+# own criterion it was a defect, not a deliberate omission. The destination set
+# is the LOCAL BRANCH LIST; nothing on the command line names it, and these
+# flags override `push.default` too.
+
+PUSH_ALL_FORMS = [
+    "git push --all origin",
+    "git push --branches origin",
+    "git push --mirror origin",
+    "git push origin --all",
+    "git push --all",
+    "git push --all --dry-run origin",
+]
+
+
+@pytest.mark.parametrize("cmd", PUSH_ALL_FORMS)
+def test_push_all_denied_from_a_feature_branch_when_guarded_exists(cmd, tmp_path, home):
+    """The whole point: standing on `feat/x` is no protection, because `main`
+    is in the local branch list and gets written."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)  # `main` exists locally
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("cmd", PUSH_ALL_FORMS)
+def test_push_all_denied_from_the_guarded_branch_too(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+
+
+def test_push_all_names_the_integration_branch_when_that_is_what_exists(tmp_path, home):
+    repo = _make_repo(
+        tmp_path / "r",
+        "dev",
+        {"protected_branch": "trunk", "integration_branch": "dev"},
+    )
+    decision, hso = _run("git push --all origin", repo, home)
+    assert decision == "deny"
+    assert "dev" in hso["permissionDecisionReason"]
+
+
+def test_push_all_allowed_when_no_guarded_branch_exists_locally(tmp_path, home):
+    """Not fail-closed guesswork: if the local branch list holds nothing
+    guarded, `--all` writes nothing guarded and must be allowed."""
+    repo = _make_repo(
+        tmp_path / "r",
+        "feat/x",
+        {"protected_branch": "release", "integration_branch": None},
+    )
+    decision, _ = _run("git push --all origin", repo, home)
+    assert decision == "allow"
+
+
+def test_push_all_is_a_noop_in_a_repo_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", None)
+    decision, _ = _run("git push --all origin", repo, home)
+    assert decision == "allow"
+
+
+def test_push_all_is_scoped_to_the_target_repo(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(
+        tmp_path / "other",
+        "feat/y",
+        {"protected_branch": "release", "integration_branch": None},
+    )
+    decision, _ = _run(f"git -C {sibling} push --all origin", session, home)
+    assert decision == "allow", "the sibling has no local `release` branch"
+
+
+def test_push_all_overrides_push_default(tmp_path, home):
+    """`--all` ignores push.default, so `nothing` must not make it look safe."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "push.default", "nothing")
+    decision, _ = _run("git push --all origin", repo, home)
+    assert decision == "deny"
+
+
+def test_tags_flag_is_not_an_all_branches_push(tmp_path, home):
+    """`--tags` pushes tags in addition to the refspec — no branch dst, so it
+    must not be swept up with `--all`."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push --tags origin feat/x", repo, home)
+    assert decision == "allow"
+
+
 # ─── where a refspec-less push actually goes ──────────────────
 #
 # Defect 17, environment axis. "No refspec" was read as "pushes the current
