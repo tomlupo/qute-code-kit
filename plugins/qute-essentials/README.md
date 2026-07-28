@@ -217,7 +217,11 @@ installing them costs nothing:
     GitHub default branch is used. Set it only when `conductor.yml`'s `release.branch` differs.
   - `version-matches-tag` asserts the declared version strings equal the tag, reading commitizen's
     own `[tool.commitizen] version_files` + `tag_format` instead of hardcoded paths. No
-    `pyproject.toml` / no declared version → reports that and passes.
+    `pyproject.toml` / no `[tool.commitizen]` block / no declared version → reports that and
+    passes. But a `version_files` entry that IS declared and cannot be read — missing path,
+    unreadable file, uncompilable pattern, no parseable version literal — **fails** the job by
+    name: the job claims to assert every declared version string, so skipping one and reporting
+    success is the same vacuous pass the ancestry job refuses.
 - **`templates/lockfile-check.yml`** — runs `uv lock --check` on PRs and pushes, failing when
   `uv.lock` is out of step with `pyproject.toml`. A project's own version is recorded in its
   lockfile, so every `/ship` bump staleness the lock and nothing else notices. No `uv.lock` → the

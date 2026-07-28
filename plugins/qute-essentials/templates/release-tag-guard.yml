@@ -146,6 +146,18 @@ jobs:
   # this job needs no per-repo edit. A repo with no pyproject.toml, or no
   # commitizen block, reports "nothing declared" and passes rather than failing
   # forever.
+  #
+  # ── Declared-but-unverifiable is a FAILURE, not a warning ───────────────────
+  # "Nothing was declared" and "something was declared and I could not check it"
+  # are opposite verdicts. This job used to print a ::warning:: and `continue`
+  # when a `version_files` entry was missing or held no parseable version, then
+  # report success on whatever was left. That is the same vacuous pass job 1
+  # hard-fails on (shallow clone, unresolvable release ref, merge-base error):
+  # the job claims to assert EVERY declared version string, so a declared entry
+  # it could not read means the assertion never happened. Every such entry now
+  # fails the job, by name. Only the genuinely-nothing-declared cases still
+  # report and pass: no pyproject.toml at all; a pyproject.toml with no
+  # [tool.commitizen] block; a commitizen block declaring no version_files.
   version-matches-tag:
     runs-on: ubuntu-latest
     steps:
@@ -162,11 +174,13 @@ jobs:
           tag_name = os.environ["TAG_NAME"]
           pyproject = pathlib.Path("pyproject.toml")
           if not pyproject.is_file():
-              print("No pyproject.toml — this repo declares no version to compare. Skipping.")
+              print("No pyproject.toml — this repo declares no version to compare. Passing.")
               sys.exit(0)
 
           data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
           cz = data.get("tool", {}).get("commitizen", {}) or {}
+          if not cz:
+              print("pyproject.toml has no [tool.commitizen] block — no version_files are declared.")
 
           # Derive the version from the tag using commitizen's own tag_format.
           fmt = cz.get("tag_format") or "v$version"
@@ -174,54 +188,107 @@ jobs:
           for placeholder in (re.escape("$version"), re.escape("{version}")):
               pattern = pattern.replace(placeholder, "(?P<version>.+)")
           m = re.fullmatch(pattern, tag_name)
-          tag = m.group("version") if m else tag_name.removeprefix("v")
+          if m:
+              tag = m.group("version")
+          else:
+              tag = tag_name.removeprefix("v")
+              print(f"Note: tag '{tag_name}' does not match tag_format '{fmt}'; falling back to stripping a leading 'v'.")
           print(f"Release tag: {tag_name}  ->  version {tag}")
 
+          # A declared version string this job could not read. Collected, not
+          # skipped: reporting success without having compared what the repo
+          # declares is exactly the failure mode this job exists to prevent.
+          unverifiable: list[str] = []
           checks: list[tuple[str, str]] = []
+
           proj_version = (data.get("project") or {}).get("version")
           if isinstance(proj_version, str):
               checks.append(("pyproject.toml [project].version", proj_version))
           if isinstance(cz.get("version"), str):
               checks.append(("pyproject.toml [tool.commitizen].version", cz["version"]))
+          pyproject_version_readable = bool(checks)
 
           # commitizen version_files entries are "path" or "path:pattern".
           # pyproject.toml entries are already covered by the TOML reads above.
           version_re = re.compile(r"\d+\.\d+(?:\.\d+)?(?:[-.+][0-9A-Za-z.+-]*)?")
+          pyproject_entry = None
           for entry in cz.get("version_files") or []:
               if not isinstance(entry, str):
+                  unverifiable.append(
+                      f"version_files entry {entry!r} is not a string, so no path could be read from it."
+                  )
                   continue
               path_str, _, needle = entry.partition(":")
               path_str, needle = path_str.strip(), needle.strip()
-              if not path_str or path_str == "pyproject.toml":
+              if not path_str:
+                  unverifiable.append(
+                      f"version_files entry '{entry}' declares no file path before the ':'."
+                  )
+                  continue
+              if path_str == "pyproject.toml":
+                  pyproject_entry = entry
                   continue
               path = pathlib.Path(path_str)
               if not path.is_file():
-                  print(f"::warning title=version_files::'{entry}' -> {path_str} does not exist; skipped.")
+                  unverifiable.append(
+                      f"version_files entry '{entry}' -> '{path_str}' does not exist in the tagged tree."
+                  )
                   continue
               try:
-                  needle_re = re.compile(needle) if needle else None
-              except re.error:
-                  needle_re = None
+                  text = path.read_text(encoding="utf-8")
+              except (OSError, UnicodeDecodeError) as exc:
+                  unverifiable.append(
+                      f"version_files entry '{entry}' -> '{path_str}' could not be read "
+                      f"({type(exc).__name__}: {exc})."
+                  )
+                  continue
+              needle_re = None
+              if needle:
+                  try:
+                      needle_re = re.compile(needle)
+                  except re.error as exc:
+                      unverifiable.append(
+                          f"version_files entry '{entry}' -> pattern '{needle}' is not a valid "
+                          f"regular expression ({exc}), so the declared line could not be located."
+                      )
+                      continue
               hit = None
-              for line in path.read_text(encoding="utf-8").splitlines():
-                  if needle:
-                      matched = needle_re.search(line) if needle_re else (needle in line)
-                      if not matched:
-                          continue
+              for line in text.splitlines():
+                  if needle_re is not None and not needle_re.search(line):
+                      continue
                   found = version_re.search(line)
                   if found:
                       hit = found.group(0)
                       break
               if hit is None:
-                  print(f"::warning title=version_files::'{entry}' -> no version literal found; skipped.")
+                  where = f" on any line matching '{needle}'" if needle else ""
+                  unverifiable.append(
+                      f"version_files entry '{entry}' -> no parseable version literal found in "
+                      f"'{path_str}'{where}."
+                  )
                   continue
               checks.append((f"{path_str} ({needle or 'version'})", hit))
 
-          if not checks:
-              print("No declared version strings found — nothing to compare. Passing.")
-              sys.exit(0)
+          # A declared 'pyproject.toml' entry is only covered if one of the TOML
+          # reads above actually produced a version string. With a dynamic or
+          # absent version it is declared-but-unread, not "nothing declared".
+          if pyproject_entry is not None and not pyproject_version_readable:
+              unverifiable.append(
+                  f"version_files entry '{pyproject_entry}' declares pyproject.toml, but neither "
+                  f"[project].version nor [tool.commitizen].version holds a version string."
+              )
 
-          failed = False
+          for problem in unverifiable:
+              print(
+                  f"::error title=Declared version file could not be verified::{problem} "
+                  f"It is declared in [tool.commitizen].version_files, so this job cannot claim to "
+                  f"have asserted it against tag '{tag_name}'. A declared version file that cannot "
+                  f"be verified is a release-contract failure, not a warning — passing here would "
+                  f"report success for a check that never ran. Fix the path/pattern, or drop the "
+                  f"entry from version_files if the file no longer carries a version."
+              )
+
+          failed = bool(unverifiable)
           for label, got in checks:
               if got != tag:
                   print(
@@ -232,5 +299,9 @@ jobs:
                   failed = True
               else:
                   print(f"OK: {label} = {got}")
+
+          if not checks and not unverifiable:
+              print("No declared version strings found — nothing to compare. Passing.")
+
           sys.exit(1 if failed else 0)
           PY
