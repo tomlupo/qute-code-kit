@@ -1379,14 +1379,138 @@ def test_unknown_subcommand_alone_is_still_allowed(tmp_path, home):
     assert decision == "allow"
 
 
+# ─── the environment axis ─────────────────────────────────────
+#
+# Defects 10 and 11, and the first two found on an axis other than parsing.
+# Neither is about how the command is WRITTEN — `git commit -m x` parses
+# perfectly in both — but about whether the guard's model of the world matches
+# the shell's and git's. Both ended with the guard evaluating a different repo
+# than git was about to write to, and allowing a direct commit on `main`.
+
+
+@pytest.mark.parametrize("sep", [";", "||", "&&"])
+def test_failing_cd_leaves_the_guard_where_the_shell_stays(sep, tmp_path, home):
+    """A `cd` to a directory that does not exist FAILS, so the shell never
+    moves and the commit runs in the original — protected — repo. Following the
+    dead path landed the guard in a non-repo, which it read as "nothing to
+    guard". Checking that the directory exists is the shell's semantics, which
+    is why `;` and `||` both come out right with no separator modelling.
+
+    `&&` is included as the deliberate over-deny: the shell would not run the
+    commit at all, so denying costs nothing on a line that is already an error.
+    """
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"cd /does/not/exist {sep} git commit -m x", repo, home)
+    assert decision == "deny", sep
+    assert "main" in hso["permissionDecisionReason"], sep
+
+
+def test_failing_cd_does_not_manufacture_a_denial_on_a_feature_branch(tmp_path, home):
+    """The control: staying put must mean staying put, not denying blindly."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("cd /does/not/exist ; git commit -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_successful_cd_is_still_followed(tmp_path, home):
+    """The control that already passed and must keep passing: a `cd` to a real
+    directory moves the shell, so the guard has to move with it."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    sibling = _make_repo(tmp_path / "datasets", "feat/data", STD_CFG)
+    decision, _ = _run(f"cd {sibling} && git commit -m x", session, home)
+    assert decision == "allow"
+
+    session2 = _make_repo(tmp_path / "lab2", "feat/work", STD_CFG)
+    sibling2 = _make_repo(tmp_path / "other2", "main", STD_CFG)
+    decision, hso = _run(f"cd {sibling2} && git commit -m x", session2, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_relative_cd_that_exists_is_followed(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    _make_repo(tmp_path / "lab" / "nested", "feat/x", STD_CFG)
+    decision, _ = _run("cd nested && git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_relative_cd_that_does_not_exist_is_not_followed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("cd nope ; git commit -m x", repo, home)
+    assert decision == "deny"
+
+
+def test_work_tree_alone_does_not_move_the_repo(tmp_path, home):
+    """Git identifies a repo by its GIT DIR. With `--work-tree` and no
+    `--git-dir` it still discovers `.git` upward from the current directory, so
+    `git --work-tree ../scratch commit` commits HERE — on the protected branch
+    — using `../scratch`'s files."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    scratch = _make_repo(tmp_path / "scratch", "feat/data", STD_CFG)
+    for spelling in (f"--work-tree {scratch}", f"--work-tree={scratch}"):
+        decision, hso = _run(f"git {spelling} commit -m x", repo, home)
+        assert decision == "deny", spelling
+        assert "main" in hso["permissionDecisionReason"], spelling
+
+
+def test_work_tree_alone_from_a_feature_branch_is_allowed(tmp_path, home):
+    """Mirror image: the repo we are standing in is what counts, so an
+    unguarded branch here stays allowed even when the work tree is a repo
+    sitting on `main`."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"git --work-tree {other} commit -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_work_tree_alone_does_not_consume_the_subcommand(tmp_path, home):
+    """`--work-tree` is still parsed as taking a value — dropping it from repo
+    identity must not drop it from the arity table."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/x", STD_CFG)
+    decision, _ = _run(f"git --work-tree {other} status", repo, home)
+    assert decision == "allow"
+    decision, _ = _run(f"git --work-tree {other} push origin main", repo, home)
+    assert decision == "deny"
+
+
+def test_git_dir_with_work_tree_targets_the_git_dirs_repo(tmp_path, home):
+    """When both are given the repo genuinely IS the other one — `--git-dir`
+    names it, and that is what the guard must evaluate."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(
+        f"git --git-dir={other}/.git --work-tree={other} commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+    # And the mirror: session on `main`, the named repo on a feature branch.
+    session2 = _make_repo(tmp_path / "lab2", "main", STD_CFG)
+    other2 = _make_repo(tmp_path / "other2", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"git --git-dir={other2}/.git --work-tree={other2} commit -m x", session2, home
+    )
+    assert decision == "allow"
+
+
+def test_dash_c_still_wins_over_git_dir(tmp_path, home):
+    """`-C` is applied first and is unchanged by this fix."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"git -C {other} commit -m x", session, home)
+    assert decision == "deny"
+
+
 # ─── the guard describes itself honestly ──────────────────────
 
 
 def test_guidance_states_the_coverage_criterion(tmp_path, home):
-    """Nine bypasses in, the denial text must not imply completeness — but nor
-    should it be a bare "best effort" with no criterion. It has to state the
-    line (ordinary invocation forms in, constructed evasion out), name the
-    tool-call-only scope, and point at `pre-push` as the layer that holds."""
+    """Eleven defects in, the denial text must not imply completeness — but nor
+    should it be a bare "best effort" with no criterion. It has to name BOTH
+    axes it can be wrong on, state the line (ordinary invocation forms in,
+    constructed evasion out), name the tool-call-only scope, and point at
+    `pre-push` as the layer that holds."""
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     _, hso = _run("git commit -m x", repo, home)
     guidance = hso["additionalContext"]
@@ -1394,5 +1518,8 @@ def test_guidance_states_the_coverage_criterion(tmp_path, home):
     assert "ordinary invocation forms" in guidance
     assert "evasion" in guidance
     assert "Claude tool calls only" in guidance
+    # both axes, not just parsing
+    assert "the command" in guidance
+    assert "the environment" in guidance
     assert "pre-push" in guidance
     assert "TOM-348" in guidance

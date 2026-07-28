@@ -50,9 +50,30 @@ down is denied, not allowed. See `_strip_env`, `_strip_run_wrapper`,
 WHAT THIS COVERS — AND THE LINE THAT DECIDES IT
 ===============================================
 
-The target is ORDINARY INVOCATION FORMS: what a person or an agent actually
-types or scripts. Within that target the guard is meant to be correct, and a
-miss is a DEFECT.
+The guard answers one question: WILL THIS COMMAND WRITE TO A GUARDED BRANCH?
+It can be wrong about that on two independent axes, and a defect on EITHER is
+in scope, because both end the same way — the guard evaluates a context that is
+not the one git is about to act in, and says yes.
+
+  THE COMMAND (parsing) — WHAT is being run, and against which destination.
+  `/usr/bin/git commit`, `env VAR=x git commit`, `command git push`, a `git ci`
+  alias, `git push origin HEAD`, an option whose arity shifts the positionals.
+
+  THE ENVIRONMENT (context) — WHICH repo and branch git will actually act on.
+  This has nothing to do with how the command is written; it is about whether
+  the guard's model of the world matches the shell's and git's. A `cd` that
+  FAILS leaves the shell where it was. `--work-tree` without `--git-dir` leaves
+  the REPO where it was. Both looked like ordinary commands and both let a
+  direct commit on `main` through, because the guard went looking somewhere
+  else.
+
+An environment-axis defect is in scope however ordinary the command looks — the
+"ordinary invocation forms" line below bounds the FIRST axis only, and is about
+the kind of command, not the kind of bug.
+
+On the parsing axis the target is ORDINARY INVOCATION FORMS: what a person or
+an agent actually types or scripts. Within that target the guard is meant to be
+correct, and a miss is a DEFECT.
 
 It is NOT, and cannot be, resistant to DELIBERATELY CONSTRUCTED EVASION. It
 reads a shell string, and git's command-line surface is unbounded; no amount of
@@ -60,15 +81,16 @@ parsing closes that. That distinction is the line, and a new finding can be
 placed on one side of it without asking anyone:
 
   IN SCOPE — a shape someone would plausibly write without trying to evade
-  anything. `/usr/bin/git commit`, `env VAR=x git commit`, `command git push`,
-  a `git ci` alias, `git push origin HEAD`, an option whose arity shifts the
-  positionals. These are defects: fix them.
+  anything. All the parsing examples above. These are defects: fix them.
 
   OUT OF SCOPE — a shape that only occurs when someone is routing around the
   guard on purpose. Anyone doing that also has `--no-verify`, git behind a
   shell variable or a here-doc, a wrapper script, or simply their own terminal.
   Hardening the parser against them buys nothing, and `pre-push` is the layer
   that answers them.
+
+There is no equivalent escape clause on the environment axis. "The command was
+weird" never excuses evaluating the wrong repo.
 
 So this is a SPEED BUMP, not enforcement — but with a criterion, not a shrug.
 
@@ -89,8 +111,9 @@ this file:
     whenever an unknown option appears — would false-block ordinary pushes of
     an unguarded refspec from a guarded branch.
 
-Shapes review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete:
+Defects review has found, ALL now handled — kept as evidence the tail is real,
+not as a checklist that is now complete. 1-9 are parsing; 10-11 are the
+environment axis, and are the reason that axis is written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -107,7 +130,12 @@ not as a checklist that is now complete:
    8. the executable form — `/usr/bin/git commit`, `command git commit`, which
       only `tokens[0] == "git"` had ever matched;
    9. `-c alias.ci=commit` — an alias defined on the command line, invisible to
-      a repo-config lookup.
+      a repo-config lookup;
+  10. a FAILING `cd` — `cd /gone ; git commit` and `cd /gone || git commit` run
+      the commit in the original repo, but the guard followed the dead path and
+      evaluated a directory that is not a repo at all;
+  11. `--work-tree` without `--git-dir` — git still uses the current repo's
+      `.git`, but the guard treated the work tree as the repo.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -477,9 +505,11 @@ def _git_subcommand(tokens):
     invocation, else (None, [], {}).
 
     `global_opts` carries:
-      `C` / `git_dir` / `work_tree` — the path-scoping options that decide WHICH
-          repo the git command targets, so the guard evaluates that repo's
-          branch and config instead of the session's;
+      `C` / `git_dir` / `work_tree` — the path-scoping options, so the guard
+          evaluates the targeted repo's branch and config instead of the
+          session's. `work_tree` is captured because it CONSUMES A VALUE (which
+          would otherwise shift the subcommand slot), not because it selects the
+          repo — see `_resolve_git_target_dir` for why it does not;
       `aliases` — `-c alias.<name>=<expansion>` pairs, which define aliases for
           this invocation only and are therefore invisible to a repo-config
           lookup;
@@ -588,20 +618,30 @@ def _cd_target(tokens):
 
 
 def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
-    """The effective directory the git command operates in, applying `cd` base
-    plus git's own path-scoping options. `-C` paths are cumulative and resolved
-    relative to the running dir (git's documented behaviour); `--work-tree` and
-    `--git-dir` fall back in that order when no `-C` is present."""
+    """The directory to evaluate this git command against — i.e. one that
+    belongs to the repo git will actually act on.
+
+    `-C` paths are cumulative and resolved relative to the running dir (git's
+    documented behaviour). Otherwise `--git-dir` names the repo.
+
+    `--work-tree` deliberately does NOT: git identifies a repo by its GIT DIR,
+    and with `--work-tree` alone it still discovers `.git` upward from the
+    current directory. So `git --work-tree ../scratch commit` commits to the
+    repo you are standing in, using `../scratch`'s files — the branch and the
+    guard config both still come from HERE. Reading the work tree as the repo
+    pointed the guard at a different repo than git would write to, and let a
+    protected-branch commit through (environment-axis defect, round 5).
+    """
     d = base
     for p in opts.get("C") or []:
         pp = Path(p)
         d = pp if pp.is_absolute() else (d / pp)
-    if not (opts.get("C")):
-        alt = opts.get("work_tree") or opts.get("git_dir")
-        if alt:
-            ap = Path(alt)
+    if not opts.get("C"):
+        git_dir = opts.get("git_dir")
+        if git_dir:
+            ap = Path(git_dir)
             # A --git-dir of `<repo>/.git` -> the repo root is its parent.
-            if opts.get("work_tree") is None and ap.name == ".git":
+            if ap.name == ".git":
                 ap = ap.parent
             d = ap if ap.is_absolute() else (base / ap)
     return d
@@ -852,9 +892,11 @@ def _guidance(cfg: dict) -> str:
     return (
         route + " Deliberate override (visible and reversible): run "
         "`/guard git-workflow off`, do the work, then `/guard git-workflow on`. "
-        "Note this guard is an agent-side speed bump, not enforcement. It "
-        "targets ordinary invocation forms — what someone would actually type "
-        "— and within those a miss is a defect worth reporting. But it sees "
+        "Note this guard is an agent-side speed bump, not enforcement. It has "
+        "to be right about both the command (which git verb, which "
+        "destination) and the environment (which repo and branch git will "
+        "actually act on); it targets ordinary invocation forms, and within "
+        "those a miss on either is a defect worth reporting. But it sees "
         "Claude tool calls only (a human's own shell, and any script they run, "
         "are invisible to it) and it reads a command string, so it cannot "
         "resist deliberately constructed evasion. The `pre-push` hook "
@@ -908,7 +950,20 @@ def main():
         cd_to = _cd_target(tokens)
         if cd_to is not None:
             p = Path(cd_to)
-            base_dir = p if p.is_absolute() else (base_dir / p)
+            target = p if p.is_absolute() else (base_dir / p)
+            # ONLY follow a `cd` that would succeed. A failing `cd` leaves the
+            # shell exactly where it was, so the guard has to stay there too:
+            # `cd /gone ; git commit` and `cd /gone || git commit` both run the
+            # commit in the ORIGINAL repo, and following the dead path made the
+            # guard evaluate a directory that is not a repo at all — so it
+            # allowed a direct commit on the protected branch. Checking that
+            # the directory exists IS the shell's semantics, which is why the
+            # `;` and `||` forms fall out of one test rather than needing the
+            # separators modelled. (`cd /gone && git commit` now evaluates the
+            # original repo and may deny a command the shell would never have
+            # run — a harmless over-deny on a line that is already an error.)
+            if target.is_dir():
+                base_dir = target
             continue
 
         sub, args, opts = _git_subcommand(tokens)
