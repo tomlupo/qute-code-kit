@@ -84,12 +84,25 @@ EOF
 git push --force-with-lease     # still blocked — this one runs
 ```
 
-Only two region kinds are exempt, and only in a segment with no pipe or
-substitution: heredoc bodies into `cat`/`tee`, and `python -c` / `python - <<EOF`
-payloads that contain no way to shell out. Everything else keeps its text
-scanned — `bash <<EOF`, `psql <<EOF`, `sudo tee`, `perl -e`, `node -e`,
-`cat <<EOF | bash`. Uncertainty always resolves toward blocking; the route for a
-genuinely-blocked write is the Write tool (never screened) or `/guard destructive off`.
+Only two region kinds are exempt: heredoc bodies into `cat`/`tee`, and
+`python -c` / `python - <<EOF` payloads whose parsed AST provably cannot reach a
+shell (no imports; every call an allowlisted builtin or method). Three conditions
+gate them — no pipe or substitution in the segment, python must be reading that
+region as its own source, and **nothing anywhere in the same call may be able to
+run a program**, since writing a file and executing it fit in one Bash call:
+
+```bash
+cat > /tmp/x <<'EOF'      # still blocked: `bash /tmp/x` below
+rm -rf /srv/data
+EOF
+bash /tmp/x
+```
+
+Everything else keeps its text scanned — `bash <<EOF`, `psql <<EOF`, `sudo tee`,
+`perl -e`, `node -e`, `cat <<EOF | bash`, `python3 runner.py <<EOF`. Every list
+involved is an allowlist, so an unrecognised program or an unparseable payload
+resolves toward blocking; the route for a genuinely-blocked write is the Write
+tool (never screened) or `/guard destructive off`.
 
 This is a text matcher over one tool call — it stops the accident, not the
 adversary (`X="rm -rf"; $X /` defeats it, and always did). Use `pre-push` +

@@ -204,25 +204,47 @@ class TestHeredocConsumersThatActuallyExecute:
             "python3 -c \"__import__('os').system('rm -rf /srv/data')\"", RM_ROOT
         )
 
+    # The payloads below are deliberately VALID, inert python. A body like a
+    # bare `rm -rf …` fails `ast.parse` and would be denied for that reason
+    # alone, so it would prove nothing about how the invocation was read.
+
     def test_python_running_a_script_does_not_own_its_stdin(self):
         """Review finding on #90: the exemption is for python reading its own
         SOURCE from stdin. `python3 runner.py <<EOF` feeds the body to an
         arbitrary script, which may interpret or execute it."""
-        assert_denied("python3 runner.py <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+        assert_denied(
+            "python3 runner.py <<'EOF'\ndata = 'rm -rf /srv/data'\nEOF", RM_ROOT
+        )
 
     def test_python_module_invocation_does_not_own_its_stdin(self):
-        assert_denied("python3 -m runner <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+        assert_denied(
+            "python3 -m runner <<'EOF'\ndata = 'rm -rf /srv/data'\nEOF", RM_ROOT
+        )
 
     def test_dash_c_after_a_script_name_is_not_the_interpreters(self):
-        assert_denied('python3 runner.py -c "rm -rf /srv/data"', RM_ROOT)
+        assert_denied("python3 runner.py -c \"data = 'rm -rf /srv/data'\"", RM_ROOT)
+
+    def test_a_heredoc_feeding_a_dash_c_one_liner_is_data_for_it_not_source(self):
+        # `python3 -c '<code>' <<EOF` — the -c payload is the program, so the
+        # heredoc is that program's INPUT. Only `python3 -`/bare `python3`
+        # make a heredoc body python source.
+        assert_denied(
+            "python3 -c \"data = 'x'\" <<'EOF'\ndata = 'rm -rf /srv/data'\nEOF",
+            RM_ROOT,
+        )
+
+    def test_a_dash_c_that_is_an_argument_to_the_stdin_program_is_not_pythons(self):
+        # `python3 - -c "…"`: python's program comes from stdin, so this `-c`
+        # is argv for that program, not an interpreter flag.
+        assert_denied(
+            "python3 - -c \"data = 'rm -rf /srv/data'\" <<'PY'\nx = 1\nPY",
+            RM_ROOT,
+        )
 
     def test_option_bundles_are_not_taken_apart(self):
         # A bundle containing `c` or `m` means the invocation is doing
         # something this code refuses to guess at, so the body stays scanned.
-        # Written as a heredoc deliberately: with a `-c "…"` payload the
-        # verdict would be the same for a second, independent reason, and the
-        # test would prove nothing about bundle handling.
-        assert_denied("python3 -uc <<'PY'\nrm -rf /srv/data\nPY", RM_ROOT)
+        assert_denied("python3 -uc <<'PY'\ndata = 'rm -rf /srv/data'\nPY", RM_ROOT)
 
     def test_bare_python_reading_stdin_as_source_is_still_exempt(self):
         assert_allowed(
@@ -250,6 +272,107 @@ class TestHeredocConsumersThatActuallyExecute:
         assert_denied("node -e 'console.log(\"rm -rf /srv/data\")'", RM_ROOT)
 
 
+class TestWriteThenExecuteInOneCall:
+    """Review finding on #90: writing a file and running it are two steps and
+    they fit in one Bash call. One non-inert segment anywhere in the call
+    voids every exemption in it."""
+
+    @pytest.mark.parametrize(
+        "runner", ["bash /tmp/x", ". /tmp/x", "source /tmp/x", "./x", "make -f /tmp/x"]
+    )
+    def test_an_executor_later_in_the_call_voids_the_exemption(self, runner):
+        assert_denied(f"cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\n{runner}", RM_ROOT)
+
+    def test_an_executor_before_the_heredoc_voids_it_too(self):
+        assert_denied(
+            "bash /tmp/x\ncat > /tmp/y <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT
+        )
+
+    def test_a_program_nobody_listed_counts_as_an_executor(self):
+        # INERT_PROGRAMS is an allowlist: unrecognised means "might run it".
+        assert_denied(
+            "cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\nsome-runner /tmp/x", RM_ROOT
+        )
+
+    def test_python_shelling_out_later_in_the_call_voids_the_exemption(self):
+        assert_denied(
+            "cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\n"
+            "python3 -c \"import os; os.system('bash /tmp/x')\"",
+            RM_ROOT,
+        )
+
+    def test_python_heredoc_shelling_out_later_voids_the_exemption(self):
+        assert_denied(
+            "cat > /tmp/x <<'A'\nrm -rf /srv/data\nA\n"
+            "python3 - <<'B'\nimport os\nos.system('bash /tmp/x')\nB",
+            RM_ROOT,
+        )
+
+    def test_inert_neighbours_do_not_void_it(self):
+        # chmod cannot run anything, so the common write-then-mark-executable
+        # shape stays exempt.
+        assert_allowed(
+            "cat > /tmp/x <<'EOF'\ngit push --force-with-lease\nEOF\nchmod +x /tmp/x"
+        )
+
+    def test_several_writes_in_one_call_stay_exempt(self):
+        assert_allowed(
+            "cat > /tmp/a <<'A'\ngit push --force\nA\n"
+            "cat > /tmp/b <<'B'\ngit reset --hard\nB\n"
+            "git add /tmp/a /tmp/b"
+        )
+
+
+class TestPythonPayloadAllowlist:
+    """Review finding on #90: the exemption used to key on a deny-list of
+    shell-out spellings, which `getattr(os, 'sys' + 'tem')` walks past — the
+    same fragment trick this ticket exists to stop rewarding. It is now an
+    allowlist over the parsed AST."""
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            "import os; getattr(os, 'system')('rm -rf /srv/data')",
+            "getattr(__builtins__, 'x')('rm -rf /srv/data')",
+            "f = lambda: __import__('os').system('rm -rf /srv/data'); f()",
+            "exec('rm -rf /srv/data')",
+            "eval(compile('x', 'rm -rf /srv/data', 'exec'))",
+        ],
+    )
+    def test_indirect_shell_out_is_not_exempt(self, payload):
+        assert_denied(f'python3 -c "{payload}"', RM_ROOT)
+
+    def test_an_attribute_call_off_the_allowlist_is_not_exempt(self):
+        # No import statement here, so the method allowlist is the only thing
+        # standing between this payload and a shell.
+        assert_denied("python3 -c \"os.system('rm -rf /srv/data')\"", RM_ROOT)
+
+    def test_a_payload_that_will_not_parse_is_not_exempt(self):
+        assert_denied("python3 -c \"def (: 'rm -rf /srv/data'\"", RM_ROOT)
+
+    def test_any_import_at_all_forfeits_the_exemption(self):
+        # Strict by design: json is harmless, but drawing that line needs a
+        # module allowlist, and an incomplete one is a bypass.
+        assert_denied(
+            "python3 -c \"import json; open('/tmp/f','w').write('rm -rf /srv/data')\"",
+            RM_ROOT,
+        )
+
+    # Both payloads below carry text that WOULD match a pattern if it were
+    # scanned, so the allow verdict can only come from the exemption.
+
+    def test_string_building_and_file_writing_stay_exempt(self):
+        assert_allowed(
+            "python3 -c \"open('/tmp/f','w').write('rm -rf /srv/data'.upper())\""
+        )
+
+    def test_the_allowlist_is_checked_on_the_ast_not_the_text(self):
+        # `os.system` appears as data. Nothing calls it, so the AST is inert.
+        assert_allowed(
+            "python3 -c \"open('/tmp/f','w').write('os.system: rm -rf /srv/data')\""
+        )
+
+
 class TestSegmentsThatReExecuteData:
     """A pipe or a substitution turns a data region back into commands, so it
     disqualifies the segment from every exemption."""
@@ -273,6 +396,13 @@ class TestSegmentsThatReExecuteData:
             RM_ROOT,
         )
         assert_denied("cat <<'EOF' 2>&1 | bash\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_fd_duplication_without_a_pipe_is_not_a_segment_break(self):
+        # `2>&1` sitting between the target and the heredoc operator: splitting
+        # on that `&` would strand the opener in a segment whose "program" is
+        # the stray `1`, which is not on the inert allowlist, and the whole
+        # call would lose its exemption.
+        assert_allowed("cat > /tmp/f 2>&1 <<'EOF'\ngit push --force-with-lease\nEOF")
 
     def test_ampersand_redirect_form_does_not_hide_a_later_pipe(self):
         assert_denied("cat <<'EOF' &>/tmp/log | bash\nrm -rf /srv/data\nEOF", RM_ROOT)
@@ -303,10 +433,20 @@ class TestNeighbouringCommandsAreUnaffected:
         )
 
     def test_two_heredocs_one_line_only_the_sink_is_exempt(self):
-        # Bodies arrive in opener order: `A` belongs to cat, `B` to bash.
+        # Bodies arrive in OPENER order: `A` belongs to cat (a sink, blanked),
+        # `B` to wc (inert, so it does not void the call, but it is not a sink
+        # either, so its body stays scanned). Misattributing them swaps which
+        # pattern fires, which is why this asserts RM_ROOT and not merely
+        # "denied" — `git reset --hard` would deny too, for the wrong reason.
+        assert_denied(
+            "cat > /tmp/a <<'A' ; wc -l <<'B'\ngit reset --hard\nA\nrm -rf /srv/data\nB",
+            RM_ROOT,
+        )
+
+    def test_a_shell_heredoc_voids_the_whole_call(self):
         assert_denied(
             "cat > /tmp/a <<'A' ; bash <<'B'\ngit reset --hard\nA\nrm -rf /srv/data\nB",
-            RM_ROOT,
+            RESET_HARD,
         )
 
     def test_here_string_is_not_a_heredoc(self):

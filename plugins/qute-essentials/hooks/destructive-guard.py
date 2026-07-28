@@ -11,6 +11,7 @@ run — see "Execution surface" below.
 Toggle with `/guard <name> on/off` (persists to ~/.claude/qute-guards.json).
 """
 
+import ast
 import json
 import os
 import re
@@ -433,20 +434,37 @@ def is_safe_context(command: str) -> bool:
 #       and `python3 runner.py -c '…'` hand the region to an arbitrary script
 #       instead, so they stay scanned; so do `-m` and option bundles like
 #       `-uc`, which this code will not try to take apart.
-#       Exempt only when the payload contains no way to hand text to a
-#       shell (`_PY_SHELLS_OUT`). Python is the only interpreter exempted:
+#       Exempt only when the payload provably cannot reach a shell, decided
+#       by an ALLOWLIST over its parsed AST (`_python_payload_is_inert`): no
+#       imports, and every call target a safe builtin or a safe method. A
+#       deny-list of names would be defeated by `getattr(os, 'sys' + 'tem')`,
+#       which is the fragment trick again. Python is the only interpreter:
 #       every other one (`perl -e`, `node -e`, `ruby -e`, and notably
 #       `psql -c` / `mysql -e`, whose payloads the DATABASE_PATTERNS are
 #       *about*) would need its own shell-out vocabulary, and an incomplete
 #       vocabulary is a bypass rather than a false positive.
 #
+# Third, and cutting across both: a data region is exempt only when NOTHING
+# ELSE in the same Bash call can run a program (`INERT_PROGRAMS`). Writing a
+# file and executing it are two steps, and they fit in one tool call:
+#
+#     cat > /tmp/x <<'EOF'
+#     rm -rf /srv/data
+#     EOF
+#     bash /tmp/x
+#
+# Blanking that body would hide a command the very next line runs. So one
+# non-inert segment anywhere voids every exemption in the call.
+#
 # CASES THIS DELIBERATELY STILL BLOCKS, because they cannot be told apart
 # from execution by looking at the text:
-#   * `python3 -c "os.system('rm -rf /x')"` — and so, unavoidably, also
-#     `python3 -c "open('f','w').write('rm -rf /x')"` when the same payload
-#     happens to mention subprocess/os.system/exec/eval anywhere.
+#   * `python3 -c "os.system('rm -rf /x')"` — and, unavoidably, any payload
+#     that imports anything at all or calls something off the AST allowlist,
+#     however innocent its intent.
 #   * any interpreter other than python: `perl -e '…'`, `node -e '…'`.
 #   * a heredoc into anything but `cat`/`tee`, including `sudo tee`.
+#   * anything in the same call as a program that could execute a file —
+#     `bash`, `.`, `make`, `./script`, or a name not on the inert allowlist.
 #   * any of the above when the segment also pipes or substitutes.
 # The route for those is the Write tool (never screened by this guard —
 # it only matches Bash) or `/guard destructive off` for the one session.
@@ -457,22 +475,65 @@ HEREDOC_DATA_SINKS = frozenset({"cat", "tee"})
 # Interpreters whose payload is exempt when it cannot shell out.
 _PYTHON_CMD = re.compile(r"\Apython[0-9.]*\Z")
 
-# Anything that lets a python payload hand a string to a shell (or build one
-# dynamically). Deliberately over-broad: a match means "scan it", which is the
-# safe direction.
-_PY_SHELLS_OUT = re.compile(
-    r"""(?:
-          \bos\s*\.\s*(?:system|popen|exec\w*|spawn\w*)
-        | \bsubprocess\b
-        | \bcommands\s*\.
-        | \bpty\s*\.\s*spawn\b
-        | \bsystem\s*\(
-        | \bpopen\s*\(
-        | \b(?:check_output|check_call|getoutput|getstatusoutput)\b
-        | \b(?:exec|eval|compile)\s*\(
-    )""",
-    re.VERBOSE,
-)
+# Programs that cannot run another program, so their presence elsewhere in the
+# command does not put a blanked region back into play. An ALLOWLIST: anything
+# not named here — `bash`, `.`, `sudo`, `make`, `npm`, `./script`, or simply a
+# name this file has never heard of — voids every exemption in the command.
+INERT_PROGRAMS = frozenset(
+    {
+        "cat", "tee", "echo", "printf", "true", "false", "test", "[",
+        "ls", "pwd", "cd", "mkdir", "rmdir", "touch", "mktemp",
+        "chmod", "chown", "chgrp", "cp", "mv", "ln", "rm",
+        "stat", "file", "wc", "head", "tail", "sort", "uniq", "cut", "tr",
+        "diff", "cmp", "grep", "egrep", "fgrep", "rg",
+        "date", "sleep", "basename", "dirname", "realpath", "readlink",
+        "git",
+    }
+)  # fmt: skip
+
+# Calls a python payload may make and still count as "only writes files and
+# shuffles strings". An ALLOWLIST checked against the parsed AST, not the text:
+# a deny-list of names (`os.system`, `subprocess`, …) is defeated by one
+# `getattr(os, 'sys' + 'tem')`, which is exactly the fragment trick this ticket
+# exists to stop rewarding. Anything else — any import at all, any call whose
+# target is not one of these, any payload that will not parse — is not exempt.
+_PY_SAFE_CALLS = frozenset(
+    {"open", "print", "str", "repr", "len", "int", "float", "bool", "list",
+     "dict", "tuple", "set", "sorted", "range", "enumerate", "zip", "format"}
+)  # fmt: skip
+_PY_SAFE_METHODS = frozenset(
+    {"write", "writelines", "read", "readlines", "close", "flush",
+     "join", "format", "replace", "strip", "lstrip", "rstrip", "split",
+     "splitlines", "encode", "decode", "startswith", "endswith", "upper",
+     "lower", "title", "append", "extend", "insert", "items", "keys",
+     "values", "get", "count", "index", "ljust", "rjust", "zfill"}
+)  # fmt: skip
+
+
+def _python_payload_is_inert(source: str) -> bool:
+    """Whether a python program provably cannot reach a shell.
+
+    Allowlist over the AST: no imports, and every call target must be a
+    builtin from `_PY_SAFE_CALLS` or a method from `_PY_SAFE_METHODS`. A
+    syntax error means "not exempt" — a payload this code cannot parse is a
+    payload it cannot vouch for.
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError, MemoryError, RecursionError):
+        return False
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return False
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name) and func.id in _PY_SAFE_CALLS:
+                continue
+            if isinstance(func, ast.Attribute) and func.attr in _PY_SAFE_METHODS:
+                continue
+            return False
+    return True
+
 
 # Turns a "data" region back into commands, so it disqualifies the segment.
 _SEGMENT_DISQUALIFIERS = ("|", "$(", "`", ">(", "<(")
@@ -657,38 +718,47 @@ def _segment_is_plain(segment: str) -> bool:
     return not any(token in segment for token in _SEGMENT_DISQUALIFIERS)
 
 
+def _dash_c_payload(segment: str):
+    """(start, end) of a `python -c '<payload>'` body inside `segment`."""
+    m = re.search(r"(?:\A|\s)-c[ \t]*(['\"])", segment)
+    if not m:
+        return None
+    start = m.end()
+    end = segment.find(m.group(1), start)
+    return None if end == -1 else (start, end)
+
+
 def _heredoc_body_is_data(segment: str, body: str) -> bool:
     program, args = _split_command(segment)
     if program in HEREDOC_DATA_SINKS:
         return True
     if _PYTHON_CMD.match(program) and _python_source_mode(args) == "stdin":
-        return not _PY_SHELLS_OUT.search(body)
+        return _python_payload_is_inert(body)
     return False
 
 
-def _blank(chars: list, start: int, end: int) -> None:
-    """Overwrite [start, end) with spaces, keeping newlines so `$`/`^` hold."""
-    for i in range(start, end):
-        if chars[i] != "\n":
-            chars[i] = " "
+def _scan_layout(command: str):
+    """(heredocs, segments) for the whole command.
 
-
-def _blank_heredoc_bodies(command: str, chars: list) -> None:
+    heredocs: (quoted, seg_start, seg_end, body_start, body_end) per opener.
+    segments: char ranges of every command segment, EXCLUDING heredoc body and
+    terminator lines — those are data (or a delimiter), not commands.
+    """
     lines, offset = [], 0
     for line in command.split("\n"):
         lines.append((offset, line))
         offset += len(line) + 1
 
-    idx = 0
+    heredocs, segments, idx = [], [], 0
     while idx < len(lines):
         line_start, line = lines[idx]
         pending = []
         for seg_start, seg_end in _split_segments(line, line_start):
-            segment = command[seg_start:seg_end]
-            for word, quoted in _heredoc_openers(segment):
-                pending.append((word, quoted, segment))
+            segments.append((seg_start, seg_end))
+            for word, quoted in _heredoc_openers(command[seg_start:seg_end]):
+                pending.append((word, quoted, seg_start, seg_end))
         idx += 1
-        for word, quoted, segment in pending:
+        for word, quoted, seg_start, seg_end in pending:
             body_start = lines[idx][0] if idx < len(lines) else len(command)
             body_end = body_start
             while idx < len(lines):
@@ -698,48 +768,86 @@ def _blank_heredoc_bodies(command: str, chars: list) -> None:
                     break
                 body_end = l_start + len(l_text)
                 idx += 1
-            body = command[body_start:body_end]
-            if not _segment_is_plain(segment):
-                continue
-            if not _heredoc_body_is_data(segment, body):
-                continue
-            _blank(chars, body_start, body_end)
-            if not quoted:
-                # The shell still expands these inside an unquoted heredoc.
-                for m in _EXPANSION.finditer(body):
-                    chars[body_start + m.start() : body_start + m.end()] = list(
-                        m.group(0)
-                    )
+            heredocs.append((quoted, seg_start, seg_end, body_start, body_end))
+    return heredocs, segments
 
 
-def _blank_python_c_payloads(command: str, chars: list) -> None:
-    offset = 0
-    for line in command.split("\n"):
-        for seg_start, seg_end in _split_segments(line, offset):
-            segment = command[seg_start:seg_end]
-            if not _segment_is_plain(segment):
-                continue
-            program, args = _split_command(segment)
-            if not _PYTHON_CMD.match(program):
-                continue
-            # `-c` must be the INTERPRETER's, not an argument that happens to
-            # follow a script name (`python3 runner.py -c "…"` hands the string
-            # to runner.py, which may do anything with it).
-            if _python_source_mode(args) != "dash_c":
-                continue
-            m = re.search(r"(?:\A|\s)-c[ \t]*(['\"])", segment)
-            if not m:
-                continue
-            quote = m.group(1)
-            body_start = m.end()
-            body_end = segment.find(quote, body_start)
-            if body_end == -1:
-                continue
-            payload = segment[body_start:body_end]
-            if _PY_SHELLS_OUT.search(payload):
-                continue
-            _blank(chars, seg_start + body_start, seg_start + body_end)
-        offset += len(line) + 1
+def _segment_can_run_a_program(command: str, seg_range, bodies: dict) -> bool:
+    """Whether a segment could execute something — including a file that
+    another segment in the same call just wrote.
+
+    This is the answer to "write it, then run it in one Bash call":
+
+        cat > /tmp/x <<'EOF'
+        rm -rf /srv/data
+        EOF
+        bash /tmp/x
+
+    Blanking the body while `bash /tmp/x` sits in the same command would hide
+    a command that then runs. So a single non-inert segment anywhere voids
+    every exemption in the call. Allowlist, so an unrecognised program counts
+    as an executor.
+    """
+    segment = command[seg_range[0] : seg_range[1]]
+    program, args = _split_command(segment)
+    if not program:
+        return False
+    if program in INERT_PROGRAMS:
+        return False
+    if _PYTHON_CMD.match(program):
+        # Python counts as inert only if the source it is about to run is
+        # itself inert — otherwise it is a program that could run `/tmp/x`.
+        mode = _python_source_mode(args)
+        if mode == "dash_c":
+            span = _dash_c_payload(segment)
+            return not (span and _python_payload_is_inert(segment[span[0] : span[1]]))
+        if mode == "stdin":
+            body = bodies.get(seg_range)
+            return body is None or not _python_payload_is_inert(body)
+    return True
+
+
+def _blank(chars: list, start: int, end: int) -> None:
+    """Overwrite [start, end) with spaces, keeping newlines so `$`/`^` hold."""
+    for i in range(start, end):
+        if chars[i] != "\n":
+            chars[i] = " "
+
+
+def _blank_heredoc_bodies(command: str, chars: list, heredocs) -> None:
+    for quoted, seg_start, seg_end, body_start, body_end in heredocs:
+        segment = command[seg_start:seg_end]
+        body = command[body_start:body_end]
+        if not _segment_is_plain(segment):
+            continue
+        if not _heredoc_body_is_data(segment, body):
+            continue
+        _blank(chars, body_start, body_end)
+        if not quoted:
+            # The shell still expands these inside an unquoted heredoc.
+            for m in _EXPANSION.finditer(body):
+                chars[body_start + m.start() : body_start + m.end()] = list(m.group(0))
+
+
+def _blank_python_c_payloads(command: str, chars: list, segments) -> None:
+    for seg_start, seg_end in segments:
+        segment = command[seg_start:seg_end]
+        if not _segment_is_plain(segment):
+            continue
+        program, args = _split_command(segment)
+        if not _PYTHON_CMD.match(program):
+            continue
+        # `-c` must be the INTERPRETER's, not an argument that happens to
+        # follow a script name (`python3 runner.py -c "…"` hands the string
+        # to runner.py, which may do anything with it).
+        if _python_source_mode(args) != "dash_c":
+            continue
+        span = _dash_c_payload(segment)
+        if not span:
+            continue
+        if not _python_payload_is_inert(segment[span[0] : span[1]]):
+            continue
+        _blank(chars, seg_start + span[0], seg_start + span[1])
 
 
 def execution_surface(command: str) -> str:
@@ -751,9 +859,15 @@ def execution_surface(command: str) -> str:
     old behaviour, which errs toward blocking.
     """
     try:
+        heredocs, segments = _scan_layout(command)
+        bodies = {(s, e): command[bs:be] for _q, s, e, bs, be in heredocs}
+        # One executor anywhere in the call voids every exemption in it: it
+        # could run a file another segment just wrote.
+        if any(_segment_can_run_a_program(command, seg, bodies) for seg in segments):
+            return command
         chars = list(command)
-        _blank_heredoc_bodies(command, chars)
-        _blank_python_c_payloads(command, chars)
+        _blank_heredoc_bodies(command, chars, heredocs)
+        _blank_python_c_payloads(command, chars, segments)
         return "".join(chars)
     except Exception:
         return command
