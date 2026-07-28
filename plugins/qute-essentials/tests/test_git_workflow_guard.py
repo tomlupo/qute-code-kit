@@ -1690,6 +1690,99 @@ def test_command_substitution_does_not_disturb_the_base_dir(tmp_path, home):
     assert decision == "deny"
 
 
+# ─── shell control flow ───────────────────────────────────────
+#
+# Defect 14, parsing axis. Reserved words sit in FRONT of the command they
+# introduce, and the segment splitter leaves them glued to it — so `then git
+# commit` tokenized as `["then", "git", …]` and the parser, which only ever
+# looked for `git` at position 0 (after wrappers and assignments), did not see
+# a git command at all. `if …; then git commit; fi` is about as ordinary a Bash
+# form as exists.
+
+CONTROL_FLOW_COMMITS = [
+    "if true; then git commit -m x; fi",
+    "if false; then echo no; else git commit -m x; fi",
+    "if false; then echo no; elif true; then git commit -m x; fi",
+    "while true; do git commit -m x; done",
+    "until false; do git commit -m x; done",
+    "for f in a b; do git commit -m x; done",
+    "! git commit -m x",
+    "time git commit -m x",
+    "if true; then { git commit -m x; }; fi",
+]
+
+
+@pytest.mark.parametrize("cmd", CONTROL_FLOW_COMMITS)
+def test_control_flow_commit_denied_on_protected(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("cmd", CONTROL_FLOW_COMMITS)
+def test_control_flow_commit_allowed_on_feature_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "while true; do git push origin main; done",
+        "if true; then git push origin main; fi",
+        "for f in a; do git push origin main; done",
+        "while git push origin main; do echo again; done",
+    ],
+)
+def test_control_flow_push_to_protected_denied_from_feature_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+def test_control_flow_condition_is_read_too(tmp_path, home):
+    """`if git …` / `while git …` put a real git command in the condition."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("if git diff --quiet; then echo clean; fi", repo, home)
+    assert decision == "allow", "a read-only condition must not be blocked"
+    decision, _ = _run("if git commit -m x; then echo done; fi", repo, home)
+    assert decision == "deny"
+
+
+def test_control_flow_cd_is_followed(tmp_path, home):
+    """A `cd` behind a reserved word must move the guard as well."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(
+        f"if true; then cd {other}; git commit -m x; fi", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_control_flow_terminators_are_not_commands(tmp_path, home):
+    """`fi` / `done` / `esac` land in segments of their own and must stay
+    inert — no denial, no crash."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("if true; then echo hi; fi; git status", repo, home)
+    assert decision == "allow"
+
+
+def test_control_flow_wrappers_compose(tmp_path, home):
+    """The reserved word peels first, then the `env` / path handling."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in (
+        "if true; then env VAR=x git commit -m y; fi",
+        "while true; do /usr/bin/git commit -m y; done",
+        "if true; then command git commit -m y; fi",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+
+
 # ─── the guard describes itself honestly ──────────────────────
 
 

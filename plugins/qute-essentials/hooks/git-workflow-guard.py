@@ -113,7 +113,7 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9 are parsing; 10-13 are the
+not as a checklist that is now complete. 1-9 and 14 are parsing; 10-13 are the
 environment axis, and are the reason that axis is written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -143,7 +143,11 @@ environment axis, and are the reason that axis is written down at all:
   13. `-C` + `--git-dir` — `-C` was treated as overriding `--git-dir`, but git
       applies `-C` to the cwd and STILL lets `--git-dir` pick the repo, so
       `git -C ../feature --git-dir=/repo-on-main/.git commit` was evaluated
-      against `../feature`.
+      against `../feature`;
+  14. shell control flow (parsing) — reserved words sit in FRONT of the command
+      they introduce, so `if …; then git commit; fi` and `while …; do git push
+      origin main; done` tokenized as `["then", "git", …]` and never registered
+      as git commands at all.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -399,10 +403,35 @@ def _segments(command: str):
     return events
 
 
-# Brace groups (`{ cd x; git commit; }`) are stripped as noise rather than
-# scoped: unlike `( … )` a brace group runs in the CURRENT shell, so a `cd`
-# inside it must keep applying afterwards.
-_GROUPING_TOKENS = frozenset({"{", "}"})
+# Shell reserved words that SIT IN FRONT OF a command, so the command we care
+# about is the next token along: `then git commit`, `do git push origin main`,
+# `! git diff --quiet`, `time git push`. The segment splitter leaves them glued
+# to the command, and the parser then failed to see `git` at all — an ordinary
+# Bash form (`if …; then git commit; fi`) that never reached the guard.
+#
+# Brace groups are stripped here rather than scoped like `( … )`: a brace group
+# runs in the CURRENT shell, so a `cd` inside it must keep applying afterwards.
+#
+# Terminators (`fi`, `done`, `esac`) need no entry — a separator always puts
+# them in a segment of their own, where they are simply not a git command.
+# `for` / `function` need none either: what follows them is a variable or a
+# name, never a command.
+_LEADING_SHELL_WORDS = frozenset(
+    {
+        "{",
+        "}",
+        "!",
+        "then",
+        "else",
+        "elif",
+        "do",
+        "if",
+        "while",
+        "until",
+        "time",
+    }
+)
+_TRAILING_SHELL_WORDS = frozenset({"}"})
 
 
 def _tokens(segment: str):
@@ -1046,11 +1075,11 @@ def main():
             continue
 
         tokens = _tokens(seg)
-        # Brace groups run in the current shell, so they are noise here — but
-        # the tokens `{` / `}` would otherwise hide the command behind them.
-        while tokens and tokens[0] in _GROUPING_TOKENS:
+        # Peel shell reserved words standing in front of the command, so
+        # `then git commit` is read as the `git commit` it is.
+        while tokens and tokens[0] in _LEADING_SHELL_WORDS:
             tokens = tokens[1:]
-        while tokens and tokens[-1] in _GROUPING_TOKENS:
+        while tokens and tokens[-1] in _TRAILING_SHELL_WORDS:
             tokens = tokens[:-1]
 
         # Track `cd` so a subsequent git command in the same chain resolves
