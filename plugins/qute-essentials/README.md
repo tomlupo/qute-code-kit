@@ -160,23 +160,40 @@ alike.
   two layers can never disagree about which branches are guarded. No file = both
   are a no-op for that repo.
 - **Install:** `python3 scripts/install_pre_push_guard.py --repo . [--opt-in]
-  [--adopt-existing]`. It detects the world (a repo with `core.hooksPath` makes
-  git ignore `.git/hooks`, so the pre-commit framework's install is unusable
-  there), installs accordingly, never clobbers an existing `pre-push` — with
+  [--adopt-existing]`. It resolves the path git will actually use
+  (`git rev-parse --git-path hooks/pre-push`, which honours `core.hooksPath`),
+  installs there, never clobbers an existing `pre-push` — with
   `--adopt-existing` it chains it from `pre-push.d/` instead — and then drives
-  the installed hook through git's own resolved path with synthetic ref lines to
-  prove it is reachable. `--check` verifies without installing.
+  the installed hook through that same path with synthetic ref lines to prove it
+  is reachable. `--check` verifies without installing.
+- **It always takes the native hook path, never the pre-commit framework's
+  `pre-push` stage.** The framework drops ref lines whose local sha is all zeros
+  before running any hook (so branch *deletions* never reach the guard) and
+  exposes only the first pushable ref of a multi-ref push. That is a fine
+  tradeoff for a convenience hook and not for the layer whose whole job is that
+  it holds, so `auto` never selects it. A repo that already uses pre-commit
+  keeps working: its generated shim is relocated to `pre-push.d/50-pre-commit`
+  and runs behind the guard with the ref lines replayed to it.
+  `--mechanism pre-commit` remains for a repo that genuinely cannot take the
+  native slot — and there verification **fails** on the coverage it cannot
+  provide rather than warning, so nobody is told they are protected when they
+  are not.
+- **A later `pre-commit install --hook-type pre-push` reclaims the slot** and
+  moves the dispatcher to `<slot>.legacy` — which pre-commit's shim runs first
+  with the raw stdin, ORing its exit code into its own, so full coverage
+  survives (measured, not assumed; see the test suite). But `pre-commit install
+  -f` **deletes** that legacy hook and removes the guard, so re-run with
+  `--check` after any forced install; it detects the loss.
+- **A `core.hooksPath` inherited from global or system config is refused by
+  default.** `git config --get core.hooksPath` reads those scopes too, so that
+  hook file is shared by every repo of that user — writing to it is not the
+  per-repo install the caller asked for. The installer reads the local scope
+  separately and requires `--allow-shared-hooks-path` to touch a shared one.
 - **`git push --no-verify` bypasses it.** That is the contract of a client-side
   hook and it is what makes it safe to install: it catches the accidental push
   and yields to the deliberate one. It is **not** a substitute for server-side
   branch protection — it exists because protection is unavailable on these
   repos' plan.
-- **Known gap under the pre-commit framework:** pre-commit drops ref lines whose
-  local sha is all zeros before running any hook, so branch *deletions* never
-  reach the guard, and it exposes only the first pushable ref of a multi-ref
-  push. The native hook path (`core.hooksPath` or plain `.git/hooks`) has
-  neither limitation. The installer reports this per-repo rather than claiming
-  full coverage.
 - **Fails open, loudly.** An internal error prints a `QUTE_PRE_PUSH_GUARD:
   internal error …` warning and allows the push — a guard bug must not wedge
   every push in a repo, but it must never be silent about stepping aside.

@@ -237,24 +237,34 @@ gate binds it on conclude.
   not installed is worse than no hook because it manufactures confidence.
   Things to get right:
 
-  - **Two worlds, detected not assumed.** A repo with `core.hooksPath` set
-    makes git ignore `.git/hooks` entirely, so `pre-commit install` there
-    installs nothing that will ever run (pre-commit ≥3 refuses outright; older
-    versions succeed silently). The installer resolves the hook path with
-    `git rev-parse --git-path hooks/pre-push` — git's own answer — and uses the
-    native dispatcher there. Everywhere else with a `.pre-commit-config.yaml`
-    it adds a `stages: [pre-push]` entry and runs `pre-commit install
-    --hook-type pre-push`.
-  - **An existing `pre-push` is never clobbered.** Without `--adopt-existing`
-    the installer reports `BLOCKED` and stops. With it, the old hook moves to
-    `<hooks dir>/pre-push.d/00-legacy-pre-push` and the qute dispatcher runs in
-    front of it, replaying the ref lines so the adopted hook still gets its
-    stdin.
-  - **Report the coverage gap honestly.** Under the pre-commit framework the
-    guard cannot see branch *deletions* — pre-commit drops ref lines whose
-    local sha is all zeros before running any hook, and exposes only the first
-    pushable ref. The native path has neither limitation. The installer's
-    coverage block states this per-repo; do not paraphrase it away.
+  - **The hook path is git's answer, not a guess.** The installer resolves it
+    with `git rev-parse --git-path hooks/pre-push`, which honours
+    `core.hooksPath` — and a repo with `core.hooksPath` set makes git ignore
+    `.git/hooks` entirely, so anything dropped there would never run.
+  - **Always the native path; never the pre-commit framework's `pre-push`
+    stage.** The framework drops ref lines whose local sha is all zeros (branch
+    *deletions* never reach any hook it runs) and exposes only the first
+    pushable ref of a multi-ref push. Fine for a convenience hook, not for the
+    enforcement layer — so a repo that uses pre-commit still gets the native
+    install, and pre-commit's generated shim is relocated to
+    `pre-push.d/50-pre-commit` where it runs behind the guard with the ref lines
+    replayed to it. If you ever pass `--mechanism pre-commit`, expect
+    verification to FAIL on the coverage it cannot provide; do not "fix" that by
+    ignoring it.
+  - **An existing hand-authored `pre-push` is never clobbered.** Without
+    `--adopt-existing` the installer reports `BLOCKED` and stops. With it, the
+    old hook moves to `<hooks dir>/pre-push.d/00-legacy-pre-push` and the qute
+    dispatcher runs in front of it, replaying the ref lines so the adopted hook
+    still gets its stdin.
+  - **A user-wide `core.hooksPath` is refused by default.** If the setting comes
+    only from global/system config, the hook file is shared by every repo that
+    user has — the installer says so and stops rather than editing outside the
+    repo you pointed it at. Either set a repo-local path or pass
+    `--allow-shared-hooks-path` deliberately.
+  - **Re-check after any `pre-commit install`.** It reclaims the hook slot and
+    moves the dispatcher to `<slot>.legacy`, where coverage survives intact — but
+    `pre-commit install -f` deletes that file and removes the guard. `--check`
+    detects both.
   - **`git push --no-verify` bypasses it**, as it does every client-side hook.
     That is the design, not a defect: this catches the accidental push and
     yields to the deliberate one. It is not a substitute for server-side branch

@@ -48,6 +48,13 @@ def _load_guard():
 
 guard = _load_guard()
 
+_ispec = importlib.util.spec_from_file_location(
+    "qute_install_pre_push_guard", str(INSTALLER)
+)
+installer = importlib.util.module_from_spec(_ispec)
+_ispec.loader.exec_module(installer)
+is_pre_commit_shim = installer.is_pre_commit_shim
+
 
 # ------------------------------------------------------------------ unit
 
@@ -434,65 +441,204 @@ class TestHooksPathWorld:
     shutil.which("pre-commit") is None, reason="pre-commit framework not installed"
 )
 class TestPreCommitWorld:
-    def _add_config(self, sandbox):
+    """A repo that uses pre-commit must still get the STRONGER mechanism.
+
+    The framework's `pre-push` stage cannot see branch deletions or the tail of
+    a multi-ref push. That is an acceptable tradeoff for a convenience hook and
+    not for the enforcement layer, so `auto` must never select it while the
+    native slot is available.
+    """
+
+    def _add_config(self, sandbox, stage="pre-commit"):
         (sandbox["repo"] / ".pre-commit-config.yaml").write_text(
             "repos:\n"
             "-   repo: local\n"
             "    hooks:\n"
-            "    -   id: noop\n"
-            "        name: noop\n"
-            "        entry: python3 -c pass\n"
+            "    -   id: shout\n"
+            "        name: shout\n"
+            "        entry: bash -c 'echo PRECOMMIT-HOOK-RAN >&2'\n"
             "        language: system\n"
-            "        stages: [pre-commit]\n"
+            "        always_run: true\n"
+            "        pass_filenames: false\n"
+            "        verbose: true\n"
+            f"        stages: [{stage}]\n"
         )
 
-    def test_installs_via_the_framework_pre_push_stage(self, sandbox):
+    def test_auto_picks_native_when_the_slot_is_free(self, sandbox):
         self._add_config(sandbox)
         out = _install(sandbox)
         assert out.returncode == 0, out.stdout + out.stderr
-        assert "mechanism:  pre-commit" in out.stdout
+        assert "mechanism:  native" in out.stdout
+        assert (sandbox["repo"] / ".git" / "hooks" / "pre-push").exists()
+        # and it must NOT have edited the repo's pre-commit config
         cfg = (sandbox["repo"] / ".pre-commit-config.yaml").read_text()
-        assert "qute-pre-push-branch-guard" in cfg
-        assert "stages: [pre-push]" in cfg
+        assert "qute-pre-push-branch-guard" not in cfg
 
-    def test_refuses_push_to_protected(self, sandbox):
+    def test_native_choice_sees_a_multi_ref_push_in_full(self, sandbox):
+        """The concrete thing the framework path would have missed."""
         self._add_config(sandbox)
         _install(sandbox)
+        _commit(sandbox)  # local main is now ahead of origin/main
         _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
         _commit(sandbox)
-        out = _push(sandbox, "origin", "feat/x:main")
-        assert out.returncode != 0
-        assert "REFUSED" in out.stdout + out.stderr
-
-    def test_allows_feature_branch(self, sandbox):
-        self._add_config(sandbox)
-        _install(sandbox)
-        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
-        _commit(sandbox)
-        assert _push(sandbox, "origin", "feat/x").returncode == 0
-
-    def test_documented_gap_deletions_never_reach_the_hook(self, sandbox):
-        """Not an aspiration — a regression test on a KNOWN limitation.
-
-        pre-commit's pre-push adapter skips ref lines whose local sha is all
-        zeros, so a branch deletion never reaches any hook it runs. If this
-        test ever starts failing, the framework fixed it and the docs + the
-        installer's coverage report should stop warning about it.
-        """
-        self._add_config(sandbox)
-        _install(sandbox)
-        out = _push(sandbox, "origin", "--delete", "dev")
-        assert out.returncode == 0, (
-            "pre-commit now forwards deletions — update the documented gap"
+        out = _push(sandbox, "origin", "feat/x", "main")
+        combined = out.stdout + out.stderr
+        assert out.returncode != 0, combined
+        assert "'main'" in combined
+        # nothing landed — the refusal covered the whole push
+        assert (
+            _run(
+                ["git", "ls-remote", "--heads", "origin", "feat/x"],
+                sandbox["repo"],
+                sandbox["env"],
+            ).stdout.strip()
+            == ""
         )
 
-    def test_install_reports_the_gap_rather_than_claiming_full_coverage(self, sandbox):
+    def test_native_choice_sees_deletions(self, sandbox):
         self._add_config(sandbox)
-        out = _install(sandbox, "--json")
+        _install(sandbox)
+        assert _push(sandbox, "origin", "--delete", "dev").returncode != 0
+
+    def test_existing_shim_is_relocated_and_still_runs_exactly_once(self, sandbox):
+        self._add_config(sandbox, stage="pre-push")
+        _run(
+            ["pre-commit", "install", "--hook-type", "pre-push"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        assert is_pre_commit_shim(sandbox["repo"] / ".git" / "hooks" / "pre-push")
+
+        out = _install(sandbox)
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert (
+            sandbox["repo"] / ".git" / "hooks" / "pre-push.d" / "50-pre-commit"
+        ).exists()
+
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        allowed = _push(sandbox, "origin", "feat/x")
+        assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+        combined = allowed.stdout + allowed.stderr
+        assert combined.count("PRECOMMIT-HOOK-RAN") == 1, combined
+
+    def test_coverage_survives_pre_commit_reclaiming_the_slot(self, sandbox):
+        """`pre-commit install` DOES take the slot back — measured, not assumed.
+
+        It moves our dispatcher to `<slot>.legacy`, which its shim runs first
+        with the raw stdin and whose exit code it ORs into its own. So full
+        fidelity survives; this test is what stops that from silently changing.
+        """
+        self._add_config(sandbox, stage="pre-push")
+        _install(sandbox)
+        _run(
+            ["pre-commit", "install", "--hook-type", "pre-push"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        hooks = sandbox["repo"] / ".git" / "hooks"
+        assert is_pre_commit_shim(hooks / "pre-push")
+        assert "qute-pre-push-dispatcher" in (hooks / "pre-push.legacy").read_text()
+
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        allowed = _push(sandbox, "origin", "feat/x")
+        assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+        # no double-run of the repo's own pre-commit hooks
+        assert (allowed.stdout + allowed.stderr).count("PRECOMMIT-HOOK-RAN") == 1
+        # and the deletion path — the thing the framework alone cannot see
+        assert _push(sandbox, "origin", "--delete", "dev").returncode != 0
+        assert _install(sandbox, "--check").returncode == 0
+
+    def test_force_install_removes_the_guard_and_check_says_so(self, sandbox):
+        """`pre-commit install -f` deletes `<slot>.legacy`. Detect, don't pretend."""
+        self._add_config(sandbox, stage="pre-push")
+        _install(sandbox)
+        _run(
+            ["pre-commit", "install", "-f", "--hook-type", "pre-push"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        assert not (sandbox["repo"] / ".git" / "hooks" / "pre-push.legacy").exists()
+        out = _install(sandbox, "--check", "--json")
+        assert out.returncode != 0
+        assert json.loads(out.stdout)["ok"] is False
+
+    def test_explicit_framework_mechanism_fails_verification(self, sandbox):
+        """If someone forces the weaker path, verification must FAIL, not warn."""
+        self._add_config(sandbox)
+        out = _install(sandbox, "--mechanism", "pre-commit", "--json")
+        assert out.returncode != 0
         report = json.loads(out.stdout)
         cov = report["verification"]["coverage"]
-        assert cov["protected_update"] is True
-        assert cov["delete_guarded"] is False
+        assert cov["protected_update"] is True  # it does catch the common case
+        assert cov["delete_guarded"] is False  # but not deletions
+        assert cov["multi_ref"] is False  # nor the tail of a multi-ref push
+        assert report["ok"] is False
+
+
+@pytestmark_git
+class TestSharedHooksPathIsNotAPerRepoInstall:
+    """`git config --get core.hooksPath` reads global config too.
+
+    A repo that only inherits a user-wide `core.hooksPath` has a hook file
+    shared by every repo of that user, so writing there is not the per-repo
+    install the caller asked for. It must be refused by default.
+    """
+
+    def _set_global_hooks_path(self, sandbox, tmp_path):
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir()
+        cfg = sandbox["home"] / "gitconfig"
+        cfg.write_text(cfg.read_text() + f'[core]\n  hooksPath = "{shared}"\n')
+        # precondition: effective but not local
+        assert _run(
+            ["git", "config", "--get", "core.hooksPath"],
+            sandbox["repo"],
+            sandbox["env"],
+        ).stdout.strip()
+        assert not _run(
+            ["git", "config", "--local", "--get", "core.hooksPath"],
+            sandbox["repo"],
+            sandbox["env"],
+        ).stdout.strip()
+        return shared
+
+    def test_refuses_without_the_flag_and_writes_nothing(self, sandbox, tmp_path):
+        shared = self._set_global_hooks_path(sandbox, tmp_path)
+        out = _install(sandbox)
+        assert out.returncode != 0
+        assert "BLOCKED" in out.stdout
+        assert "USER-WIDE" in out.stdout
+        assert list(shared.iterdir()) == []
+
+    def test_report_names_the_scope_and_the_origin(self, sandbox, tmp_path):
+        self._set_global_hooks_path(sandbox, tmp_path)
+        report = json.loads(_install(sandbox, "--json").stdout)
+        assert report["hooks_path_scope"] == "shared"
+        assert "gitconfig" in report["hooks_path_origin"]
+
+    def test_proceeds_with_the_explicit_flag(self, sandbox, tmp_path):
+        shared = self._set_global_hooks_path(sandbox, tmp_path)
+        out = _install(sandbox, "--allow-shared-hooks-path")
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert (shared / "pre-push").exists()
+
+    def test_repo_local_hooks_path_needs_no_flag(self, sandbox):
+        (sandbox["repo"] / ".githooks").mkdir()
+        _run(
+            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        out = _install(sandbox)
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert (
+            json.loads(_install(sandbox, "--check", "--json").stdout)[
+                "hooks_path_scope"
+            ]
+            == "local"
+        )
 
 
 @pytestmark_git

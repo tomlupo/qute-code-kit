@@ -56,17 +56,19 @@ INPUT MODES
 1. Native git hook (full fidelity). argv = (remote_name, remote_url); stdin
    carries one `<local ref> <local sha> <remote ref> <remote sha>` line per ref.
 
-2. Under the `pre-commit` framework's `pre-push` stage (reduced fidelity).
-   pre-commit consumes stdin itself and re-exposes ONE ref through
-   `PRE_COMMIT_REMOTE_BRANCH` / `PRE_COMMIT_LOCAL_BRANCH` /
-   `PRE_COMMIT_FROM_REF` / `PRE_COMMIT_TO_REF`. Two consequences, both real and
-   both documented rather than papered over:
+2. Under the `pre-commit` framework's `pre-push` stage — reduced fidelity, and
+   therefore NOT a mode anything installs by default. pre-commit consumes stdin
+   itself and re-exposes ONE ref through `PRE_COMMIT_REMOTE_BRANCH` /
+   `PRE_COMMIT_LOCAL_BRANCH` / `PRE_COMMIT_FROM_REF` / `PRE_COMMIT_TO_REF`:
      - pre-commit SKIPS ref lines whose local sha is all zeros, i.e. **branch
        deletions never reach any hook** in that world;
      - only the first pushable ref is exposed, so a multi-ref push
        (`git push origin feat/x main`) is judged on `feat/x` alone.
-   Installing at the native hook path (see `install_pre_push_guard.py`, which
-   prefers it whenever the slot is free) has neither limitation.
+   This mode is supported so it stays legible, not so it can be chosen:
+   `install_pre_push_guard.py` ALWAYS installs at the native hook path, moving
+   pre-commit's own shim behind the dispatcher rather than running inside it.
+   A guard that quietly enforces less than it claims is worse than no guard, so
+   the installer's verification FAILS on this mode rather than noting it.
 
 EXIT CODES
 ----------

@@ -1,34 +1,57 @@
 #!/usr/bin/env python3
 """Install (and then actually VERIFY) the qute pre-push branch guard in a repo.
 
-`/setup-qute-repo` calls this instead of pasting install commands, because the
-two things that go wrong here both go wrong silently:
+`/setup-qute-repo` calls this instead of pasting install commands, because
+everything that goes wrong here goes wrong SILENTLY:
 
-  1. **Wrong world.** A repo that sets `core.hooksPath` makes git ignore
-     `.git/hooks` entirely — so `pre-commit install --hook-type pre-push`
-     succeeds, writes a file, and installs nothing that will ever run. The
-     inverse mistake (dropping a file in `.githooks/` in a repo that has no
-     `core.hooksPath`) is equally invisible.
-  2. **Reporting the command instead of the outcome.** "Ran the installer, done"
-     is not evidence. A hook that silently is not installed is worse than no
-     hook, because it manufactures confidence.
+  1. **Wrong path.** A repo that sets `core.hooksPath` makes git ignore
+     `.git/hooks` entirely, so anything dropped there never runs; the inverse
+     mistake is equally invisible. The path is therefore never guessed — it is
+     `git rev-parse --git-path hooks/pre-push`, git's own answer.
+  2. **A weaker mechanism that looks like the strong one.** The pre-commit
+     framework's `pre-push` stage drops ref lines whose local sha is all zeros
+     (branch deletions never reach any hook) and exposes only the first
+     pushable ref of a multi-ref push. For the layer whose entire purpose is
+     that it holds, that is a defect, not a tradeoff — so `auto` NEVER selects
+     it, even in a repo full of pre-commit hooks. pre-commit keeps working: its
+     generated shim is relocated behind the dispatcher, which replays the ref
+     lines to it.
+  3. **Editing outside the repo you were pointed at.** `git config --get
+     core.hooksPath` reads global and system config too. A repo that merely
+     inherits a user-wide hooks path shares that hook file with every other
+     repo of that user, so writing to it is not a per-repo install at all. The
+     local scope is read separately and the shared case is refused by default.
+  4. **Reporting the command instead of the outcome.** "Ran the installer,
+     done" is not evidence. A hook that silently is not installed is worse than
+     no hook, because it manufactures confidence.
 
-So this script detects the world, installs accordingly, and then proves the
-result by driving the hook through **git's own resolved hook path** with
-synthetic ref lines, checking for the guard's trace marker in the output. What
-it prints is a measurement, not a claim.
+So this script resolves the path, installs, and then proves the result by
+driving the hook through that same path with synthetic ref lines — including a
+deletion and a multi-ref push — and checking for the guard's trace marker in
+the output. What it prints is a measurement, not a claim, and missing coverage
+FAILS rather than warns.
 
     python3 install_pre_push_guard.py [--repo PATH] [--mechanism auto|native|pre-commit]
-                                      [--adopt-existing] [--opt-in] [--check] [--json]
+                                      [--adopt-existing] [--allow-shared-hooks-path]
+                                      [--opt-in] [--check] [--json]
 
-    --check            verify only; install nothing
-    --opt-in           create `.claude/git-guard.json` as `{}` if absent (house
-                       defaults). Without an opt-in file the guard is inert and
-                       verification says so.
-    --adopt-existing   in the native world, move a pre-existing foreign
-                       `pre-push` into `pre-push.d/00-legacy-pre-push` and put
-                       the qute dispatcher in front of it. Without this flag a
-                       foreign hook is left alone and install reports `blocked`.
+    --check                     verify only; install nothing
+    --opt-in                    create `.claude/git-guard.json` as `{}` if
+                                absent (house defaults). Without an opt-in file
+                                the guard is inert and verification says so.
+    --adopt-existing            move a pre-existing hand-authored `pre-push`
+                                into `pre-push.d/00-legacy-pre-push` and put the
+                                qute dispatcher in front of it. Without this
+                                flag such a hook is left alone and install
+                                reports BLOCKED. (pre-commit's *generated* shim
+                                is relocated without the flag — it is a
+                                regenerable artifact and it keeps running.)
+    --allow-shared-hooks-path   permit writing to a `core.hooksPath` that comes
+                                only from global/system config, i.e. a hook
+                                shared by every repo of this user.
+    --mechanism pre-commit      escape hatch for a repo that genuinely cannot
+                                take the native slot. Verification then FAILS on
+                                the coverage that mode cannot provide.
 
 Exit code is 0 when the final state is what was asked for, 1 otherwise.
 """
@@ -108,78 +131,189 @@ def write_if_needed(dest: Path, content: str, executable: bool = False) -> str:
 # ---------------------------------------------------------------- detection
 
 
-def detect_world(repo: Path) -> dict:
-    """Which installation world this repo is in.
+def is_pre_commit_shim(path: Path) -> bool:
+    """Is `path` a hook script generated by `pre-commit install`?
 
-    `core.hooksPath` wins unconditionally: when it is set, git does not look at
-    `.git/hooks` at all, so a pre-commit-framework install there is a no-op no
-    matter what `.pre-commit-config.yaml` says.
+    Matched on the banner pre-commit writes into every generated hook plus the
+    `hook-impl` entry point it dispatches to — two markers, so a hand-written
+    hook that merely mentions pre-commit is not mistaken for a regenerable
+    artifact. Deliberately NOT matched on pre-commit's template-ID hashes:
+    those change every time the template changes, and a guard that stops
+    recognising the shim after a pre-commit upgrade would silently fall back to
+    treating it as a foreign hook.
     """
-    hooks_path = git_out(repo, "config", "--get", "core.hooksPath")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").lower()
+    except OSError:
+        return False
+    return "generated by pre-commit" in text and "hook-impl" in text
+
+
+def detect_world(repo: Path) -> dict:
+    """Which installation world this repo is in, and who owns the hook slot.
+
+    Two things here are load-bearing:
+
+    * `core.hooksPath` wins unconditionally — when it is set, git does not look
+      at `.git/hooks` at all.
+    * **Its SCOPE matters.** `git config --get core.hooksPath` reads global and
+      system config too. A repo that inherits a user-wide `core.hooksPath` has
+      a hook file shared by every repo that user has, so writing there is not a
+      per-repo install at all. We read the local (and per-worktree) scope
+      separately to tell the two apart, and refuse the shared case by default.
+    """
+    effective = git_out(repo, "config", "--get", "core.hooksPath")
+    local = git_out(repo, "config", "--local", "--get", "core.hooksPath")
+    worktree = git_out(repo, "config", "--worktree", "--get", "core.hooksPath")
+    origin = git_out(repo, "config", "--show-origin", "--get", "core.hooksPath")
+
+    if not effective:
+        scope = "none"
+    elif local or worktree:
+        scope = "local"
+    else:
+        scope = "shared"
+
     resolved = git_out(repo, "rev-parse", "--git-path", "hooks/pre-push")
     hook_file = (repo / resolved).resolve() if resolved else None
     has_pc_config = (repo / PC_CONFIG).is_file()
     pc_bin = shutil.which("pre-commit")
 
-    if hooks_path:
-        world = "hooksPath"
-    elif has_pc_config:
-        world = "pre-commit"
-    else:
-        world = "native"
+    slot_owner = "empty"
+    if hook_file and hook_file.exists():
+        text = hook_file.read_text(encoding="utf-8", errors="replace")
+        if DISPATCHER_MARKER in text:
+            slot_owner = "qute"
+        elif is_pre_commit_shim(hook_file):
+            slot_owner = "pre-commit"
+        else:
+            slot_owner = "foreign"
+
+    # After `pre-commit install --hook-type pre-push` reclaims the slot, our
+    # dispatcher is moved to `<slot>.legacy` — which pre-commit's shim runs
+    # FIRST, with the raw stdin, and whose exit code it ORs into its own. That
+    # layout still gives the guard full fidelity; the installer must recognise
+    # it instead of reinstalling on top.
+    legacy_is_qute = False
+    if hook_file:
+        legacy = hook_file.with_name(hook_file.name + ".legacy")
+        legacy_is_qute = legacy.is_file() and DISPATCHER_MARKER in legacy.read_text(
+            encoding="utf-8", errors="replace"
+        )
 
     return {
-        "world": world,
-        "core_hooks_path": hooks_path,
+        "world": "hooksPath" if effective else "native",
+        "core_hooks_path": effective,
+        "hooks_path_scope": scope,
+        "hooks_path_origin": origin,
         "hook_file": str(hook_file) if hook_file else None,
+        "slot_owner": slot_owner,
+        "legacy_is_qute": legacy_is_qute,
         "pre_commit_config": has_pc_config,
         "pre_commit_bin": pc_bin,
     }
 
 
 def choose_mechanism(world: dict, requested: str) -> str:
+    """Always native unless explicitly overridden.
+
+    The pre-commit framework's `pre-push` stage cannot see the full push: it
+    drops ref lines whose local sha is all zeros (so branch deletions never
+    reach any hook) and exposes only the first pushable ref of a multi-ref
+    push. That is a fine tradeoff for a convenience hook and an unacceptable
+    one for the layer whose whole job is that it holds — so `auto` never picks
+    it. `--mechanism pre-commit` remains available for a repo that genuinely
+    cannot take the native slot, and verification FAILS there rather than
+    warning, so nobody is told they are protected when they are not.
+    """
     if requested != "auto":
         return requested
-    if world["world"] == "pre-commit" and world["pre_commit_bin"]:
-        return "pre-commit"
     return "native"
 
 
 # ----------------------------------------------------------------- install
 
 
-def install_native(repo: Path, world: dict, adopt: bool, actions: list) -> bool:
+def install_native(
+    repo: Path, world: dict, adopt: bool, allow_shared: bool, actions: list
+) -> bool:
     """Put the dispatcher at the path git will actually invoke."""
+    if world["hooks_path_scope"] == "shared" and not allow_shared:
+        actions.append(
+            "BLOCKED: core.hooksPath is set OUTSIDE this repository "
+            f"({world['hooks_path_origin']}), so {world['hook_file']} is a "
+            "USER-WIDE hook shared by every repository that inherits this "
+            "config — not a per-repo install. Installing there would change "
+            "the behaviour of every one of those repos, including ones that "
+            "never opted in. Either set a repo-local path "
+            "(`git config --local core.hooksPath <dir>`) and re-run, or pass "
+            "--allow-shared-hooks-path to accept the user-wide edit."
+        )
+        return False
+
     hook_file = Path(world["hook_file"])
     hook_file.parent.mkdir(parents=True, exist_ok=True)
 
-    if hook_file.exists():
-        existing = hook_file.read_text(encoding="utf-8", errors="replace")
-        if DISPATCHER_MARKER in existing:
-            actions.append(
-                f"dispatcher {write_if_needed(hook_file, DISPATCHER_SRC.read_text(), True)}: {hook_file}"
+    if world["slot_owner"] == "pre-commit" and world["legacy_is_qute"]:
+        # pre-commit reclaimed the slot after a previous install. The guard
+        # still runs, with raw stdin, from `<slot>.legacy`. Refresh it in place
+        # rather than fighting for the slot back.
+        legacy = hook_file.with_name(hook_file.name + ".legacy")
+        actions.append(
+            f"pre-commit holds the slot and chains the guard from {legacy.name} "
+            f"(raw stdin, exit code honoured) — dispatcher "
+            f"{write_if_needed(legacy, DISPATCHER_SRC.read_text(), True)}"
+        )
+        actions.append(
+            "NOTE: `pre-commit install -f --hook-type pre-push` DELETES that "
+            "legacy hook and would remove the guard. Re-run this installer "
+            "(or `--check`) after any -f install."
+        )
+        return True
+
+    if hook_file.exists() and world["slot_owner"] != "qute":
+        if world["slot_owner"] == "pre-commit":
+            # A generated, regenerable artifact — relocating it into the chain
+            # keeps every pre-commit hook running, so this does not need the
+            # --adopt-existing ceremony a hand-authored hook does. It is still
+            # reported loudly.
+            dest_name = "50-pre-commit"
+            note = (
+                "relocated pre-commit's generated shim into the chain; its "
+                "hooks still run, behind the guard. `pre-commit uninstall` "
+                "will no longer find it — delete the file to disable it."
             )
-            return True
-        if not adopt:
+        elif not adopt:
             actions.append(
                 f"BLOCKED: {hook_file} already exists and is not the qute "
                 "dispatcher. Re-run with --adopt-existing to move it to "
                 "pre-push.d/00-legacy-pre-push and chain it behind the guard."
             )
             return False
+        else:
+            dest_name = "00-legacy-pre-push"
+            note = "adopted the repo's existing pre-push hook"
+
         legacy_dir = hook_file.parent / "pre-push.d"
         legacy_dir.mkdir(parents=True, exist_ok=True)
-        legacy = legacy_dir / "00-legacy-pre-push"
+        legacy = legacy_dir / dest_name
         if legacy.exists():
             actions.append(f"BLOCKED: {legacy} already exists; refusing to overwrite")
             return False
         hook_file.rename(legacy)
         make_executable(legacy)
-        actions.append(f"adopted existing pre-push -> {legacy}")
+        actions.append(f"{note} -> {legacy}")
 
     actions.append(
         f"dispatcher {write_if_needed(hook_file, DISPATCHER_SRC.read_text(), True)}: {hook_file}"
     )
+    if world["pre_commit_config"]:
+        actions.append(
+            "NOTE: this repo uses pre-commit. A later `pre-commit install "
+            "--hook-type pre-push` moves the dispatcher to <slot>.legacy, "
+            "where it still runs with raw stdin — but `-f` DELETES it. Re-run "
+            "with --check after any pre-commit install to confirm coverage."
+        )
     return True
 
 
@@ -242,14 +376,6 @@ def install_pre_commit(repo: Path, world: dict, actions: list) -> bool:
 
 
 # ------------------------------------------------------------------ verify
-
-
-def _is_pre_commit_shim(hook_file: Path) -> bool:
-    try:
-        head = hook_file.read_text(encoding="utf-8", errors="replace")[:2000]
-    except OSError:
-        return False
-    return "pre-commit" in head and "hook-impl" in head
 
 
 def _probe(repo: Path, hook_file: Path, line: str) -> subprocess.CompletedProcess:
@@ -351,21 +477,22 @@ def verify(repo: Path, world: dict) -> dict:
     )
     result["coverage"]["feature_allowed"] = ok
 
-    # 4. deletion of a guarded branch. Native sees it; the pre-commit framework
-    #    drops all-zero local shas before any hook runs, so this measures
-    #    coverage rather than correctness.
+    # 4. deletion of a guarded branch. This is REQUIRED coverage, not a note:
+    #    the pre-commit framework drops all-zero local shas before running any
+    #    hook, so failing it means the guard is running in the weaker mode and
+    #    the whole verification must fail. Warning here would leave someone
+    #    believing they are protected when they are not.
     p = _probe(repo, hook_file, f"(delete) {ZERO} refs/heads/{protected} {head}")
     out = p.stdout + p.stderr
     del_refused = p.returncode != 0 and f"{MARKER}: refuse {protected}" in out
     result["coverage"]["delete_guarded"] = del_refused
     if del_refused:
         detail = ""
-    elif _is_pre_commit_shim(hook_file):
+    elif is_pre_commit_shim(hook_file):
         detail = (
-            "KNOWN GAP of the pre-commit framework: it drops ref lines whose "
-            "local sha is all zeros before running any hook, so branch "
-            "deletions never reach the guard. Only the native hook path sees "
-            "them."
+            "the pre-commit framework drops ref lines whose local sha is all "
+            "zeros before running any hook, so branch deletions never reach "
+            "the guard. Install at the native hook path instead."
         )
     else:
         detail = "unexpected — the native hook path should see deletions"
@@ -373,7 +500,28 @@ def verify(repo: Path, world: dict) -> dict:
         (f"deletion of '{protected}' is refused", del_refused, detail)
     )
 
-    required = ["protected_update", "feature_allowed"]
+    # 5. a multi-ref push must be judged on EVERY ref, not just the first. The
+    #    pre-commit adapter returns after the first pushable ref, so a guarded
+    #    destination hidden behind a feature branch slips through it.
+    multi = (
+        f"refs/heads/qute-probe {head} refs/heads/qute-probe {head}\n"
+        f"refs/heads/probe {head} refs/heads/{protected} {head}"
+    )
+    p = _probe(repo, hook_file, multi)
+    out = p.stdout + p.stderr
+    multi_ok = p.returncode != 0 and f"{MARKER}: refuse {protected}" in out
+    result["coverage"]["multi_ref"] = multi_ok
+    result["checks"].append(
+        (
+            f"multi-ref push hiding '{protected}' behind a feature branch is refused",
+            multi_ok,
+            ""
+            if multi_ok
+            else "only the first pushable ref was judged — the weaker mode",
+        )
+    )
+
+    required = ["protected_update", "feature_allowed", "delete_guarded", "multi_ref"]
     if integration:
         required.append("integration_update")
     result["ok"] = all(result["coverage"].get(k) for k in required)
@@ -414,6 +562,12 @@ def main() -> int:
         "--mechanism", choices=["auto", "native", "pre-commit"], default="auto"
     )
     ap.add_argument("--adopt-existing", action="store_true")
+    ap.add_argument(
+        "--allow-shared-hooks-path",
+        action="store_true",
+        help="permit writing to a core.hooksPath inherited from global/system "
+        "config, i.e. a hook shared by every repo of this user",
+    )
     ap.add_argument("--opt-in", action="store_true")
     ap.add_argument("--check", action="store_true")
     ap.add_argument("--json", action="store_true")
@@ -445,9 +599,21 @@ def main() -> int:
         )
 
         if mechanism == "pre-commit":
+            actions.append(
+                "WARNING: --mechanism pre-commit was requested. That path "
+                "cannot see branch deletions or the tail of a multi-ref push; "
+                "verification below will FAIL on that missing coverage rather "
+                "than warn about it."
+            )
             installed = install_pre_commit(repo, world, actions)
         else:
-            installed = install_native(repo, world, args.adopt_existing, actions)
+            installed = install_native(
+                repo,
+                world,
+                args.adopt_existing,
+                args.allow_shared_hooks_path,
+                actions,
+            )
         # core.hooksPath may have been created; re-resolve before verifying.
         world = detect_world(repo)
 
@@ -458,8 +624,11 @@ def main() -> int:
         "repo": str(repo),
         "world": world["world"],
         "core_hooks_path": world["core_hooks_path"],
+        "hooks_path_scope": world["hooks_path_scope"],
+        "hooks_path_origin": world["hooks_path_origin"],
         "mechanism": mechanism,
         "hook_file": world["hook_file"],
+        "slot_owner": world["slot_owner"],
         "actions": actions,
         "verification": {
             "reachable": ver["reachable"],
@@ -478,13 +647,14 @@ def main() -> int:
         print(
             f"world:      {world['world']}"
             + (
-                f" (core.hooksPath={world['core_hooks_path']})"
+                f" (core.hooksPath={world['core_hooks_path']},"
+                f" scope={world['hooks_path_scope']})"
                 if world["core_hooks_path"]
                 else ""
             )
         )
         print(f"mechanism:  {mechanism}")
-        print(f"hook file:  {world['hook_file']}")
+        print(f"hook file:  {world['hook_file']} (currently: {world['slot_owner']})")
         for a in actions:
             print(f"  - {a}")
         print("verification (driven through git's own resolved hook path):")
