@@ -163,6 +163,12 @@ def main(argv: list[str]) -> int:
     except (json.JSONDecodeError, AttributeError) as exc:
         log(f"REFUSED: invalid hook input: {exc}")
         return 0  # exit code is ignored by WorktreeRemove; stay soft
+    if not worktree_path:
+        # WorktreeRemove always carries worktree_path (verified against the
+        # 2.1.x CLI). An unrecognised shape means we cannot identify a venv —
+        # skip, never fail: this hook must never obstruct worktree removal.
+        log(f"skip: no worktree_path in payload: {json.dumps(payload)[:500]}")
+        return 0
     reap_venv(worktree_path)
     return 0
 

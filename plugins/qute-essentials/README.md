@@ -137,7 +137,7 @@ effect immediately.
 |------|-------|---------|
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with `ruff format` (cosmetic only — `ruff check --fix` deliberately omitted so per-edit F401 doesn't strip imports mid-task) |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
-| `worktree_create.py` | WorktreeCreate | Creates native worktrees with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); setup failures fail creation loudly |
+| `worktree_create.py` | WorktreeCreate | Creates native worktrees (`--worktree`, `/worktree`, agent `isolation: "worktree"`) with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); picks path + branch from the suggested `name` and the session `cwd`, resumes an existing worktree, and fails creation loudly on setup errors |
 | `worktree_remove.py` | WorktreeRemove | Reaps the per-worktree venv (`$HOME/.venvs/<name>`) on worktree removal; refuses anything that isn't provably an unused venv strictly inside `~/.venvs` (logged to `~/.claude/qute-worktree-reap.log`) |
 
 ## `pre-push` branch guard (a git hook, not a Claude hook)
