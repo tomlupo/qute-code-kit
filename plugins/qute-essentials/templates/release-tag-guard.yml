@@ -1,0 +1,318 @@
+# release-tag-guard — a pushed release tag must be (a) ON the release branch
+# and (b) self-consistent with the versions the repo declares.
+#
+# OPT-IN template, stamped by `/setup-qute-repo` (Step 9, CI posture) into
+# `.github/workflows/`. Installing the file IS the opt-in; there is no policy
+# file. A repo that cuts no `v*` tags simply never fires it.
+#
+# ── Why job 1 exists (the expensive lesson) ─────────────────────────────────
+# The ancestor of this template (quantbox `version-guard.yml`) only ever
+# compared version STRINGS to the tag. On 2026-07-28 a release tag was cut on
+# an integration branch and the release PR was then squash-merged. Squashing
+# creates a NEW commit on the release branch, so the tagged commit was never an
+# ancestor of it — the tag pointed at code the release branch did not contain.
+# version-guard PASSED, because the version strings were perfectly fine. It
+# checks WHAT the tag says and never WHERE the tag sits. The release had to be
+# re-cut.
+#
+# `tag-on-release-branch` below closes that hole. It is the important job here:
+# anything that pins this tag (pip/uv install from git, a Docker build, a
+# submodule, a deploy) resolves code that was never released.
+#
+# ── Configuration ───────────────────────────────────────────────────────────
+# RELEASE_BRANCH (job env, below): the branch releases are cut from. Leave it
+# EMPTY and the repo's GitHub default branch is used, which is right for every
+# repo that tags off `main`. `/setup-qute-repo` fills it in from the repo's
+# `conductor.yml` `release.branch` when that key is present and differs from
+# the default branch (e.g. a `dev` -> `main` repo releasing off `main`, or a
+# repo releasing off a maintenance branch). Do NOT hardcode it otherwise —
+# an empty value is the self-configuring case, not a missing one.
+#
+# The tag trigger below (`v*`) matches the `release.tagPattern` default and
+# commitizen's `tag_format = "v$version"`. Adjust both together if the repo
+# tags differently.
+
+name: release-tag-guard
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tag-guard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ── JOB 1: WHERE the tag sits ───────────────────────────────────────────────
+  tag-on-release-branch:
+    runs-on: ubuntu-latest
+    env:
+      # Empty = use the repo's default branch. See "Configuration" above.
+      RELEASE_BRANCH: ""
+    steps:
+      - name: Check out the tagged commit with FULL history
+        uses: actions/checkout@v4
+        with:
+          # REQUIRED, not cosmetic. `actions/checkout` defaults to a depth-1
+          # shallow fetch of the tagged ref alone: no other branches, no
+          # ancestry. `git merge-base --is-ancestor` against that clone either
+          # errors (missing ref) or answers a question about a truncated graph.
+          # fetch-depth: 0 makes checkout fetch `+refs/heads/*:refs/remotes/
+          # origin/*` and `+refs/tags/*:refs/tags/*` in full, so the release
+          # branch exists locally as `origin/<branch>` with real ancestry.
+          fetch-depth: 0
+
+      - name: Assert the tagged commit is an ancestor of the release branch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          branch="${RELEASE_BRANCH:-${DEFAULT_BRANCH:-}}"
+          if [ -z "$branch" ]; then
+            echo "::error title=release-tag-guard misconfigured::Could not resolve a release branch (RELEASE_BRANCH empty and no default branch in the event payload). Refusing to pass vacuously."
+            exit 1
+          fi
+          echo "Release branch: $branch"
+          echo "Tag:            ${GITHUB_REF_NAME}"
+
+          # ── Guard A: the clone must not be shallow ──────────────────────────
+          # On a shallow clone merge-base silently answers a question about a
+          # truncated graph. A wrong "pass" here is worse than no check at all,
+          # so treat shallowness as a hard configuration failure.
+          if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+            echo "::error title=release-tag-guard misconfigured::Repository is a shallow clone — 'git merge-base --is-ancestor' cannot be trusted. The checkout step must use 'fetch-depth: 0'."
+            exit 1
+          fi
+
+          # ── Guard B: the release-branch ref must actually be present ────────
+          # fetch-depth: 0 normally brings it in; fetch it explicitly if not,
+          # then verify. A missing ref must FAIL, never be skipped over.
+          if ! git rev-parse --verify --quiet "refs/remotes/origin/${branch}^{commit}" >/dev/null; then
+            echo "origin/${branch} not present after checkout — fetching it explicitly."
+            git fetch --no-tags --prune --quiet origin \
+              "+refs/heads/${branch}:refs/remotes/origin/${branch}" || true
+          fi
+          if ! branch_head="$(git rev-parse --verify --quiet "refs/remotes/origin/${branch}^{commit}")"; then
+            echo "::error title=Release branch not found::Could not resolve 'origin/${branch}'. Either the branch does not exist or RELEASE_BRANCH in this workflow is wrong. Not passing without a branch to compare against."
+            exit 1
+          fi
+
+          # ── Guard C: resolve the tagged object to a commit ──────────────────
+          # '^{commit}' peels an annotated-tag object; it is a no-op on a commit.
+          if ! tagged_commit="$(git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}")"; then
+            echo "::error title=release-tag-guard failed::Could not resolve the tagged commit (GITHUB_SHA=${GITHUB_SHA}) in this clone."
+            exit 1
+          fi
+
+          echo "Tagged commit:  $tagged_commit"
+          echo "origin/$branch: $branch_head"
+
+          # ── The assertion ──────────────────────────────────────────────────
+          # `--is-ancestor` exits 0 = ancestor, 1 = not an ancestor, >1 = error.
+          # The three cases are kept distinct on purpose: collapsing "error"
+          # into either verdict is exactly how this check would go vacuous.
+          set +e
+          git merge-base --is-ancestor "$tagged_commit" "$branch_head"
+          rc=$?
+          set -e
+
+          case "$rc" in
+            0)
+              echo "OK: ${GITHUB_REF_NAME} (${tagged_commit}) is contained in origin/${branch}."
+              ;;
+            1)
+              echo "::error title=Release tag is not on ${branch}::Tag ${GITHUB_REF_NAME} points at commit ${tagged_commit}, which is NOT an ancestor of origin/${branch}. The release branch does not contain this code, so anything pinning this tag installs code that was never released. Usual cause: the tag was cut on a feature/integration branch and the PR was then SQUASH-merged, which rewrites the commits onto ${branch} as a new SHA. Fix: delete the tag, then re-cut it on the merge commit on ${branch}."
+              exit 1
+              ;;
+            *)
+              echo "::error title=release-tag-guard failed::'git merge-base --is-ancestor' exited ${rc} (an error, not a verdict). Refusing to report a pass it did not establish."
+              exit 1
+              ;;
+          esac
+
+  # ── JOB 2: WHAT the tag says (generalised from quantbox version-guard.yml) ──
+  # Fails a release tag whose declared version strings disagree with the tag.
+  # Guards against a hand `git tag vX.Y.Z` on a commit the `/ship` (`cz bump`)
+  # flow never advanced — the tag ships a package that self-reports an older
+  # version and `pip show` stops telling you what is deployed.
+  #
+  # Repo-agnostic: the version files are read from commitizen's own
+  # `version_files` (plus `[project].version`) instead of being hardcoded, so
+  # this job needs no per-repo edit. A repo that declares no version at all —
+  # no pyproject.toml, or a pyproject.toml with no readable version anywhere —
+  # reports that and passes rather than failing forever.
+  #
+  # ── Declared-but-unverifiable is a FAILURE, not a warning ───────────────────
+  # "Nothing was declared" and "something was declared and I could not check it"
+  # are opposite verdicts. This job used to print a ::warning:: and `continue`
+  # when a `version_files` entry was missing or held no parseable version, then
+  # report success on whatever was left. That is the same vacuous pass job 1
+  # hard-fails on (shallow clone, unresolvable release ref, merge-base error):
+  # the job claims to assert EVERY declared version string, so a declared entry
+  # it could not read means the assertion never happened. Every such entry now
+  # fails the job, by name.
+  #
+  # The only pass-without-checking case is a repo that DECLARES no version: no
+  # pyproject.toml at all, or a pyproject.toml with no readable version string
+  # anywhere (a dynamic/absent `[project].version` and no commitizen version or
+  # version_files). A missing `[tool.commitizen]` block is NOT such a case — it
+  # only means no version_files are declared; `[project].version` is still
+  # asserted against the tag, because a hand-cut tag on a repo whose static
+  # `[project].version` was never bumped is the exact accident this job exists
+  # to catch, and skipping it would re-introduce the vacuous pass one branch to
+  # the left.
+  version-matches-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert declared versions match the tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, re, sys, tomllib
+
+          tag_name = os.environ["TAG_NAME"]
+          pyproject = pathlib.Path("pyproject.toml")
+          if not pyproject.is_file():
+              print("No pyproject.toml — this repo declares no version to compare. Passing.")
+              sys.exit(0)
+
+          data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+          cz = data.get("tool", {}).get("commitizen", {}) or {}
+          if not cz:
+              print(
+                  "pyproject.toml has no [tool.commitizen] block — no version_files are declared, "
+                  "so only [project].version is asserted against the tag."
+              )
+
+          # Derive the version from the tag using commitizen's own tag_format.
+          fmt = cz.get("tag_format") or "v$version"
+          pattern = re.escape(fmt)
+          for placeholder in (re.escape("$version"), re.escape("{version}")):
+              pattern = pattern.replace(placeholder, "(?P<version>.+)")
+          m = re.fullmatch(pattern, tag_name)
+          if m:
+              tag = m.group("version")
+          else:
+              tag = tag_name.removeprefix("v")
+              print(f"Note: tag '{tag_name}' does not match tag_format '{fmt}'; falling back to stripping a leading 'v'.")
+          print(f"Release tag: {tag_name}  ->  version {tag}")
+
+          # A declared version string this job could not read. Collected, not
+          # skipped: reporting success without having compared what the repo
+          # declares is exactly the failure mode this job exists to prevent.
+          unverifiable: list[str] = []
+          checks: list[tuple[str, str]] = []
+
+          proj_version = (data.get("project") or {}).get("version")
+          if isinstance(proj_version, str):
+              checks.append(("pyproject.toml [project].version", proj_version))
+          if isinstance(cz.get("version"), str):
+              checks.append(("pyproject.toml [tool.commitizen].version", cz["version"]))
+          pyproject_version_readable = bool(checks)
+
+          # commitizen version_files entries are "path" or "path:pattern".
+          # pyproject.toml entries are already covered by the TOML reads above.
+          version_re = re.compile(r"\d+\.\d+(?:\.\d+)?(?:[-.+][0-9A-Za-z.+-]*)?")
+          pyproject_entry = None
+          for entry in cz.get("version_files") or []:
+              if not isinstance(entry, str):
+                  unverifiable.append(
+                      f"version_files entry {entry!r} is not a string, so no path could be read from it."
+                  )
+                  continue
+              path_str, _, needle = entry.partition(":")
+              path_str, needle = path_str.strip(), needle.strip()
+              if not path_str:
+                  unverifiable.append(
+                      f"version_files entry '{entry}' declares no file path before the ':'."
+                  )
+                  continue
+              if path_str == "pyproject.toml":
+                  pyproject_entry = entry
+                  continue
+              path = pathlib.Path(path_str)
+              if not path.is_file():
+                  unverifiable.append(
+                      f"version_files entry '{entry}' -> '{path_str}' does not exist in the tagged tree."
+                  )
+                  continue
+              try:
+                  text = path.read_text(encoding="utf-8")
+              except (OSError, UnicodeDecodeError) as exc:
+                  unverifiable.append(
+                      f"version_files entry '{entry}' -> '{path_str}' could not be read "
+                      f"({type(exc).__name__}: {exc})."
+                  )
+                  continue
+              needle_re = None
+              if needle:
+                  try:
+                      needle_re = re.compile(needle)
+                  except re.error as exc:
+                      unverifiable.append(
+                          f"version_files entry '{entry}' -> pattern '{needle}' is not a valid "
+                          f"regular expression ({exc}), so the declared line could not be located."
+                      )
+                      continue
+              hit = None
+              for line in text.splitlines():
+                  if needle_re is not None and not needle_re.search(line):
+                      continue
+                  found = version_re.search(line)
+                  if found:
+                      hit = found.group(0)
+                      break
+              if hit is None:
+                  where = f" on any line matching '{needle}'" if needle else ""
+                  unverifiable.append(
+                      f"version_files entry '{entry}' -> no parseable version literal found in "
+                      f"'{path_str}'{where}."
+                  )
+                  continue
+              checks.append((f"{path_str} ({needle or 'version'})", hit))
+
+          # A declared 'pyproject.toml' entry is only covered if one of the TOML
+          # reads above actually produced a version string. With a dynamic or
+          # absent version it is declared-but-unread, not "nothing declared".
+          if pyproject_entry is not None and not pyproject_version_readable:
+              unverifiable.append(
+                  f"version_files entry '{pyproject_entry}' declares pyproject.toml, but neither "
+                  f"[project].version nor [tool.commitizen].version holds a version string."
+              )
+
+          for problem in unverifiable:
+              print(
+                  f"::error title=Declared version file could not be verified::{problem} "
+                  f"It is declared in [tool.commitizen].version_files, so this job cannot claim to "
+                  f"have asserted it against tag '{tag_name}'. A declared version file that cannot "
+                  f"be verified is a release-contract failure, not a warning — passing here would "
+                  f"report success for a check that never ran. Fix the path/pattern, or drop the "
+                  f"entry from version_files if the file no longer carries a version."
+              )
+
+          failed = bool(unverifiable)
+          for label, got in checks:
+              if got != tag:
+                  print(
+                      f"::error title=Version does not match the tag::{label} is '{got}' "
+                      f"but the tag is '{tag_name}' — release via 'cz bump' (the /ship skill), "
+                      f"never a hand 'git tag'."
+                  )
+                  failed = True
+              else:
+                  print(f"OK: {label} = {got}")
+
+          if not checks and not unverifiable:
+              print("No declared version strings found — nothing to compare. Passing.")
+
+          sys.exit(1 if failed else 0)
+          PY

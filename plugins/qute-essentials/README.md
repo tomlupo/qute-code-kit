@@ -258,6 +258,38 @@ deterministic `audit` verb: **gitleaks (`--secrets`) hard-fails** the check (a l
 secret must block merge) while **semgrep (`--static`) is annotate-only** (advisory, to
 avoid false-positive merge blocks). Installing the workflow opts the repo into this job too.
 
+### Optional release/lock guards
+
+Two more opt-in workflow templates, stamped the same way (`/setup-qute-repo` Step 9, or copy from
+`templates/` by hand). Both stay **silent in repos they don't apply to** — `release-tag-guard`
+only fires on a pushed `v*` tag, `lockfile-check` passes with no `uv.lock` — so installing them
+costs nothing. Where they *do* apply they are fail-closed, not best-effort:
+
+- **`templates/release-tag-guard.yml`** — fires on a pushed `v*` tag, two jobs:
+  - `tag-on-release-branch` asserts the tagged commit is an **ancestor of the release branch**
+    (`git merge-base --is-ancestor`). This is the check a version-string guard cannot make: a tag
+    cut on an integration branch whose PR is then **squash-merged** points at a commit the release
+    branch never contains, so anything pinning the tag installs code that was never released.
+    Requires `fetch-depth: 0` (the template sets it) and refuses to pass on a shallow clone, a
+    missing branch ref, or a `merge-base` error — a vacuous pass is worse than no check.
+    The release branch comes from the `RELEASE_BRANCH` job env; **leave it empty** and the repo's
+    GitHub default branch is used. Set it only when `conductor.yml`'s `release.branch` differs.
+  - `version-matches-tag` asserts the declared version strings equal the tag, reading commitizen's
+    own `[tool.commitizen] version_files` + `tag_format` instead of hardcoded paths. **A declared
+    version is always asserted.** The job passes without checking anything only when the repo
+    declares no version at all: no `pyproject.toml`, or a `pyproject.toml` with no readable
+    version string anywhere. A missing `[tool.commitizen]` block is *not* that case — it only
+    means no `version_files` are declared, and `[project].version` is still checked against the
+    tag (a hand-cut tag on a repo whose static `[project].version` was never bumped is exactly
+    what this job is for). And a `version_files` entry that IS declared but cannot be read —
+    missing path, unreadable file, uncompilable pattern, no parseable version literal — **fails**
+    the job by name: skipping one and reporting success is the same vacuous pass the ancestry job
+    refuses.
+- **`templates/lockfile-check.yml`** — runs `uv lock --check` on PRs and pushes, failing when
+  `uv.lock` is out of step with `pyproject.toml`. A project's own version is recorded in its
+  lockfile, so every `/ship` bump staleness the lock and nothing else notices. No `uv.lock` → the
+  job reports the absence and passes. (`--check` = staleness; `--check-exists` = presence only.)
+
 ### Event-driven security audit (3 layers)
 
 The `audit` verb is wired to run by *change*, not by calendar (obsidian-vaults#167):

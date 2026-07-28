@@ -58,7 +58,7 @@ default for every later step:
 | Worktrees | ports via allocate-ports | uv venv | uv venv + `shared_dirs: [data, models, output]` | uv venv, PR-only | none | none |
 | Shipping | `gstack ship` | `/ship` (commitizen) | **none** (deliverables → `reports/`) | `/ship` (commitizen), tagged deploys | none | none (repo keeps its own) |
 | Research regime | no | no | **yes** | no | no | no |
-| CI | app CI | ruff+pytest+review-gate | light (lint only) | full + review-gate required | none | none (repo keeps its own) |
+| CI | app CI + lock check | ruff+pytest+review-gate+release/lock guards | light (lint) + lock check | full + review-gate required + release/lock guards | none | none (repo keeps its own) |
 
 Defaults are proposals — the user can override any cell.
 
@@ -107,6 +107,50 @@ moment a new `repo`-group child label is created on the Linear team. Create
 (`create_issue_label`, this being an interactive session) or deliberately in the
 Linear UI. Never mint any other label; the catalogue is closed (statuses carry
 state, parents carry structure, groups carry routing facets).
+
+**A grouped label's name is the BARE child — never `group:child`.** Write
+`autonomous`, not `lane:autonomous`; `tomlupo/qute-platform`, not
+`repo:tomlupo/qute-platform`. The group is how Linear displays it, not part of the
+string. This is not cosmetic: the issue-create path **silently skips** a label name
+it cannot resolve, so a prefixed string produces an unlabelled — and therefore
+unroutable — card. Prefixed forms are tolerated only when *reading* an owner.
+
+**The catalogue spans TWO axes — don't collapse them.** All of these already exist
+on team `TOM`; none is mintable here.
+
+- **Dispatch** — who executes it, where, and supervised or not:
+  `lane` (`autonomous`/`interactive`/`human`), `agent`, `machine` (`core`/`forge`),
+  `tier`, `repo`, plus `model` and `reviewer` — the last two exist as override
+  knobs that **nothing currently reads** (see TOM-376). jimek routes ownership off
+  the `agent` group; only the personas in the live roster (`GET :8002/agents`)
+  resolve, so `conductor` and `none` fall through.
+- **Intake** — is this request real, specified, and ready for whom:
+  `intake` (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`,
+  `wontfix`) and `kind` (`bug`, `enhancement`). Driven by the `triage` skill
+  (mattpocock/skills), whose five canonical roles are kept verbatim as label
+  strings. Both are Linear label **groups**, so "exactly one state role" is
+  enforced server-side.
+
+The two pairs that look redundant and are not: `ready-for-agent` means a brief
+exists that an agent can act on cold, while the `lane` label `autonomous` means it
+may run unsupervised — an issue can carry `ready-for-agent` + `interactive` because
+it touches production. And `ready-for-human` is an intake verdict, while
+`needs-human` is the conductor's hand-off flag. Separately, the standalone `triage`
+label is *provenance* (auto-recorded alarm finding, one deduped card per
+fingerprint), not "a human should evaluate this" — that is `needs-triage`.
+
+**Verify against the registry, never against a code comment or usage count.**
+`list_issue_labels` is the only authority. Two claims in qute-platform's jimek
+source are stale as of 2026-07-28: it says there is no `machine` group (there is,
+with both children described) and that an `executor` group is deliberately retained
+(it is absent entirely). A zero-usage label is indistinguishable from a missing one
+unless you enumerate.
+
+If a repo adopts the mattpocock engineering skills, `/setup-matt-pocock-skills`
+writes `docs/agents/triage-labels.md` recording the mapping — and it does so only
+when the `triage` skill is installed. Where that file exists, onboarding leaves it
+alone rather than restating the vocabulary; where it does not, onboarding neither
+creates nor references it.
 
 ## Step 4 — Jimek management (conductor.yml)
 
@@ -273,6 +317,32 @@ gate binds it on conclude.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).
+
+**Release/lock guards** — stamp into `.github/workflows/`, same mechanism as
+review-gate (copy the template, adjust only the marked lines). Both degrade to
+a silent pass in repos they don't apply to, so stamping them is cheap:
+
+| Template | Stamp when | Adjust at stamp time |
+|---|---|---|
+| `templates/release-tag-guard.yml` | the repo cuts `v*` release tags (shipping mode `/ship` or CI-owned) | `RELEASE_BRANCH` job env; the `tags:` pattern if `tag_format` isn't `v$version` |
+| `templates/lockfile-check.yml` | any repo — meaningful once a `uv.lock` exists | the `push: branches:` list if the default branch isn't `main` |
+
+- **`release-tag-guard.yml`** carries two jobs. `tag-on-release-branch` asserts
+  the tagged commit is an **ancestor of the release branch** — the check the
+  quantbox `version-guard.yml` ancestor lacked, which let a tag cut on an
+  integration branch survive a squash-merge pointing at code the release branch
+  never contained. `version-matches-tag` is the generalised version-string
+  check, driven off commitizen's own `version_files` rather than hardcoded
+  paths. Both need `fetch-depth: 0`; leave it alone.
+- **`RELEASE_BRANCH` resolution:** leave it `""` and the workflow uses the
+  repo's GitHub default branch — correct for every repo tagging off `main`, and
+  the reason nothing is hardcoded. Set it explicitly ONLY when the repo's
+  `conductor.yml` carries a `release.branch` that differs from the default
+  branch (step 4 already read that file; reuse the value).
+- **`lockfile-check.yml`** runs `uv lock --check` (staleness), not
+  `--check-exists` (presence only). A repo's own version lives in its lockfile,
+  so every `/ship` bump staleness the lock — this is what catches it. No
+  `uv.lock` → the job reports the absence and passes.
 
 ## Step 10 — Root files + discipline pointer
 
