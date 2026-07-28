@@ -649,6 +649,84 @@ def test_tags_flag_is_not_an_all_branches_push(tmp_path, home):
     assert decision == "allow"
 
 
+# ─── redirections are not arguments ───────────────────────────
+#
+# Defect 28, parsing axis. Bash allows a redirection ANYWHERE in a simple
+# command, including in front of the command word — verified: `>/tmp/out echo
+# hi` runs `echo`, and `echo hi >main` writes a FILE called `main`.
+
+LEADING_REDIRECTIONS = [
+    ">/tmp/guard-test.out",
+    ">> /tmp/guard-test.out",
+    "2>/tmp/guard-test.out",
+    "&>/tmp/guard-test.out",
+    "> /tmp/guard-test.out",
+    "2>&1 >/tmp/guard-test.out",
+    "</dev/null",
+]
+
+
+@pytest.mark.parametrize("redir", LEADING_REDIRECTIONS)
+def test_leading_redirection_does_not_hide_a_commit(redir, tmp_path, home):
+    """The redirection was left as token 0, so the segment stopped looking like
+    a git command at all."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"{redir} git commit -m x", repo, home)
+    assert decision == "deny", redir
+    assert "main" in hso["permissionDecisionReason"], redir
+
+
+@pytest.mark.parametrize("redir", LEADING_REDIRECTIONS)
+def test_leading_redirection_does_not_hide_a_push(redir, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(f"{redir} git push origin main", repo, home)
+    assert decision == "deny", redir
+    assert "main" in hso["permissionDecisionReason"], redir
+
+
+@pytest.mark.parametrize("redir", LEADING_REDIRECTIONS)
+def test_leading_redirection_does_not_manufacture_a_denial(redir, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(f"{redir} git commit -m x", repo, home)
+    assert decision == "allow", redir
+
+
+def test_a_redirect_target_is_not_a_refspec(tmp_path, home):
+    """`git push origin >main` pushes the CURRENT branch and writes a file
+    called `main`. Counting `>main` as an explicit refspec suppressed the
+    current-branch fallback and allowed a push of `main` itself."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run("git push origin >main", repo, home)
+    assert decision == "deny"
+    assert "current branch" in hso["permissionDecisionReason"]
+
+
+def test_a_redirect_target_is_not_a_branch_destination(tmp_path, home):
+    """Mirror: the file name must not be read as a guarded destination
+    either — from a feature branch this pushes nothing guarded."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push origin feat/x >main", repo, home)
+    assert decision == "allow"
+
+
+def test_trailing_redirections_do_not_disturb_a_normal_command(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in (
+        "git commit -m x >>log 2>&1",
+        "git commit -m x >/dev/null",
+        "git push origin main 2>&1 | tee log",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+
+
+def test_a_redirection_does_not_hide_a_cd(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f">/dev/null cd {other} && git commit -m x", session, home)
+    assert decision == "deny"
+
+
 # ─── dry runs write nothing ───────────────────────────────────
 #
 # Defect 27, an over-denial like 24. The criterion is "will this command WRITE

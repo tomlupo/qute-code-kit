@@ -126,8 +126,8 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27 are
-parsing; 10-13, 16-18, 22, 25 and 26 are the environment axis, and are the
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27 and 28
+are parsing; 10-13, 16-18, 22, 25 and 26 are the environment axis, and are the
 reason that axis is written down at all. Most let something THROUGH; 24 and 27
 BLOCKED something they should not have, which is a defect on the same footing
 — a guard that cries wolf gets turned off:
@@ -211,7 +211,12 @@ BLOCKED something they should not have, which is a defect on the same footing
       recognised, so the guard stayed in the previous repo;
   27. dry runs treated as writes (parsing) — the second OVER-denial.
       `git commit --dry-run` and `git push --dry-run`/`-n` write nothing, and
-      the criterion is whether the command WRITES to a guarded branch.
+      the criterion is whether the command WRITES to a guarded branch;
+  28. redirections (parsing) — bash allows them ANYWHERE in a simple command.
+      In front, `>/tmp/out git commit -m x` left the redirection as token 0 and
+      the segment stopped looking like git; behind, `git push origin >main`
+      counted the FILENAME as an explicit refspec and suppressed the
+      current-branch fallback. `2>&1` was split at the `&` on top of that.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -489,8 +494,19 @@ def _segments(command: str):
             buf.append(command[i:j])
             i = j
         elif c in "&|;\n":
-            flush()
             nxt = command[i + 1] if i + 1 < n else ""
+            prev = buf[-1] if buf else ""
+            # `&` and `|` are ALSO redirection syntax: `2>&1`, `>&2`, `<&0`,
+            # `&>log`, `>|file`. Splitting there tore `2>&1 git commit` into a
+            # background `2>` and a segment starting `1`, which then did not
+            # look like a git command at all.
+            if (c == "&" and (prev in (">", "<") or nxt == ">")) or (
+                c == "|" and prev == ">"
+            ):
+                buf.append(c)
+                i += 1
+                continue
+            flush()
             if c in "&|" and nxt == c:  # `&&` / `||`
                 sep, width = c * 2, 2
             elif c == "|" and nxt == "&":  # `|&` is `2>&1 |`
@@ -522,6 +538,42 @@ _SUBSHELL_SEPARATORS = frozenset({"|", "&"})
 # to the command, and the parser then failed to see `git` at all — an ordinary
 # Bash form (`if …; then git commit; fi`) that never reached the guard.
 #
+# A redirection token: an optional fd number or `&`, one of the redirection
+# operators, and optionally the target glued on. Bash allows these ANYWHERE in
+# a simple command, including in FRONT of the command word.
+_REDIRECT_RE = re.compile(r"^(?:[0-9]+|&)?(?:>>|>\||<>|<<<|<<-?|>&|<&|>|<)(.*)$")
+
+
+def _strip_redirections(tokens):
+    """Drop redirection tokens, and the operands they consume, from anywhere in
+    a command.
+
+    Both ends matter. In FRONT of the command word — `>/tmp/out git commit -m
+    x`, `2>/tmp/log git push origin main` — the redirection was left as token 0
+    and the segment stopped looking like git at all. AFTER it, the operand was
+    read as an argument: `git push origin >main` on `main` really pushes the
+    current branch to `origin` while writing stdout to a file called `main`,
+    but `>main` was counted as an explicit refspec, which SUPPRESSED the
+    current-branch fallback and allowed it (defect 28).
+
+    A bare operator takes the next token as its target; an operator with the
+    target attached (`2>&1`, `>>log`) takes only itself. No ordinary git
+    argument begins with `<` or `>`, so nothing legitimate is caught.
+    """
+    out = []
+    skip_next = False
+    for tok in tokens:
+        if skip_next:
+            skip_next = False
+            continue
+        match = _REDIRECT_RE.match(tok)
+        if match:
+            skip_next = not match.group(1)
+            continue
+        out.append(tok)
+    return out
+
+
 # Brace groups are stripped here rather than scoped like `( … )`: a brace group
 # runs in the CURRENT shell, so a `cd` inside it must keep applying afterwards.
 #
@@ -1593,6 +1645,8 @@ def main():
         state_before = (base_dir, base_unknown, prev_dir)
 
         tokens = _tokens(seg)
+        # Redirections can sit anywhere, including before the command word.
+        tokens = _strip_redirections(tokens)
         # Peel shell reserved words standing in front of the command, so
         # `then git commit` is read as the `git commit` it is.
         while tokens and tokens[0] in _LEADING_SHELL_WORDS:
