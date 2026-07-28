@@ -143,9 +143,9 @@ jobs:
   #
   # Repo-agnostic: the version files are read from commitizen's own
   # `version_files` (plus `[project].version`) instead of being hardcoded, so
-  # this job needs no per-repo edit. A repo with no pyproject.toml, or no
-  # commitizen block, reports "nothing declared" and passes rather than failing
-  # forever.
+  # this job needs no per-repo edit. A repo that declares no version at all —
+  # no pyproject.toml, or a pyproject.toml with no readable version anywhere —
+  # reports that and passes rather than failing forever.
   #
   # ── Declared-but-unverifiable is a FAILURE, not a warning ───────────────────
   # "Nothing was declared" and "something was declared and I could not check it"
@@ -155,9 +155,17 @@ jobs:
   # hard-fails on (shallow clone, unresolvable release ref, merge-base error):
   # the job claims to assert EVERY declared version string, so a declared entry
   # it could not read means the assertion never happened. Every such entry now
-  # fails the job, by name. Only the genuinely-nothing-declared cases still
-  # report and pass: no pyproject.toml at all; a pyproject.toml with no
-  # [tool.commitizen] block; a commitizen block declaring no version_files.
+  # fails the job, by name.
+  #
+  # The only pass-without-checking case is a repo that DECLARES no version: no
+  # pyproject.toml at all, or a pyproject.toml with no readable version string
+  # anywhere (a dynamic/absent `[project].version` and no commitizen version or
+  # version_files). A missing `[tool.commitizen]` block is NOT such a case — it
+  # only means no version_files are declared; `[project].version` is still
+  # asserted against the tag, because a hand-cut tag on a repo whose static
+  # `[project].version` was never bumped is the exact accident this job exists
+  # to catch, and skipping it would re-introduce the vacuous pass one branch to
+  # the left.
   version-matches-tag:
     runs-on: ubuntu-latest
     steps:
@@ -180,7 +188,10 @@ jobs:
           data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
           cz = data.get("tool", {}).get("commitizen", {}) or {}
           if not cz:
-              print("pyproject.toml has no [tool.commitizen] block — no version_files are declared.")
+              print(
+                  "pyproject.toml has no [tool.commitizen] block — no version_files are declared, "
+                  "so only [project].version is asserted against the tag."
+              )
 
           # Derive the version from the tag using commitizen's own tag_format.
           fmt = cz.get("tag_format") or "v$version"
