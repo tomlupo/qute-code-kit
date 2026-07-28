@@ -102,6 +102,8 @@ The integration branch is guarded for the same reason as the protected one: that
 
 An explicit `"integration_branch": null` means *this repo genuinely has none* (feature → PR → `main`) and is never overridden by the `dev` default. `release_tool` only feeds the guidance text.
 
+**Tag pushes are never branch pushes.** `--tags` with no refspec sends tags and nothing else, so the current-branch fallback doesn't fire; `git push origin tag <name>` is `refs/tags/<name>` even when the tag is called `main`. `--follow-tags` is the opposite — a normal branch push plus reachable tags — and keeps the fallback.
+
 **A push with no refspec is resolved from config, not assumed to be the current branch.** Git consults `remote.<name>.push` first, then `push.default` — and `upstream`/`tracking` send the push to `branch.<cur>.merge`, which is `main` for any branch created with `git checkout -b feat/x origin/main`. `matching` is unresolvable (it pushes every branch that exists on both sides) and therefore **denied**; `nothing` pushes nothing; `simple`/`current` mean the same-name branch.
 
 **Push destinations are resolved, not string-matched.** `git push origin HEAD` (and `@`) resolves to the branch you are standing on, a `+` force sigil and a `refs/heads/` prefix are stripped, and in `src:dst` only `dst` counts — so `HEAD`, `@`, `+main`, `refs/heads/main`, `HEAD:refs/heads/main` and `:main` are all recognised as the protected branch. A destination the guard *cannot* resolve — an unexpanded `$BRANCH`, a glob refspec (`refs/heads/*:refs/heads/*`), ref navigation (`@{-1}`, `HEAD~1`, `main^`), an empty dst (`main:`), or `HEAD` on a detached HEAD — is **denied**, not allowed: a check that cannot verify must not report success.
@@ -157,7 +159,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21 and 23 are parsing; 10–13, 16–18 and 22 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21, 23 and 24 are parsing; 10–13, 16–18 and 22 are the environment axis, and are why that axis is written down at all. All but 24 let something *through*; 24 blocked something it shouldn't have, which is a defect on the same footing — a guard that cries wolf gets turned off:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -184,6 +186,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 21 | parsing | the `--repo` ambiguity, half-handled | the positionals were read under both meanings, but the *config* lookup still used the `--repo` value — so `git push --repo=origin upstream` consulted `remote.origin.push` while git pushed to `upstream` |
 | 22 | environment | an unexpanded `-C` / `--git-dir` operand | defect 16 one operand over — `git -C "$MAIN_REPO" commit` was read as a literal directory of that name, found not to be a repo, and allowed |
 | 23 | parsing | command substitutions as boundaries | `$( … )` is part of a word, but both the segment scanner and `shlex` broke it apart, so `git -C $(cat path) commit` stopped being recognised as a git command |
+| 24 | parsing | tag pushes read as branch pushes | `git push --tags origin` sends tags and *no* branch, and `git push origin tag <name>` is `refs/tags/<name>` — both were read as branch destinations and blocked from a guarded branch, falsifying the claim below and breaking `/ship` |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 

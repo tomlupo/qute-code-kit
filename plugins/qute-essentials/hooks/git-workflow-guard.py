@@ -126,9 +126,11 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21 and 23 are parsing;
-10-13, 16-18 and 22 are the environment axis, and are the reason that axis is
-written down at all:
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23 and 24 are
+parsing; 10-13, 16-18 and 22 are the environment axis, and are the reason that
+axis is written down at all. All but 24 let something THROUGH; 24 blocked
+something it should not have, which is a defect on the same footing — a guard
+that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -194,7 +196,13 @@ written down at all:
   23. command substitutions as command boundaries (parsing) — `$( … )` is part
       of a word, but both the segment scanner and `shlex` broke it apart, so
       `git -C $(cat path) commit` stopped being recognised as a git command at
-      all.
+      all;
+  24. tag pushes read as branch pushes (parsing) — an OVER-denial, and the
+      only one so far. `git push --tags origin` sends tags and no branch, and
+      `git push origin tag <name>` is `refs/tags/<name>`; both were read as
+      branch destinations, so from a guarded branch they were blocked. That
+      falsified a claim the docs had made from the start — that tag pushes are
+      never blocked — and would have broken `/ship`.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1003,8 +1011,12 @@ _PUSH_OPTS_WITH_VALUE = frozenset(
 #   the deletion flag  no change — positionals keep their slots, and with it
 #       the ref names a DESTINATION to remove, which is exactly how a bare
 #       refspec is already read, so `origin main` denies today.
-#   the all-tags flag  no change — pushes refs/tags IN ADDITION to any
-#       refspec; slots untouched, and a tag dst is not a guarded branch.
+#   the all-tags flag  slots untouched, but it DOES change what a bare push
+#       sends: `--tags` with no refspec pushes ONLY tags. Verified — from
+#       `main` with the branch ahead of the remote, `git push --tags origin
+#       --dry-run` reports the tag alone and no branch update. So the
+#       current-branch fallback must not fire (defect 24). `--follow-tags` is
+#       the opposite: a normal branch push PLUS reachable tags, so it keeps it.
 #   the all-branches / mirror flags  no change to slots (positional #0 is
 #       still the remote), but they push guarded branches with NO refspec
 #       naming them, and they override `push.default` too. Handled separately
@@ -1017,6 +1029,15 @@ _REPO_OPT_EQ = "--repo="
 # with a local `main`, `git push --all origin --dry-run` reports `main -> main`.
 # `--branches` is git's newer spelling of `--all`.
 _PUSH_ALL_OPTS = frozenset({"--all", "--branches", "--mirror"})
+
+# `--tags` alone pushes ONLY tags; `--follow-tags` pushes the branch as well.
+_TAGS_OPT = "--tags"
+_FOLLOW_TAGS_OPT = "--follow-tags"
+
+# `git push <remote> tag <name>` is shorthand for `refs/tags/<name>` — the word
+# after `tag` is a TAG, never a branch destination. Reading it as one blocked
+# `git push origin tag main` in a repo that has a tag called `main`.
+_TAG_SHORTHAND = "tag"
 
 # `HEAD` and `@` name whatever branch HEAD currently points at; git pushes them
 # to that branch, so they must be resolved before comparing against a guarded
@@ -1077,14 +1098,16 @@ def _push_targets(args, current_branch):
     the raw refspecs whose destination could not be pinned down, `remotes` are
     the remotes this push might go to (more than one only for the ambiguous
     `--repo` shape), which the no-refspec fallback needs in order to read
-    `remote.<name>.push`, and `push_all` marks `--all`/`--mirror`, whose
-    destinations are every LOCAL branch.
+    `remote.<name>.push`, `push_all` marks `--all`/`--mirror`, whose
+    destinations are every LOCAL branch, and `tags_only` marks a push that
+    sends tags and no branch at all.
     """
     positionals = []
     remote_from_opt = None
     skip_value = False
     value_is_repo = False
     push_all = False
+    all_tags = follow_tags = False
     for a in args:
         if skip_value:
             # `--repo <r>` names the remote in the NEXT token; dropping it left
@@ -1106,6 +1129,10 @@ def _push_targets(args, current_branch):
                 skip_value = True
             elif a in _PUSH_ALL_OPTS:
                 push_all = True
+            elif a == _TAGS_OPT:
+                all_tags = True
+            elif a == _FOLLOW_TAGS_OPT:
+                follow_tags = True
             continue
         positionals.append(a)
 
@@ -1135,13 +1162,25 @@ def _push_targets(args, current_branch):
         remotes = [positionals[0] if positionals else None]
     targets = []
     unresolvable = []
-    for ref in refspecs:
+    idx = 0
+    while idx < len(refspecs):
+        ref = refspecs[idx]
+        if ref == _TAG_SHORTHAND and idx + 1 < len(refspecs):
+            # `tag <name>` -> `refs/tags/<name>`. A tag, never a branch — even
+            # when the tag happens to be called `main`.
+            idx += 2
+            continue
         dst = _resolve_push_dst(ref, current_branch)
         if dst is None:
             unresolvable.append(ref)
         else:
             targets.append(dst)
-    return targets, had_refspec, unresolvable, remotes, push_all
+        idx += 1
+    # `--tags` with no refspec sends tags and nothing else, so there is no
+    # implicit branch destination to work out. With a refspec, or alongside
+    # `--follow-tags`, a branch IS pushed and the normal reading applies.
+    tags_only = all_tags and not follow_tags and not had_refspec
+    return targets, had_refspec, unresolvable, remotes, push_all, tags_only
 
 
 def _local_branches(target_dir: Path):
@@ -1581,9 +1620,14 @@ def main():
                 )
 
         elif sub == "push":
-            targets, had_refspec, unresolvable, remotes, push_all = _push_targets(
-                args, branch
-            )
+            (
+                targets,
+                had_refspec,
+                unresolvable,
+                remotes,
+                push_all,
+                tags_only,
+            ) = _push_targets(args, branch)
             implicit_targets = []
             remote_name = None
             if push_all:
@@ -1615,6 +1659,13 @@ def main():
                             f"'{name}'.",
                             guidance,
                         )
+            elif tags_only:
+                # `--tags` with no refspec pushes tags and no branch, so there
+                # is no implicit destination to resolve. `/ship` depends on
+                # this, and the docs have always claimed tag pushes are never
+                # blocked — the current-branch fallback was falsifying that
+                # from a guarded branch (defect 24).
+                pass
             elif not had_refspec:
                 # "No refspec" does NOT mean "the current branch": git reads
                 # `remote.<name>.push` and `push.default`, and either can send

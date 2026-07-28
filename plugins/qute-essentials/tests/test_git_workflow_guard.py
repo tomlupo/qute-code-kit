@@ -649,6 +649,94 @@ def test_tags_flag_is_not_an_all_branches_push(tmp_path, home):
     assert decision == "allow"
 
 
+# ─── tag pushes are never branch pushes ───────────────────────
+#
+# Defect 24, parsing axis, and an OVER-denial rather than a bypass — which
+# still makes it a defect, and one that falsified a documented claim: the docs
+# have always said tag pushes are never blocked, and `/ship` relies on it.
+# Verified against real git: from `main` with the branch AHEAD of the remote,
+# `git push --tags origin --dry-run` reports the tag alone and no branch
+# update, and `git push origin tag main` in a repo holding a TAG called `main`
+# reports `[new tag] main -> main`.
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push --tags origin",
+        "git push origin --tags",
+        "git push --tags",
+        "git push --tags --dry-run origin",
+    ],
+)
+@pytest.mark.parametrize("branch", ["main", "dev", "feat/x"])
+def test_tags_only_push_is_allowed_from_every_branch(cmd, branch, tmp_path, home):
+    """`--tags` with no refspec sends tags and no branch, so the
+    current-branch fallback must not fire."""
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", f"{cmd} on {branch}"
+
+
+@pytest.mark.parametrize("branch", ["main", "dev", "feat/x"])
+def test_follow_tags_still_pushes_the_branch(branch, tmp_path, home):
+    """`--follow-tags` is the opposite of `--tags`: a normal branch push PLUS
+    reachable tags, so the fallback must stay armed."""
+    expected = "allow" if branch == "feat/x" else "deny"
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    decision, _ = _run("git push --follow-tags origin", repo, home)
+    assert decision == expected, branch
+
+
+def test_tags_with_an_explicit_refspec_still_reads_the_refspec(tmp_path, home):
+    """`--tags` alongside a refspec pushes both, so a guarded destination on
+    the command line is still caught."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run("git push --tags origin main", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("branch", ["main", "dev", "feat/x"])
+def test_tag_shorthand_is_not_a_branch_destination(branch, tmp_path, home):
+    """`git push origin tag <name>` is `refs/tags/<name>` — even when the tag
+    is called `main`, which is the shape that was wrongly blocked."""
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    for cmd in (
+        "git push origin tag main",
+        "git push origin tag dev",
+        "git push origin tag v1.2.3",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", f"{cmd} on {branch}"
+
+
+def test_tag_shorthand_does_not_swallow_a_following_branch_refspec(tmp_path, home):
+    """Only the word right after `tag` is a tag; a later refspec is read
+    normally."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run("git push origin tag v1.0 main", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_tag_shorthand_suppresses_the_current_branch_fallback(tmp_path, home):
+    """`git push origin tag v1` pushes only that tag — verified — so standing
+    on a guarded branch must not deny it."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git push origin tag v1.0", repo, home)
+    assert decision == "allow"
+
+
+def test_a_trailing_bare_tag_word_is_still_read_as_a_refspec(tmp_path, home):
+    """With nothing after it, `tag` is not the shorthand (git errors), so it
+    keeps its ordinary reading as a refspec — and `main` after a remote is
+    still a branch."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push origin main tag", repo, home)
+    assert decision == "deny"
+
+
 # ─── where a refspec-less push actually goes ──────────────────
 #
 # Defect 17, environment axis. "No refspec" was read as "pushes the current
