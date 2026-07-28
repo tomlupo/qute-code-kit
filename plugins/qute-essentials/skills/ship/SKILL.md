@@ -96,10 +96,11 @@ release — closes the loop on "shipped → installed".
 
 ## What `ship.py` enforces
 
-### Forbidden paths (Python mode)
+### Forbidden paths (both modes)
 
-Refuses to bump if any tracked file lives under one of these universal
-paths (skill-generated artifacts that should not reach main):
+Refuses to release if any tracked file lives under one of these universal
+paths (skill-generated artifacts that should not reach main). The gate runs
+before mode dispatch, so plugin mode is covered too:
 
 - `docs/superpowers/`
 - `docs/specs/`

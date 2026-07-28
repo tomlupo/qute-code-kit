@@ -2,12 +2,15 @@
 
 One entry point, two modes (detected automatically):
 
+Either mode refuses to release if any tracked file lives under a forbidden
+path — that gate runs before dispatch, so it is a property of /ship rather
+than of one mode.
+
 * **Plugin mode** — `.claude-plugin/marketplace.json` at repo root.
   Delegates to `scripts/release-plugin.sh <plugin> <bump>`.
 * **Python mode** — `pyproject.toml` at repo root (and no marketplace).
-  Refuses to bump if any tracked file lives under a forbidden path or if the
-  tracked working tree is dirty, runs first-time-setup idempotently, then
-  bumps.
+  Additionally refuses if the tracked working tree is dirty, runs
+  first-time-setup idempotently, then bumps.
 
 Python mode drives commitizen in **files-only** mode
 (`cz bump --yes --changelog --version-files-only`): cz rewrites the version
@@ -87,10 +90,28 @@ def main() -> int:
     root = Path.cwd()
 
     marketplace_json = root / ".claude-plugin" / "marketplace.json"
+    pyproject = root / "pyproject.toml"
+
+    # Forbidden-paths gate, enforced HERE — at the single point where the modes
+    # diverge — rather than inside one of them. It used to live in
+    # `ship_python()` only, so plugin mode dispatched straight to
+    # release-plugin.sh and cut releases with skill artifacts tracked, while
+    # SKILL.md advertised the refusal as a property of /ship. (qute-code-kit is
+    # itself a plugin-mode repo, so it had no protection at all.) A gate that
+    # applies to "a release" belongs above the branch that picks how to make
+    # one; putting it here also means a future third mode cannot silently skip
+    # it. It is a pure `git ls-files` read, so it is safe ahead of either
+    # mode's own preconditions — neither writes before validating its args.
+    #
+    # Deliberately after project-type detection: a repo /ship cannot ship at
+    # all should hear that, not a lecture about forbidden paths.
+    if marketplace_json.exists() or pyproject.exists():
+        if rc := check_forbidden_paths(root):
+            return rc
+
     if marketplace_json.exists():
         return ship_plugin(root, marketplace_json, args)
 
-    pyproject = root / "pyproject.toml"
     if pyproject.exists():
         return ship_python(root, pyproject, args)
 
@@ -180,9 +201,8 @@ def parse_python_args(args: list[str]) -> argparse.Namespace:
 def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     parsed = parse_python_args(args)
 
-    # 1. Forbidden-paths check.
-    if rc := check_forbidden_paths(root):
-        return rc
+    # 1. Forbidden-paths check — now enforced in `main()`, before mode
+    #    dispatch, so plugin mode gets it too. Not repeated here.
 
     # 2. Clean-tree gate. Deliberately BEFORE setup: setup legitimately writes
     #    to pyproject.toml / CHANGELOG.md, so checking afterwards would trip on
@@ -532,6 +552,22 @@ def changelog_section(
     """
     name = cz_config.get("changelog_file")
     changelog = root / (name if isinstance(name, str) and name else "CHANGELOG.md")
+
+    # `changelog_file` is repo-controlled config, and `root / name` happily
+    # accepts `../../secrets.md` or an absolute path — /ship would then read
+    # outside the repo and copy whatever matched a `## <version>` heading into
+    # the annotated tag message, which gets pushed. `bumped_files()` already
+    # drops escaping paths through `relative_to(root)`; this is that same guard
+    # in the one place in this file that lacked it. `resolve()` follows
+    # symlinks, so a changelog symlinked out of the tree is caught too.
+    #
+    # Escaping degrades the tag message rather than failing the release: this
+    # function is best-effort by contract, and a thin tag beats a refused one.
+    try:
+        changelog.resolve().relative_to(root.resolve())
+    except (ValueError, OSError):
+        return None
+
     try:
         lines = changelog.read_text(encoding="utf-8").splitlines()
     except OSError:

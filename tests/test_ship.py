@@ -139,6 +139,16 @@ class PythonModeArgs(unittest.TestCase):
 
 
 class ForbiddenPaths(unittest.TestCase):
+    """The gate belongs to /ship, not to one of its modes.
+
+    It used to run inside `ship_python()` only, so plugin mode dispatched
+    straight to release-plugin.sh and released with skill artifacts tracked —
+    while SKILL.md advertised the refusal as a property of /ship. qute-code-kit
+    is itself a plugin-mode repo, so it had no protection at all. Same defect
+    shape as the untracked-file and dry-run bugs on this PR: a rule enforced in
+    one place and absent in its twin.
+    """
+
     def test_extras_file_parsed_with_comments(self):
         # Module-level import (path acrobatics) of check_forbidden_paths.
         sys.path.insert(0, str(SHIP_PY.parent))
@@ -147,6 +157,63 @@ class ForbiddenPaths(unittest.TestCase):
         finally:
             sys.path.pop(0)
         self.assertIn(".claude/handoffs", UNIVERSAL_FORBIDDEN)
+
+    @staticmethod
+    def _repo_with_forbidden_path(root: Path) -> None:
+        subprocess.run(
+            ["git", "init", "-q", "-b", "main", str(root)],
+            check=True,
+            capture_output=True,
+        )
+        handoffs = root / ".claude" / "handoffs"
+        handoffs.mkdir(parents=True)
+        (handoffs / "session.md").write_text("leaked\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(root), "add", "-A"], check=True, capture_output=True
+        )
+
+    def test_plugin_mode_refuses_when_a_forbidden_path_is_tracked(self):
+        """The actual gap: plugin mode never reached the check at all."""
+        with tempfile.TemporaryDirectory() as td_str:
+            td = Path(td_str)
+            self._repo_with_forbidden_path(td)
+            PluginModeDispatch._make_marketplace(td, ["demo"])
+            # A release script that shouts if it runs — the point is that the
+            # release must not happen, not merely that the command exits 1.
+            scripts = td / "scripts"
+            scripts.mkdir()
+            (scripts / "release-plugin.sh").write_text(
+                "#!/bin/sh\necho RELEASED\nexit 0\n", encoding="utf-8"
+            )
+
+            result = run_ship(["patch"], td)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("forbidden paths are tracked", result.stderr)
+            self.assertIn(".claude/handoffs", result.stderr)
+            self.assertNotIn("RELEASED", result.stdout)
+
+    def test_python_mode_still_refuses(self):
+        """Moving the gate must not drop the mode that already had it."""
+        with tempfile.TemporaryDirectory() as td_str:
+            td = Path(td_str)
+            self._repo_with_forbidden_path(td)
+            (td / "pyproject.toml").write_text(
+                '[project]\nname = "x"\nversion = "0.1.0"\n', encoding="utf-8"
+            )
+            result = run_ship(["patch"], td)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("forbidden paths are tracked", result.stderr)
+
+    def test_unsupported_repo_hears_about_the_repo_not_the_paths(self):
+        """Ordering: project-type detection first, or the error misleads."""
+        with tempfile.TemporaryDirectory() as td_str:
+            td = Path(td_str)
+            self._repo_with_forbidden_path(td)
+            result = run_ship(["patch"], td)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no supported project type", result.stderr)
+        self.assertNotIn("forbidden paths", result.stderr)
 
 
 class CleanWorktreeGate(unittest.TestCase):
@@ -952,6 +1019,99 @@ class DryRunIsReadOnlyThroughCz(unittest.TestCase):
             venv_cz.chmod(0o644)
             resolved = mod.resolve_cz(root, dry_run=True)
             self.assertNotEqual(resolved, [str(venv_cz)])
+
+
+class ChangelogPathContainment(unittest.TestCase):
+    """`changelog_file` must not read outside the repo into the tag message.
+
+    Fifth review round on PR #84. `bumped_files()` already dropped escaping
+    paths via `relative_to(root)`; `changelog_section()` did not, so a
+    repo-controlled `pyproject.toml` could point `changelog_file` outside the
+    tree and have whatever sat under a `## <version>` heading copied into the
+    annotated tag message — which gets pushed.
+
+    Thin threat model (running /ship in an untrusted repo already runs its
+    `uv run cz`), but the same rule was enforced in one place and absent in its
+    twin, inside one file. Escaping degrades the message; it never fails the
+    release.
+    """
+
+    @staticmethod
+    def _ship_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ship_under_test", SHIP_PY)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    SECRET = "# Changelog\n\n## 1.2.0\n\nSECRET-OUTSIDE-THE-REPO\n"
+
+    def test_relative_escape_returns_none(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "outside.md").write_text(self.SECRET, encoding="utf-8")
+            root = base / "repo"
+            root.mkdir()
+            self.assertIsNone(
+                mod.changelog_section(
+                    root, {"changelog_file": "../outside.md"}, "1.2.0"
+                )
+            )
+
+    def test_absolute_path_outside_the_repo_returns_none(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            outside = base / "outside.md"
+            outside.write_text(self.SECRET, encoding="utf-8")
+            root = base / "repo"
+            root.mkdir()
+            self.assertIsNone(
+                mod.changelog_section(root, {"changelog_file": str(outside)}, "1.2.0")
+            )
+
+    def test_symlink_out_of_the_repo_returns_none(self):
+        """`resolve()` follows the link, so the escape is caught by content."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "outside.md").write_text(self.SECRET, encoding="utf-8")
+            root = base / "repo"
+            root.mkdir()
+            (root / "CHANGELOG.md").symlink_to(base / "outside.md")
+            self.assertIsNone(mod.changelog_section(root, {}, "1.2.0"))
+
+    def test_the_secret_never_reaches_the_tag_message(self):
+        """End of the chain: the tag degrades to its subject, nothing leaks."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            (base / "outside.md").write_text(self.SECRET, encoding="utf-8")
+            root = base / "repo"
+            root.mkdir()
+            message = mod.build_tag_message(
+                root, {"changelog_file": "../outside.md"}, "v1.2.0", "1.2.0"
+            )
+            self.assertEqual(message, "Release v1.2.0")
+            self.assertNotIn("SECRET-OUTSIDE-THE-REPO", message)
+
+    def test_a_changelog_inside_the_repo_still_works(self):
+        """The guard must not break the ordinary case it wraps."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "docs").mkdir()
+            (root / "docs" / "CHANGES.md").write_text(
+                "# Changelog\n\n## 1.2.0\n\n- did a thing\n\n## 1.1.0\n\n- older\n",
+                encoding="utf-8",
+            )
+            body = mod.changelog_section(
+                root, {"changelog_file": "docs/CHANGES.md"}, "1.2.0"
+            )
+            self.assertEqual(body, "- did a thing")
+            self.assertNotIn("older", body)
 
 
 if __name__ == "__main__":
