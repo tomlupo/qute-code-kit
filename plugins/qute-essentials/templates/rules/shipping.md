@@ -1,4 +1,4 @@
-<!-- qute-rule: shipping v1 — stamped by /setup-qute-repo; regenerate per-file, never hand-merge -->
+<!-- prose source: shipping v1 — /setup-qute-repo writes this as a CLAUDE.md section; it is NOT stamped as a .claude/rules file (TOM-386) -->
 # Shipping
 
 - `/ship` is the **only** version writer: it bumps the version, regenerates

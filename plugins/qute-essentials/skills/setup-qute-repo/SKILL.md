@@ -6,7 +6,7 @@ description: >-
   (webapp / quant package / quant lab / quant production / simple tool / peer
   product), Matt
   spine, task tracker (Linear default, TASKS.md for simple repos), Jimek
-  management (conductor.yml), behavioral rules (.claude/rules), worktree
+  management (conductor.yml), behavioral contract (CLAUDE.md), worktree
   config, shipping mode, research regime, guards + CI posture, and root files — each step defaulted by repo type,
   diff-first, idempotent, never clobbering. Use when onboarding or re-aligning
   a repo: "set up this repo", "setup qute repo", "adopt matt workflow",
@@ -66,8 +66,8 @@ Defaults are proposals — the user can override any cell.
 own conventions and workflow (e.g. atlas): don't pull it under the regime, just
 bind it so fleet tooling can interoperate. Runs ONLY step 3 (tracker binding +
 repo label) and the `docs/adr/` part of step 10, then jumps to step 11. No
-conductor.yml, no `.claude/rules/`, no worktree/shipping/research stamping, and
-CLAUDE.md is left alone. (TOM-59 is the reference example.)
+conductor.yml, no behavioral-contract sections, no worktree/shipping/research
+stamping, and CLAUDE.md is left alone. (TOM-59 is the reference example.)
 
 ## Step 2 — Matt spine
 
@@ -180,27 +180,37 @@ standalone; ADR-0006 folds its job into this step):
 Not Jimek-managed → skip; note it in the final report so it's a decision,
 not an omission.
 
-## Step 5 — Behavioral rules (`.claude/rules/`) — ADR-0005 §5
+## Step 5 — Behavioral contract → `CLAUDE.md` (ADR-0005 §5, narrowed)
 
-Stamp the repo's core behavioral contract into **`.claude/rules/`** (auto-loaded
-every session like CLAUDE.md, but modular — regenerable one concern-file at a
-time). Both interactive Claude AND autonomous jimek workers load these, so it is
-ONE contract for two worlds; rigor tiers only add enforcement on top.
+**Stamp nothing into `.claude/rules/`. Do not create the directory.** The repo's
+behavioral contract belongs in **`CLAUDE.md`** — the branch flow, Conventional
+Commits, PR-per-change, `/ship` as the only version writer, the independent-review
+expectation, and the governance mode step 4 selected. Write the concerns the repo
+actually lacks as sections there, and leave alone whatever it already documents
+better than a template would.
 
-From `templates/rules/` stamp, idempotent per-file (write if absent; if present
-and differing, show the diff and ask — never silently clobber):
+**Why the layer is not the destination.** A `.claude/rules/*.md` file with no
+`paths:` frontmatter loads as the same project-memory object as a `CLAUDE.md`
+section, from the same ancestor walk, at the same session cost. It is a
+`CLAUDE.md` section with a second place to look. The mechanism stays sanctioned —
+ADR-0005 §5 still stands — but **only for `paths:`-scoped rules**, whose one real
+capability is not loading until an accessed file matches the glob.
 
-- `git-workflow.md` — branch off default, Conventional Commits, PR-per-change
-- `shipping.md` — `/ship` is the only version writer (skip/adapt when the
-  repo's shipping mode is "none")
-- `review-expectations.md` — non-trivial changes get an independent review
-  (a separate reviewing agent, not an identity trick)
-- `governance.md` — mode-conditional: copy `governance-jimek.md` if step 4 made
-  the repo conductor-managed, else `governance-standalone.md`
+**A scoped rule is discovered, never stamped.** It is justified when you have a
+specific set of files whose instructions should be absent the rest of the time,
+which you learn during work, not at onboarding. This step used to stamp four
+templates: that is why the `<!-- qute-rule: <name> vN -->` marker appears in all
+five `templates/rules/` files and in **zero** files anywhere on the box — the
+step prescribed rules before anyone had a reason for one. The templates remain as
+prose sources for the CLAUDE.md sections; they are no longer copied as files.
 
-Each file carries a `<!-- qute-rule: <name> vN -->` marker so re-runs can tell a
-stamped file from a hand-authored one. `CLAUDE.md` stays human-authored
-(overview/architecture) — onboarding never writes rules into it.
+Two further traps if you do reach for a scoped rule:
+
+- The matcher resolves the project root as `dirname(dirname(rulesDir))` and
+  rejects any accessed file outside it, so globs pointing at a sibling tree
+  **never fire**. Three such rules sat unreachable in an agent home for weeks.
+- Never move an invariant out of `CLAUDE.md` into a scoped rule. If it must hold
+  every session, scoping it is how it silently stops holding.
 
 ## Step 6 — Worktrees
 
@@ -312,8 +322,9 @@ a silent pass in repos they don't apply to, so stamping them is cheap:
 Re-run the `/check-agent-regime` checks. Report: stamped / skipped /
 needs-human (tracker choice, Linear project mapping, docs/decisions/
 migration, review-gate adoption). The repo passes when there is exactly one
-task store, one boot file, one ADR location, a stamped `.claude/rules/` with a
-mode-correct `governance.md`, and every binding carries its machine marker.
+task store, one boot file, one ADR location, a `CLAUDE.md` carrying the
+behavioral contract with the mode-correct governance section, no unscoped
+`.claude/rules` file anywhere, and every binding carrying its machine marker.
 
 ## Policy (unchanged from adopt-matt-workflow)
 

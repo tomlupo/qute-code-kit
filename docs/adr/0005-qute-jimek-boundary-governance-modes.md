@@ -99,6 +99,22 @@ Because both interactive Claude and autonomous workers run inside a repo checkou
 auto-load the same `.claude/rules`** — one behavioral contract, two worlds. Rigor tiers add only
 the *automation/enforcement* layer for the autonomous case; they do not restate the rules.
 
+> **Amendment 2026-07-28 (TOM-386) — the destination is `CLAUDE.md`; the layer survives for
+> `paths:`-scoped rules only.** This section is not superseded: one behavioral contract shared by
+> both worlds still holds, and `.claude/rules` remains a sanctioned mechanism. What was wrong is
+> the *home*. "Auto-loads exactly like CLAUDE.md but is modular" understated the equivalence — an
+> unscoped rule file becomes the **same** project-memory object, from the **same** ancestor walk,
+> at the **same** session cost. Modularity was never a loading property, only an editing
+> convenience, and it was paid for with a second place to look.
+>
+> So: `setup-qute-repo` **stamps nothing** into `.claude/rules/` and writes the core as `CLAUDE.md`
+> sections instead. `paths:`-scoped rules keep the one capability `CLAUDE.md` lacks — not loading
+> until an accessed file matches — and are **discovered during work, never stamped at onboarding**,
+> which is why the `<!-- qute-rule: … -->` marker existed in five templates and zero real files.
+> Two traps if you write one: the matcher resolves the project root as
+> `dirname(dirname(rulesDir))` and silently never fires for globs pointing outside it, and an
+> invariant moved out of `CLAUDE.md` into a scoped rule stops holding with nothing reporting it.
+
 ### 6. Interactive sessions in a jimek repo get the standalone behavior
 
 `conductor.yml` governs **machines, not you**. When a human drives an interactive session in a

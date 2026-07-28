@@ -1,4 +1,4 @@
-<!-- qute-rule: governance v1 (jimek) — stamped by /setup-qute-repo; regenerate per-file, never hand-merge -->
+<!-- prose source: governance v1 (jimek) — /setup-qute-repo writes this as a CLAUDE.md section; it is NOT stamped as a .claude/rules file (TOM-386) -->
 # Governance mode: jimek-managed
 
 This repo is **conductor-managed**. The rigor tiers in `conductor.yml` are the

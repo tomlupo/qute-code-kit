@@ -177,7 +177,7 @@ There is **no per-repo PR policy file and no blocking client hook** — `.github
 - **Jimek-managed repos** — the rigor **tier** in `conductor.yml` is the sole merge authority
   (trivial = auto-merge, standard = self-merge on SHIP, complex = human merges). The conductor
   stamps `jimek-tier:*` labels on managed PRs; the review-gate CI reads them.
-- **Standalone repos** — `.claude/rules` (stamped by `/setup-qute-repo`) states the expectations;
+- **Standalone repos** — `CLAUDE.md` (written by `/setup-qute-repo`) states the expectations;
   the review-gate CI enforces "get an independent review"; a human merges.
 
 ### Optional CI gate (tier-aware)

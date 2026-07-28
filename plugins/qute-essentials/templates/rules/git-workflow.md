@@ -1,4 +1,4 @@
-<!-- qute-rule: git-workflow v1 — stamped by /setup-qute-repo; regenerate per-file, never hand-merge -->
+<!-- prose source: git-workflow v1 — /setup-qute-repo writes this as a CLAUDE.md section; it is NOT stamped as a .claude/rules file (TOM-386) -->
 # Git workflow
 
 - Branch off the default branch for every change; never commit directly to it

@@ -1,4 +1,4 @@
-<!-- qute-rule: review-expectations v1 — stamped by /setup-qute-repo; regenerate per-file, never hand-merge -->
+<!-- prose source: review-expectations v1 — /setup-qute-repo writes this as a CLAUDE.md section; it is NOT stamped as a .claude/rules file (TOM-386) -->
 # Review expectations
 
 - **Non-trivial changes get an independent review before merge.** Independent

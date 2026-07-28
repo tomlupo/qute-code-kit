@@ -1,4 +1,4 @@
-<!-- qute-rule: governance v1 (standalone) — stamped by /setup-qute-repo; regenerate per-file, never hand-merge -->
+<!-- prose source: governance v1 (standalone) — /setup-qute-repo writes this as a CLAUDE.md section; it is NOT stamped as a .claude/rules file (TOM-386) -->
 # Governance mode: standalone
 
 This repo is **not** jimek-managed. Governance = these `.claude/rules` + CI:
