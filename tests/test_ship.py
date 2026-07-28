@@ -18,6 +18,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHIP_PY = REPO_ROOT / "plugins" / "qute-essentials" / "scripts" / "ship.py"
@@ -626,20 +627,34 @@ def _install_cz_shim(bindir: Path) -> bool:
     )
 
 
-def _outside_bindir(root: Path) -> Path:
-    """A bin dir OUTSIDE the repo.
+def _outside_bindir(root: Path, *, with_uv: bool = False) -> Path:
+    """A bin dir holding ONLY the tools a test means to expose.
 
-    Inside it, the shim would itself be an untracked file in the tree these
-    tests assert is untouched — the harness would be creating the very noise
-    it is checking for.
+    Two independent reasons it works this way.
+
+    OUTSIDE the repo: inside it, the shim would itself be an untracked file in
+    the tree these tests assert is untouched — the harness would be creating
+    the very noise it checks for.
+
+    FIRST on PATH, ahead of the system dirs: a host with a global commitizen
+    must not change what these tests prove. The system dirs still follow,
+    because the cz shim is a `uv tool run` wrapper that needs `realpath` and
+    `dirname` — a PATH of this directory alone breaks cz with exit 127 rather
+    than testing anything. Shadowing is enough for the tests that need a cz
+    PRESENT; the one that needs cz ABSENT checks the resulting PATH itself.
+    `git` is linked because ship.py shells out to it.
     """
     bindir = root.parent / f"{root.name}-bin"
     bindir.mkdir(exist_ok=True)
+    for tool in ("git", *(("uv",) if with_uv else ())):
+        src = shutil.which(tool)
+        if src and not (bindir / tool).exists():
+            (bindir / tool).symlink_to(src)
     return bindir
 
 
 def _ship_env(bindir: Path) -> dict[str, str]:
-    """PATH with the shim first and uv absent, so ship.py picks `cz`."""
+    """PATH with the bin dir shadowing the system dirs — see `_outside_bindir`."""
     return {"PATH": f"{bindir}:/usr/bin:/bin"}
 
 
@@ -950,11 +965,14 @@ class DryRunIsReadOnlyThroughCz(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             self._init_repo(root)
-            # PATH with uv and deliberately no cz — the exact shape that used
-            # to silently degrade to `uv run cz`.
-            bindir = _outside_bindir(root)
-            (bindir / "uv").symlink_to(uv)
-            env = {"PATH": f"{bindir}:/usr/bin:/bin"}
+            # PATH with uv and provably no cz — the exact shape that used to
+            # silently degrade to `uv run cz`.
+            bindir = _outside_bindir(root, with_uv=True)
+            env = _ship_env(bindir)
+            # This test is about cz being ABSENT, so prove it is rather than
+            # assuming the host has no global commitizen.
+            if shutil.which("cz", path=env["PATH"]):
+                self.skipTest("host has a global cz on PATH; absence not testable")
 
             result = run_ship(["--dry-run"], root, env=env)
 
@@ -984,19 +1002,45 @@ class DryRunIsReadOnlyThroughCz(unittest.TestCase):
             )
 
     def test_resolve_cz_never_returns_uv_run_under_dry_run(self):
-        """The rule itself: a dry run only ever executes a cz that exists."""
+        """The rule itself: a dry run only ever executes a cz that exists.
+
+        PATH is controlled for every assertion. `resolve_cz` deliberately DOES
+        fall back to a `cz` on PATH, so on a host with a global commitizen an
+        ambient-PATH version of this test would fail while the code behaved
+        exactly as designed — the test would be measuring the machine.
+        """
         mod = self._ship_module()
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            self.assertIsNone(
-                mod.resolve_cz(root, dry_run=True),
-                "dry run resolved a cz in a project that has none",
-            )
-            # A real bump is allowed to make uv build the environment.
-            if shutil.which("uv"):
+            bindir = root / "bin"
+            bindir.mkdir()
+
+            # Nothing reachable: a dry run gives up rather than letting uv write.
+            with mock.patch.dict(os.environ, {"PATH": str(bindir)}):
+                self.assertIsNone(
+                    mod.resolve_cz(root, dry_run=True),
+                    "dry run resolved a cz in a project that has none",
+                )
+
+            # uv reachable, cz still not: STILL gives up. This is the assertion
+            # the blocker was about — `uv run cz` must never be the dry-run
+            # answer, however available uv is.
+            fake_uv = bindir / "uv"
+            fake_uv.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_uv.chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": str(bindir)}):
+                self.assertIsNone(mod.resolve_cz(root, dry_run=True))
+                # ...while a real bump is allowed to make uv build the env.
                 self.assertEqual(
                     mod.resolve_cz(root, dry_run=False), ["uv", "run", "cz"]
                 )
+
+            # cz reachable: the dry run uses THAT, not `uv run`.
+            fake_cz = bindir / "cz"
+            fake_cz.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            fake_cz.chmod(0o755)
+            with mock.patch.dict(os.environ, {"PATH": str(bindir)}):
+                self.assertEqual(mod.resolve_cz(root, dry_run=True), [str(fake_cz)])
 
     def test_dry_run_prefers_the_projects_own_venv_cz(self):
         """`.venv/bin/cz` wins: the dry run predicts the release it simulates."""
@@ -1010,15 +1054,19 @@ class DryRunIsReadOnlyThroughCz(unittest.TestCase):
             self.assertEqual(mod.resolve_cz(root, dry_run=True), [str(venv_cz)])
 
     def test_a_non_executable_venv_cz_is_not_used(self):
+        """A file at `.venv/bin/cz` that cannot run is not a cz."""
         mod = self._ship_module()
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
+            bindir = root / "bin"
+            bindir.mkdir()
             venv_cz = root / ".venv" / "bin" / "cz"
             venv_cz.parent.mkdir(parents=True)
             venv_cz.write_text("not a program\n", encoding="utf-8")
             venv_cz.chmod(0o644)
-            resolved = mod.resolve_cz(root, dry_run=True)
-            self.assertNotEqual(resolved, [str(venv_cz)])
+            # Empty PATH, so "not used" cannot be satisfied by a host cz.
+            with mock.patch.dict(os.environ, {"PATH": str(bindir)}):
+                self.assertIsNone(mod.resolve_cz(root, dry_run=True))
 
 
 class ChangelogPathContainment(unittest.TestCase):
