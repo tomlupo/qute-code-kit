@@ -1,8 +1,8 @@
 """Smoke tests for the qute-essentials /ship script.
 
-Covers mode dispatch, arg parsing, and forbidden-path behavior. Does not
-exercise commitizen — that requires uv/cz and is verified end-to-end via
-actual releases.
+Covers mode dispatch, arg parsing, and forbidden-path behavior. Most of it
+does not exercise commitizen; `BumpCommitCompleteness` does, and skips itself
+when neither `cz` nor `uv` can reach it.
 
 Run from the repo root:
     python3 -m unittest tests.test_ship
@@ -23,13 +23,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SHIP_PY = REPO_ROOT / "plugins" / "qute-essentials" / "scripts" / "ship.py"
 
 
-def run_ship(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
+def run_ship(
+    args: list[str], cwd: Path, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SHIP_PY), *args],
         cwd=cwd,
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", **(env or {})},
     )
 
 
@@ -446,10 +448,6 @@ class TagRendering(unittest.TestCase):
         )
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestAutoBumpWorkflowDetection(unittest.TestCase):
     """Setup must not install a second version writer, and must flag one.
 
@@ -531,3 +529,247 @@ class TestAutoBumpWorkflowDetection(unittest.TestCase):
             / "plugins/qute-essentials/scripts/ship_setup.py"
         ).read_text(encoding="utf-8")
         self.assertNotIn("created .github/workflows/release.yml", src)
+
+
+def _install_cz_shim(bindir: Path) -> bool:
+    """Put a real `cz` in `bindir`. False if commitizen cannot be reached.
+
+    ship.py prefers `uv run cz` whenever uv is on PATH, which inside a
+    throwaway project means resolving commitizen into a fresh `.venv` from a
+    pyproject that never declared it. The test therefore hides uv from ship.py
+    (see `_ship_env`) and hands it a `cz` on PATH instead — either the real one
+    or a shim over `uv tool run`, which resolves from uv's cache.
+    """
+    real = shutil.which("cz")
+    if real:
+        launcher = f'exec "{real}" "$@"'
+    else:
+        uv = shutil.which("uv")
+        if not uv:
+            return False
+        launcher = f'exec "{uv}" tool run --from commitizen cz "$@"'
+    shim = bindir / "cz"
+    shim.write_text(f"#!/bin/sh\n{launcher}\n", encoding="utf-8")
+    shim.chmod(0o755)
+    return (
+        subprocess.run(
+            [str(shim), "version"], capture_output=True, text=True
+        ).returncode
+        == 0
+    )
+
+
+def _ship_env(bindir: Path) -> dict[str, str]:
+    """PATH with the shim first and uv absent, so ship.py picks `cz`."""
+    return {"PATH": f"{bindir}:/usr/bin:/bin"}
+
+
+class BumpCommitCompleteness(unittest.TestCase):
+    """The bump commit must contain EVERY file cz rewrote — and only those.
+
+    Regression guard for the third review round on PR #84. `bumped_files()`
+    re-expands the `version_files` globs to decide what to `git add`, so any
+    drift between its expansion and commitizen's leaves a rewritten file
+    unstaged: the tag then points at a partial release, where `pyproject.toml`
+    says 0.2.0 and a package `__version__` still says 0.1.0.
+
+    The review that raised it assumed cz expands `**` recursively and /ship did
+    not. It is the other way round — cz resolves `version_files` with a bare
+    `iglob()` (`commitizen.bump._resolve_files_and_regexes`), so `**` matches
+    one path component for BOTH, and globbing recursively here would stage
+    files cz never touched. These tests pin the behaviour in both directions,
+    against the real cz rather than against either assumption.
+    """
+
+    VERSION_LITERAL = '__version__ = "0.1.0"\n'
+
+    def _git(self, root: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+    def _init_repo(self, root: Path) -> None:
+        """A repo whose version_files glob spans two nested directories.
+
+        Layout under `src/**/*.py`:
+          src/alpha/__init__.py      matched   (depth 1)
+          src/beta/__init__.py       matched   (depth 1, second directory)
+          src/alpha/deep/inner.py    unmatched (depth 2, tracked)
+        """
+        self._git(root, "init", "-q", "-b", "main")
+        self._git(root, "config", "user.email", "test@example.com")
+        self._git(root, "config", "user.name", "Test")
+        self._git(root, "config", "commit.gpgsign", "false")
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "probe"\nversion = "0.1.0"\n\n'
+            "[tool.commitizen]\n"
+            'name = "cz_conventional_commits"\n'
+            'version = "0.1.0"\n'
+            'tag_format = "v$version"\n'
+            "annotated_tag = true\n"
+            'version_files = [\n    "pyproject.toml:version",\n'
+            '    "src/**/*.py:__version__",\n]\n',
+            encoding="utf-8",
+        )
+        for rel in (
+            "src/alpha/__init__.py",
+            "src/beta/__init__.py",
+            "src/alpha/deep/inner.py",
+        ):
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self.VERSION_LITERAL, encoding="utf-8")
+        (root / "README.md").write_text("# probe\n", encoding="utf-8")
+        self._git(root, "add", "-A")
+        self._git(root, "commit", "-q", "-m", "feat: initial")
+        self._git(root, "tag", "v0.1.0")
+        # Something for cz to compute an increment from.
+        (root / "README.md").write_text("# probe\nmore\n", encoding="utf-8")
+        self._git(root, "add", "-A")
+        self._git(root, "commit", "-q", "-m", "feat: add a thing")
+
+    def test_every_file_cz_rewrote_lands_in_the_bump_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            bindir = root / ".testbin"
+            bindir.mkdir()
+            if not _install_cz_shim(bindir):
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            self._init_repo(root)
+
+            # Untracked, at depth 2 — invisible to cz's non-recursive glob and
+            # deliberately allowed past the clean-tree gate. If /ship ever
+            # globs recursively, `git add` sweeps this into the release.
+            scratch = root / "src" / "alpha" / "deep" / "scratch.py"
+            scratch.write_text("SCRATCH = True\n", encoding="utf-8")
+
+            result = run_ship(["minor"], root, env=_ship_env(bindir))
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+            # THE assertion: nothing cz rewrote was left behind. The tracked
+            # tree was clean before the bump (the gate enforces it), so any
+            # modified tracked file still dirty here is a file cz rewrote and
+            # /ship failed to stage — a partial release under a release tag.
+            leftover = self._git(
+                root, "status", "--porcelain", "--untracked-files=no"
+            ).strip()
+            self.assertEqual(
+                leftover,
+                "",
+                msg=f"cz rewrote files the bump commit does not contain:\n{leftover}",
+            )
+
+            committed = set(
+                self._git(root, "diff", "--name-only", "HEAD~1", "HEAD").split()
+            )
+            self.assertEqual(
+                committed,
+                {
+                    "CHANGELOG.md",
+                    "pyproject.toml",
+                    "src/alpha/__init__.py",
+                    "src/beta/__init__.py",
+                },
+                msg=f"unexpected bump-commit contents: {sorted(committed)}",
+            )
+
+            # The COMMITTED content carries the new version, not just the
+            # worktree — `git add` of the wrong path would still commit, and
+            # only reading out of the commit catches that.
+            for rel in ("src/alpha/__init__.py", "src/beta/__init__.py"):
+                self.assertIn(
+                    '__version__ = "0.2.0"',
+                    self._git(root, "show", f"HEAD:{rel}"),
+                    msg=f"{rel} was committed without the bumped version",
+                )
+            self.assertIn(
+                'version = "0.2.0"', self._git(root, "show", "HEAD:pyproject.toml")
+            )
+
+            # cz left the depth-2 files alone; so must /ship.
+            self.assertNotIn("src/alpha/deep/inner.py", committed)
+            self.assertNotIn("src/alpha/deep/scratch.py", committed)
+            self.assertEqual(
+                (root / "src" / "alpha" / "deep" / "inner.py").read_text(
+                    encoding="utf-8"
+                ),
+                self.VERSION_LITERAL,
+            )
+
+            # The release tag points at that complete commit.
+            self.assertEqual(
+                self._git(root, "rev-list", "-n", "1", "v0.2.0").strip(),
+                self._git(root, "rev-parse", "HEAD").strip(),
+            )
+
+    @staticmethod
+    def _ship_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ship_under_test", SHIP_PY)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_a_rewritten_file_no_pattern_resolved_is_staged_anyway(self):
+        """The backstop, isolated: dirty tracked file, glob that cannot see it.
+
+        This is the failure mode the glob alone cannot rule out — whatever cz
+        rewrote, the bump commit must contain. The clean-tree gate guarantees a
+        dirty tracked file at this point came from cz, so it is staged even
+        though no `version_files` pattern resolves to it.
+        """
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "src" / "alpha" / "deep" / "inner.py").write_text(
+                '__version__ = "0.2.0"\n', encoding="utf-8"
+            )
+            files = set(
+                mod.bumped_files(
+                    root,
+                    root / "pyproject.toml",
+                    {"version_files": ["src/*/__init__.py:__version__"]},
+                )
+            )
+            self.assertIn("src/alpha/deep/inner.py", files)
+
+    def test_untracked_files_are_never_staged_by_the_backstop(self):
+        """Scratch is not a release artifact — only the changelog is exempt."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "src" / "alpha" / "deep" / "scratch.py").write_text(
+                "SCRATCH = True\n", encoding="utf-8"
+            )
+            files = set(mod.bumped_files(root, root / "pyproject.toml", {}))
+            self.assertNotIn("src/alpha/deep/scratch.py", files)
+
+    def test_bumped_files_mirrors_cz_glob_expansion(self):
+        """Unit-level twin of the above; runs without commitizen installed."""
+        mod = self._ship_module()
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            files = set(
+                mod.bumped_files(
+                    root,
+                    root / "pyproject.toml",
+                    {"version_files": ["pyproject.toml:version", "src/**/*.py"]},
+                )
+            )
+            self.assertIn("src/alpha/__init__.py", files)
+            self.assertIn("src/beta/__init__.py", files)
+            # cz's `iglob` stops at one component; expanding recursively here
+            # would stage a file cz never rewrote.
+            self.assertNotIn("src/alpha/deep/inner.py", files)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -333,6 +333,9 @@ def bumped_files(
 
     `pyproject.toml` is always included because cz writes the new version into
     `[tool.commitizen] version` there regardless of `version_files`.
+
+    The glob half mirrors commitizen exactly (see below); the dirty-tracked-file
+    sweep is the backstop that makes the result correct even where it does not.
     """
     candidates: list[Path] = [pyproject]
 
@@ -346,6 +349,17 @@ def bumped_files(
             raw = entry.split(":", 1)[0].strip()
             if not raw:
                 continue
+            # Deliberately NOT `recursive=True`. commitizen resolves
+            # `version_files` with a bare `iglob(pattern)`
+            # (`commitizen.bump._resolve_files_and_regexes`), so `**` matches a
+            # SINGLE path component there — exactly as it does here. Verified
+            # against cz 4.16.5: with `version_files = ["src/**/*.py:__version__"]`
+            # cz rewrote `src/pkg/__init__.py` and left `src/pkg/sub/deep.py`
+            # untouched. Globbing recursively would make /ship stage paths cz
+            # never rewrote, including UNTRACKED ones at any depth — and the
+            # clean-tree gate deliberately lets untracked files through
+            # (`--untracked-files=no`), so `git add` would sweep scratch into
+            # the release commit. Mirror cz; never out-glob it.
             matches = glob.glob(str(root / raw))
             if matches:
                 candidates.extend(Path(m) for m in matches)
@@ -357,6 +371,17 @@ def bumped_files(
         root / (changelog if isinstance(changelog, str) else DEFAULT_CHANGELOG_FILE)
     )
 
+    # Backstop: anything git reports as a modified TRACKED file was written by
+    # cz, because `check_clean_worktree` already refused to get here unless the
+    # tracked tree was clean before the bump. So the bump commit can be complete
+    # without this function having to out-guess cz's pattern expansion — if cz
+    # ever changes how it resolves `version_files` (or resolves a pattern this
+    # function mis-parses), the rewritten file still lands in the commit instead
+    # of being left behind for a partial release. Untracked files stay excluded:
+    # they are scratch, not release artifacts, and the changelog — the one file
+    # cz creates from nothing — is already a candidate above.
+    candidates.extend(root / rel for rel in _modified_tracked_files(root))
+
     seen: dict[str, None] = {}
     for path in candidates:
         if not path.exists():
@@ -367,6 +392,25 @@ def bumped_files(
             continue
         seen.setdefault(rel, None)
     return list(seen)
+
+
+def _modified_tracked_files(root: Path) -> list[str]:
+    """Repo-relative paths of tracked files with uncommitted changes.
+
+    Both staged and unstaged (`git diff --name-only HEAD`). Returns `[]` when
+    git is unavailable or the repo has no commits yet — the caller only uses
+    this to widen the set of paths it stages, so an empty answer is safe.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "diff", "--name-only", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return []
+    return [line for line in result.stdout.splitlines() if line.strip()]
 
 
 def build_tag_message(
