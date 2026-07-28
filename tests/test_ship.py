@@ -559,6 +559,18 @@ def _install_cz_shim(bindir: Path) -> bool:
     )
 
 
+def _outside_bindir(root: Path) -> Path:
+    """A bin dir OUTSIDE the repo.
+
+    Inside it, the shim would itself be an untracked file in the tree these
+    tests assert is untouched — the harness would be creating the very noise
+    it is checking for.
+    """
+    bindir = root.parent / f"{root.name}-bin"
+    bindir.mkdir(exist_ok=True)
+    return bindir
+
+
 def _ship_env(bindir: Path) -> dict[str, str]:
     """PATH with the shim first and uv absent, so ship.py picks `cz`."""
     return {"PATH": f"{bindir}:/usr/bin:/bin"}
@@ -634,8 +646,7 @@ class BumpCommitCompleteness(unittest.TestCase):
     def test_every_file_cz_rewrote_lands_in_the_bump_commit(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
-            bindir = root / ".testbin"
-            bindir.mkdir()
+            bindir = _outside_bindir(root)
             if not _install_cz_shim(bindir):
                 self.skipTest("commitizen not reachable via `cz` or `uv`")
             self._init_repo(root)
@@ -705,6 +716,49 @@ class BumpCommitCompleteness(unittest.TestCase):
                 self._git(root, "rev-parse", "HEAD").strip(),
             )
 
+    def test_untracked_file_matching_the_glob_stays_out_of_the_release(self):
+        """A broad glob must not sweep scratch into the commit and the tag.
+
+        `check_clean_worktree` deliberately lets untracked files through, so
+        one CAN be sitting in the tree at bump time — and `src/*/*.py` matches
+        it, which means cz rewrites it too. Staging it would put scratch inside
+        the annotated tag consumers pin. The same run covers the first-release
+        case: `CHANGELOG.md` is equally untracked and MUST be staged, so this
+        pins the exemption as well as the rule.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            bindir = _outside_bindir(root)
+            if not _install_cz_shim(bindir):
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            self._init_repo(root)
+
+            # Depth 1 — squarely inside `src/**/*.py` as cz expands it.
+            scratch = root / "src" / "gamma" / "matched_scratch.py"
+            scratch.parent.mkdir(parents=True)
+            scratch.write_text("SCRATCH = True\n", encoding="utf-8")
+            self.assertIn(
+                "?? src/gamma/matched_scratch.py",
+                self._git(root, "status", "--porcelain", "--untracked-files=all"),
+            )
+            self.assertFalse((root / "CHANGELOG.md").exists())
+
+            result = run_ship(["minor"], root, env=_ship_env(bindir))
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+            committed = set(
+                self._git(root, "diff", "--name-only", "HEAD~1", "HEAD").split()
+            )
+            self.assertNotIn("src/gamma/matched_scratch.py", committed)
+            # Still untracked afterwards — not staged, not committed, not
+            # quietly added to the index for the next commit to pick up.
+            self.assertIn(
+                "?? src/gamma/matched_scratch.py",
+                self._git(root, "status", "--porcelain", "--untracked-files=all"),
+            )
+            # The exemption: a first release's brand-new changelog does ship.
+            self.assertIn("CHANGELOG.md", committed)
+
     @staticmethod
     def _ship_module():
         import importlib.util
@@ -713,6 +767,28 @@ class BumpCommitCompleteness(unittest.TestCase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         return mod
+
+    def test_bumped_files_excludes_untracked_but_keeps_the_changelog(self):
+        """Unit twin: one filter, both sources, one exemption."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "src" / "gamma").mkdir(parents=True)
+            (root / "src" / "gamma" / "matched_scratch.py").write_text(
+                "SCRATCH = True\n", encoding="utf-8"
+            )
+            (root / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
+            files = set(
+                mod.bumped_files(
+                    root,
+                    root / "pyproject.toml",
+                    {"version_files": ["src/*/*.py:__version__"]},
+                )
+            )
+            self.assertIn("src/alpha/__init__.py", files)  # tracked, matched
+            self.assertNotIn("src/gamma/matched_scratch.py", files)  # untracked
+            self.assertIn("CHANGELOG.md", files)  # untracked, exempt
 
     def test_a_rewritten_file_no_pattern_resolved_is_staged_anyway(self):
         """The backstop, isolated: dirty tracked file, glob that cannot see it.
@@ -769,6 +845,113 @@ class BumpCommitCompleteness(unittest.TestCase):
             # cz's `iglob` stops at one component; expanding recursively here
             # would stage a file cz never rewrote.
             self.assertNotIn("src/alpha/deep/inner.py", files)
+
+
+class DryRunIsReadOnlyThroughCz(unittest.TestCase):
+    """`--dry-run` must not write, and `uv run cz` writes before cz runs.
+
+    Fourth review round on PR #84. The branch advertises "a dry run leaves the
+    working tree exactly as it found it", but Python mode reached commitizen
+    via `uv run cz` whenever uv was on PATH — and uv materializes `.venv`
+    (measured against uv 0.11.3: `--no-sync` and `--no-sync --frozen` both
+    still print "Creating virtual environment at: .venv") before cz executes.
+    So `/ship --dry-run` in a configured repo with no `.venv` wrote to the tree
+    just by being asked what would ship.
+    """
+
+    _init_repo = BumpCommitCompleteness._init_repo
+    _git = BumpCommitCompleteness._git
+    _ship_module = staticmethod(BumpCommitCompleteness._ship_module)
+    VERSION_LITERAL = BumpCommitCompleteness.VERSION_LITERAL
+
+    def _assert_tree_untouched(self, root: Path) -> None:
+        self.assertFalse((root / ".venv").exists(), ".venv was created by a dry run")
+        self.assertFalse(
+            (root / "uv.lock").exists(), "uv.lock was written by a dry run"
+        )
+        self.assertEqual(
+            self._git(root, "status", "--porcelain").strip(),
+            "",
+            "a dry run left changes in the working tree",
+        )
+
+    def test_dry_run_refuses_rather_than_letting_uv_write(self):
+        """uv reachable, cz not: stop with a read-only message, write nothing."""
+        uv = shutil.which("uv")
+        if not uv:
+            self.skipTest("uv not installed")
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            # PATH with uv and deliberately no cz — the exact shape that used
+            # to silently degrade to `uv run cz`.
+            bindir = _outside_bindir(root)
+            (bindir / "uv").symlink_to(uv)
+            env = {"PATH": f"{bindir}:/usr/bin:/bin"}
+
+            result = run_ship(["--dry-run"], root, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("cannot simulate the bump without writing", result.stderr)
+            self.assertIn("uv sync", result.stderr)
+            self._assert_tree_untouched(root)
+
+    def test_dry_run_simulates_with_a_preexisting_cz_and_writes_nothing(self):
+        """The happy path still answers the question — without touching the tree."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            bindir = _outside_bindir(root)
+            if not _install_cz_shim(bindir):
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            self._init_repo(root)
+
+            result = run_ship(["--dry-run"], root, env=_ship_env(bindir))
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("dry run complete", result.stdout + result.stderr)
+            self._assert_tree_untouched(root)
+            # And it really simulated: no bump commit, no tag.
+            self.assertEqual(self._git(root, "tag", "--list").split(), ["v0.1.0"])
+            self.assertIn(
+                "feat: add a thing", self._git(root, "log", "-1", "--pretty=%s")
+            )
+
+    def test_resolve_cz_never_returns_uv_run_under_dry_run(self):
+        """The rule itself: a dry run only ever executes a cz that exists."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self.assertIsNone(
+                mod.resolve_cz(root, dry_run=True),
+                "dry run resolved a cz in a project that has none",
+            )
+            # A real bump is allowed to make uv build the environment.
+            if shutil.which("uv"):
+                self.assertEqual(
+                    mod.resolve_cz(root, dry_run=False), ["uv", "run", "cz"]
+                )
+
+    def test_dry_run_prefers_the_projects_own_venv_cz(self):
+        """`.venv/bin/cz` wins: the dry run predicts the release it simulates."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            venv_cz = root / ".venv" / "bin" / "cz"
+            venv_cz.parent.mkdir(parents=True)
+            venv_cz.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            venv_cz.chmod(0o755)
+            self.assertEqual(mod.resolve_cz(root, dry_run=True), [str(venv_cz)])
+
+    def test_a_non_executable_venv_cz_is_not_used(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            venv_cz = root / ".venv" / "bin" / "cz"
+            venv_cz.parent.mkdir(parents=True)
+            venv_cz.write_text("not a program\n", encoding="utf-8")
+            venv_cz.chmod(0o644)
+            resolved = mod.resolve_cz(root, dry_run=True)
+            self.assertNotEqual(resolved, [str(venv_cz)])
 
 
 if __name__ == "__main__":

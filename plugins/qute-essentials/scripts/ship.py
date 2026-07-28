@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import re
 import shutil
 import string
@@ -222,11 +223,19 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     # the changelog, and then stops — no commit, no tag, changes left in the
     # working tree. Commit and tag creation happen below, in this script, so
     # there is exactly ONE tagging path and it always produces an annotated tag.
-    if shutil.which("uv"):
-        cz = ["uv", "run", "cz"]
-    elif shutil.which("cz"):
-        cz = ["cz"]
-    else:
+    cz = resolve_cz(root, dry_run=parsed.dry_run)
+    if cz is None:
+        if parsed.dry_run:
+            return fail(
+                "cannot simulate the bump without writing to the working tree.\n"
+                "  A dry run promises to leave the tree exactly as it found it, and the\n"
+                "  only commitizen reachable here is `uv run cz` — which materializes\n"
+                "  `.venv` (and can write `uv.lock`) before cz ever executes.\n"
+                "  Give the dry run a cz that already exists, then re-run:\n"
+                "    uv sync                 # populates .venv/bin/cz\n"
+                "    uv tool install commitizen   # or put cz on PATH\n"
+                "  A real release (without --dry-run) may use `uv run cz` and will."
+            )
         return fail("neither `uv` nor `cz` found on PATH. Install commitizen or uv.")
 
     cmd = [*cz, "bump", "--yes", "--changelog", "--version-files-only"]
@@ -326,6 +335,49 @@ def git_commit_bump(
     return 0
 
 
+def resolve_cz(root: Path, *, dry_run: bool) -> list[str] | None:
+    """How to invoke commitizen. Read-only under `--dry-run`. None = give up.
+
+    A real bump prefers `uv run cz`: uv resolves the project's OWN pinned
+    commitizen, syncing `.venv` if it must. Writing is fine there — the bump
+    rewrites files by design.
+
+    A dry run must not, and `uv run` cannot be made safe. It materializes the
+    environment BEFORE cz ever executes, so the write happens whatever cz would
+    have reported. Measured against uv 0.11.3 in a project with no `.venv`:
+
+        uv run cz                     -> Creating virtual environment at: .venv
+        uv run --no-sync cz           -> Creating virtual environment at: .venv
+        uv run --no-sync --frozen cz  -> Creating virtual environment at: .venv
+
+    `--no-sync` suppresses dependency syncing, not venv creation. So there is no
+    uv mode that both runs the project's cz and provably writes nothing, and a
+    dry run instead only ever executes a cz that ALREADY exists:
+
+      1. `.venv/bin/cz` — the exact commitizen the real bump would use, so the
+         simulation predicts the release rather than approximating it.
+      2. `cz` on PATH — an activated venv, a `uv tool install`, or a global one.
+
+    Anything else returns None and the caller stops with a read-only message.
+    Falling back to `uv run` here would write the very files the dry run
+    promised to leave alone, which is the failure silently degrading would
+    cause: a user runs `/ship --dry-run` to look, and it changes the tree.
+    """
+    if dry_run:
+        venv_cz = root / ".venv" / "bin" / "cz"
+        if venv_cz.is_file() and os.access(venv_cz, os.X_OK):
+            return [str(venv_cz)]
+        if on_path := shutil.which("cz"):
+            return [on_path]
+        return None
+
+    if shutil.which("uv"):
+        return ["uv", "run", "cz"]
+    if shutil.which("cz"):
+        return ["cz"]
+    return None
+
+
 def bumped_files(
     root: Path, pyproject: Path, cz_config: dict[str, object]
 ) -> list[str]:
@@ -334,8 +386,21 @@ def bumped_files(
     `pyproject.toml` is always included because cz writes the new version into
     `[tool.commitizen] version` there regardless of `version_files`.
 
-    The glob half mirrors commitizen exactly (see below); the dirty-tracked-file
-    sweep is the backstop that makes the result correct even where it does not.
+    Three mechanisms feed the result and ALL THREE agree on one rule: a file
+    enters the bump commit only if git already tracks it, and the changelog is
+    the single exception. The glob half mirrors commitizen's own expansion
+    (below); the dirty-tracked-file sweep is the backstop for anything the glob
+    cannot see; the tracked filter at the end is what makes "untracked means
+    excluded" true of the whole function rather than of one branch of it.
+
+    That rule is not cosmetic. `check_clean_worktree` deliberately lets
+    untracked files through (`--untracked-files=no`) so a lockfile or scratch
+    output can never block a release — which means an untracked file CAN be
+    sitting in the tree when this runs, and `git add` would put it inside the
+    release commit and the annotated tag consumers pin. Scratch is not a
+    release artifact. `CHANGELOG.md` is exempt because cz legitimately creates
+    it from nothing on a first release, and a release without its changelog is
+    not a release.
     """
     candidates: list[Path] = [pyproject]
 
@@ -367,9 +432,8 @@ def bumped_files(
                 candidates.append(root / raw)
 
     changelog = cz_config.get("changelog_file")
-    candidates.append(
-        root / (changelog if isinstance(changelog, str) else DEFAULT_CHANGELOG_FILE)
-    )
+    changelog_rel = changelog if isinstance(changelog, str) else DEFAULT_CHANGELOG_FILE
+    candidates.append(root / changelog_rel)
 
     # Backstop: anything git reports as a modified TRACKED file was written by
     # cz, because `check_clean_worktree` already refused to get here unless the
@@ -377,10 +441,12 @@ def bumped_files(
     # without this function having to out-guess cz's pattern expansion — if cz
     # ever changes how it resolves `version_files` (or resolves a pattern this
     # function mis-parses), the rewritten file still lands in the commit instead
-    # of being left behind for a partial release. Untracked files stay excluded:
-    # they are scratch, not release artifacts, and the changelog — the one file
-    # cz creates from nothing — is already a candidate above.
+    # of being left behind for a partial release. This source is tracked-only by
+    # construction (`git diff` never reports untracked paths), which is the same
+    # rule the filter below applies to the glob source.
     candidates.extend(root / rel for rel in _modified_tracked_files(root))
+
+    tracked = _tracked_files(root)
 
     seen: dict[str, None] = {}
     for path in candidates:
@@ -390,8 +456,27 @@ def bumped_files(
             rel = path.resolve().relative_to(root.resolve()).as_posix()
         except ValueError:  # outside the repo — cz would not have touched it
             continue
+        # The one filter, applied to every source. `tracked is None` means git
+        # could not be asked at all; there is nothing to filter against, and the
+        # commit step below fails loudly on its own in that state.
+        if tracked is not None and rel not in tracked and rel != changelog_rel:
+            continue
         seen.setdefault(rel, None)
     return list(seen)
+
+
+def _tracked_files(root: Path) -> set[str] | None:
+    """Repo-relative paths git tracks, or None if git cannot be asked."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return {line for line in result.stdout.splitlines() if line.strip()}
 
 
 def _modified_tracked_files(root: Path) -> list[str]:
