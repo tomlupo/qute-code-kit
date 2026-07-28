@@ -204,6 +204,45 @@ class TestHeredocConsumersThatActuallyExecute:
             "python3 -c \"__import__('os').system('rm -rf /srv/data')\"", RM_ROOT
         )
 
+    def test_python_running_a_script_does_not_own_its_stdin(self):
+        """Review finding on #90: the exemption is for python reading its own
+        SOURCE from stdin. `python3 runner.py <<EOF` feeds the body to an
+        arbitrary script, which may interpret or execute it."""
+        assert_denied("python3 runner.py <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_python_module_invocation_does_not_own_its_stdin(self):
+        assert_denied("python3 -m runner <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_dash_c_after_a_script_name_is_not_the_interpreters(self):
+        assert_denied('python3 runner.py -c "rm -rf /srv/data"', RM_ROOT)
+
+    def test_option_bundles_are_not_taken_apart(self):
+        # A bundle containing `c` or `m` means the invocation is doing
+        # something this code refuses to guess at, so the body stays scanned.
+        # Written as a heredoc deliberately: with a `-c "…"` payload the
+        # verdict would be the same for a second, independent reason, and the
+        # test would prove nothing about bundle handling.
+        assert_denied("python3 -uc <<'PY'\nrm -rf /srv/data\nPY", RM_ROOT)
+
+    def test_bare_python_reading_stdin_as_source_is_still_exempt(self):
+        assert_allowed(
+            "python3 <<'PY'\nopen('/tmp/f','w').write('rm -rf /srv/data')\nPY"
+        )
+
+    def test_benign_flags_before_the_stdin_dash_are_tolerated(self):
+        assert_allowed(
+            "python3 -u - <<'PY'\nopen('/tmp/f','w').write('rm -rf /srv/data')\nPY"
+        )
+
+    def test_a_redirection_target_is_not_mistaken_for_a_script_name(self):
+        # `> /tmp/out` is two tokens; counting `/tmp/out` as an argument would
+        # read this as "python running a script" and stop exempting it.
+        assert_allowed(
+            "python3 > /tmp/out - <<'PY'\n"
+            "open('/tmp/f','w').write('rm -rf /srv/data')\n"
+            "PY"
+        )
+
     def test_other_interpreters_are_not_exempt(self):
         """Documented limitation: only python is exempted, because every
         other interpreter needs its own shell-out vocabulary."""
@@ -225,6 +264,23 @@ class TestSegmentsThatReExecuteData:
         assert_denied(
             "cat > /tmp/f <<EOF\nprefix $(rm -rf /srv/data) suffix\nEOF", RM_ROOT
         )
+
+    def test_fd_duplication_does_not_hide_a_later_pipe(self):
+        """Review finding on #90: `&` was treated as a command separator, so
+        `2>&1` split the segment before the `|` and the pipe went unseen."""
+        assert_denied(
+            "python3 -c \"print('rm -rf /srv/data')\" 2>&1 | bash",
+            RM_ROOT,
+        )
+        assert_denied("cat <<'EOF' 2>&1 | bash\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_ampersand_redirect_form_does_not_hide_a_later_pipe(self):
+        assert_denied("cat <<'EOF' &>/tmp/log | bash\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_a_real_background_ampersand_still_separates(self):
+        # `&` that is not fd duplication is a genuine separator: the pipe
+        # belongs to the *next* command and must not disqualify this one.
+        assert_allowed("cat > /tmp/f <<'EOF' & ls | wc -l\ngit reset --hard\nEOF")
 
     def test_command_substitution_is_inert_under_a_quoted_delimiter(self):
         assert_allowed("cat > /tmp/f <<'EOF'\nprefix $(rm -rf /srv/data) suffix\nEOF")

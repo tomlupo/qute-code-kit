@@ -427,6 +427,12 @@ def is_safe_context(command: str) -> bool:
 #       body, so those spans are left in the surface.
 #
 #   `python -c <payload>`        …and `python3 - <<'PY' … PY`
+#       Exempt only when python is genuinely reading that region AS ITS OWN
+#       SOURCE — `-c` as the interpreter's own flag, or stdin when the
+#       invocation is `python3 -` / bare `python3`. `python3 runner.py <<EOF`
+#       and `python3 runner.py -c '…'` hand the region to an arbitrary script
+#       instead, so they stay scanned; so do `-m` and option bundles like
+#       `-uc`, which this code will not try to take apart.
 #       Exempt only when the payload contains no way to hand text to a
 #       shell (`_PY_SHELLS_OUT`). Python is the only interpreter exempted:
 #       every other one (`perl -e`, `node -e`, `ruby -e`, and notably
@@ -481,9 +487,12 @@ _HEREDOC_DELIM = re.compile(
     re.VERBOSE,
 )
 
-# A leading token that is a redirection (`>f`, `2>&1`, `<in`) or an env
-# assignment (`FOO=bar`) — skipped when looking for a segment's command word.
+# A token that is a redirection (`>f`, `2>&1`, `<in`) or an env assignment
+# (`FOO=bar`) — neither is a command word nor an argument.
 _NOT_A_COMMAND_WORD = re.compile(r"\A(?:\d*[<>]|[A-Za-z_][A-Za-z0-9_]*=)")
+
+# A redirection operator standing alone, whose target is the NEXT token.
+_REDIR_OP = re.compile(r"\A\d*(?:>>|>&|<&|>|<)\Z")
 
 # `$(...)`/backticks inside an unquoted heredoc body still expand.
 _EXPANSION = re.compile(r"\$\([^)]*\)|`[^`]*`")
@@ -519,6 +528,13 @@ def _split_segments(line: str, base: int = 0):
             segments.append((base + start, base + i))
             i += 2
             start = i
+            continue
+        if c == "&" and (line[i - 1 : i] in ("<", ">") or line[i + 1 : i + 2] == ">"):
+            # `2>&1`, `>&2`, `&>log` — fd duplication, NOT a separator. Getting
+            # this wrong split the segment before a later `|`, which hid the
+            # pipe from `_segment_is_plain` and exempted a payload that a shell
+            # then executed: `python3 -c '…' 2>&1 | bash`.
+            i += 1
             continue
         if c in ";&":
             segments.append((base + start, base + i))
@@ -579,13 +595,61 @@ def _heredoc_openers(segment: str):
     return openers
 
 
+def _split_command(segment: str):
+    """(program, argument tokens) for a segment, or ("", []).
+
+    Leading env assignments and redirections are skipped, and redirections are
+    dropped from the argument list — `python3 > out - <<EOF` has to read as
+    "python, arg `-`", not "python, arg `out`".
+    """
+    tokens, i = segment.split(), 0
+    while i < len(tokens) and _NOT_A_COMMAND_WORD.match(tokens[i]):
+        if _REDIR_OP.match(tokens[i]):
+            i += 1  # bare operator: its target is the next token
+        i += 1
+    if i >= len(tokens):
+        return "", []
+    program = tokens[i].strip("'\"").rsplit("/", 1)[-1]
+    args, i = [], i + 1
+    while i < len(tokens):
+        token = tokens[i]
+        if token.startswith("<<"):
+            i += 1
+        elif _REDIR_OP.match(token):
+            i += 2  # operator plus its target
+        elif _NOT_A_COMMAND_WORD.match(token):
+            i += 1  # redirection with the target attached, e.g. `2>&1`
+        else:
+            args.append(token)
+            i += 1
+    return program, args
+
+
 def _command_word(segment: str) -> str:
     """The program a segment runs, basename-only, or "" if undeterminable."""
-    for token in segment.split():
-        if _NOT_A_COMMAND_WORD.match(token):
-            continue
-        return token.strip("'\"").rsplit("/", 1)[-1]
-    return ""
+    return _split_command(segment)[0]
+
+
+def _python_source_mode(args: list) -> str:
+    """Where a python invocation gets its program: stdin / dash_c / file.
+
+    Only `stdin` makes a heredoc body python *source*, and only `dash_c` makes
+    the quoted payload python source. `python3 runner.py <<EOF` hands the body
+    to an arbitrary script that may do anything with it, so it is `file` — the
+    same bucket as `-m`, a script path, or an option bundle like `-uc` that
+    this function will not try to take apart.
+    """
+    for token in args:
+        if token == "-":
+            return "stdin"
+        if token == "-c":
+            return "dash_c"
+        if token.startswith("-") and len(token) > 1:
+            if "c" in token[1:] or "m" in token[1:]:
+                return "file"
+            continue  # a benign flag: -u, -E, -B, …
+        return "file"  # a script path, a module name, or an option's value
+    return "stdin"  # bare `python3 <<EOF`: stdin *is* the program
 
 
 def _segment_is_plain(segment: str) -> bool:
@@ -593,10 +657,11 @@ def _segment_is_plain(segment: str) -> bool:
     return not any(token in segment for token in _SEGMENT_DISQUALIFIERS)
 
 
-def _heredoc_body_is_data(command_word: str, body: str) -> bool:
-    if command_word in HEREDOC_DATA_SINKS:
+def _heredoc_body_is_data(segment: str, body: str) -> bool:
+    program, args = _split_command(segment)
+    if program in HEREDOC_DATA_SINKS:
         return True
-    if _PYTHON_CMD.match(command_word):
+    if _PYTHON_CMD.match(program) and _python_source_mode(args) == "stdin":
         return not _PY_SHELLS_OUT.search(body)
     return False
 
@@ -636,7 +701,7 @@ def _blank_heredoc_bodies(command: str, chars: list) -> None:
             body = command[body_start:body_end]
             if not _segment_is_plain(segment):
                 continue
-            if not _heredoc_body_is_data(_command_word(segment), body):
+            if not _heredoc_body_is_data(segment, body):
                 continue
             _blank(chars, body_start, body_end)
             if not quoted:
@@ -654,18 +719,26 @@ def _blank_python_c_payloads(command: str, chars: list) -> None:
             segment = command[seg_start:seg_end]
             if not _segment_is_plain(segment):
                 continue
-            if not _PYTHON_CMD.match(_command_word(segment)):
+            program, args = _split_command(segment)
+            if not _PYTHON_CMD.match(program):
                 continue
-            for m in re.finditer(r"(?:\A|\s)-c[ \t]*(['\"])", segment):
-                quote = m.group(1)
-                body_start = m.end()
-                body_end = segment.find(quote, body_start)
-                if body_end == -1:
-                    continue
-                payload = segment[body_start:body_end]
-                if _PY_SHELLS_OUT.search(payload):
-                    continue
-                _blank(chars, seg_start + body_start, seg_start + body_end)
+            # `-c` must be the INTERPRETER's, not an argument that happens to
+            # follow a script name (`python3 runner.py -c "…"` hands the string
+            # to runner.py, which may do anything with it).
+            if _python_source_mode(args) != "dash_c":
+                continue
+            m = re.search(r"(?:\A|\s)-c[ \t]*(['\"])", segment)
+            if not m:
+                continue
+            quote = m.group(1)
+            body_start = m.end()
+            body_end = segment.find(quote, body_start)
+            if body_end == -1:
+                continue
+            payload = segment[body_start:body_end]
+            if _PY_SHELLS_OUT.search(payload):
+                continue
+            _blank(chars, seg_start + body_start, seg_start + body_end)
         offset += len(line) + 1
 
 
