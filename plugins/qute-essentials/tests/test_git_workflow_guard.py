@@ -762,6 +762,92 @@ def test_a_redirection_does_not_hide_a_cd(tmp_path, home):
     assert decision == "deny"
 
 
+# ─── defining a function is not running it ────────────────────
+#
+# Defect 36, an over-denial with a bypass hiding behind the obvious fix.
+# `gc() { git commit -m x; }` defines and writes nothing — verified — so
+# denying it is wrong. But simply skipping the body would have been worse:
+# `gc() { … }; gc` really does commit, and that shape was only being caught
+# because the body was (incorrectly) read as a live command. So the body is
+# parked at the definition and expanded at the CALL.
+
+FUNC_DEFS = [
+    "gc() {{ {body}; }}",
+    "gc () {{ {body}; }}",
+    "function gc {{ {body}; }}",
+    "function gc() {{ {body}; }}",
+]
+
+
+@pytest.mark.parametrize("shape", FUNC_DEFS)
+def test_defining_a_function_writes_nothing(shape, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(shape.format(body="git commit -m x"), repo, home)
+    assert decision == "allow", shape
+
+
+@pytest.mark.parametrize("shape", FUNC_DEFS)
+def test_calling_the_function_is_still_caught(shape, tmp_path, home):
+    """The half that must not be lost: the call runs the body."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(shape.format(body="git commit -m x") + "; gc", repo, home)
+    assert decision == "deny", shape
+    assert "main" in hso["permissionDecisionReason"], shape
+
+
+@pytest.mark.parametrize("shape", FUNC_DEFS)
+def test_a_pushing_function_is_caught_at_the_call(shape, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(shape.format(body="git push origin main") + "\ngc", repo, home)
+    assert decision == "deny", shape
+    assert "main" in hso["permissionDecisionReason"], shape
+
+
+def test_a_harmless_function_stays_allowed_when_called(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("gc() { git status; }; gc", repo, home)
+    assert decision == "allow"
+
+
+def test_a_function_body_cd_applies_at_the_call(tmp_path, home):
+    """The body is spliced into the live event stream, so its `cd` moves the
+    shell exactly as it would."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"go() {{ cd {other}; }}; go; git commit -m x", session, home)
+    assert decision == "deny"
+
+
+def test_a_recursive_function_terminates(tmp_path, home):
+    """`f() { f; }; f` must not expand forever."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("f() { f; }; f", repo, home)
+    assert decision == "allow"
+
+    decision, _ = _run("f() { git commit -m x; f; }; f", repo, home)
+    assert decision == "deny", "…and a guarded verb inside it is still caught"
+
+
+def test_an_uncalled_function_does_not_leak_into_later_commands(tmp_path, home):
+    """Defining `gc` must not make an unrelated later `git status` suspicious,
+    nor swallow a real command that follows the definition."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("gc() { git commit -m x; }; git status", repo, home)
+    assert decision == "allow"
+
+    decision, _ = _run("gc() { git status; }; git commit -m x", repo, home)
+    assert decision == "deny", "a real command after a definition is still live"
+
+
+def test_parentheses_that_are_not_a_definition_still_subshell(tmp_path, home):
+    """`(cd x && git commit)` must keep its subshell meaning — the definition
+    pattern needs a NAME in front of the parens."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"(cd {other} && git commit -m x)", session, home)
+    assert decision == "deny"
+
+
 # ─── here-doc bodies are data ─────────────────────────────────
 #
 # Defect 30, an over-denial. `cat <<EOF … EOF` feeds its body to stdin; bash

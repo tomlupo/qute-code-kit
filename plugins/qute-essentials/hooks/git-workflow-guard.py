@@ -126,10 +126,10 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32, 34
-and 35 are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
+34-36 are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27 and 29-32 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32 and 36 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -240,7 +240,12 @@ the same footing — a guard that cries wolf gets turned off:
   35. `--mirror` read as `--all` — it also DELETES remote refs that are absent
       locally, so the guarded branch is written whether it is present or not.
       Checking the LOCAL branch list answered the wrong question and allowed a
-      mirror push from a repo with no local `main`.
+      mirror push from a repo with no local `main`;
+  36. function definitions (parsing) — an OVER-denial with a bypass hiding
+      behind the obvious fix. `gc() { git commit -m x; }` defines and writes
+      nothing, but the body was read as a live command; simply skipping it
+      would have lost `gc() { … }; gc`, which really does commit. The body is
+      parked at the definition and expanded at the CALL.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -427,6 +432,49 @@ def _current_branch(cwd: Path):
     return branch if branch and branch != "HEAD" else None
 
 
+# A shell function definition at a command position: `name() { … }` or
+# `function name { … }` (parens optional). The body is DEFINED here, not run —
+# `gc() { git commit -m x; }` writes nothing — so it must not be read as a live
+# command. It must also not simply be DISCARDED: `gc() { … }; gc` really does
+# commit, so the body is remembered and expanded at the CALL (defect 36).
+_FUNC_DEF_RE = re.compile(
+    r"(?:function\s+(?P<n1>[^\s(){}<>&|;]+)\s*(?:\(\s*\)\s*)?"
+    r"|(?P<n2>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*)"
+)
+
+
+def _skip_group(command: str, pos: int, opener: str, closer: str):
+    """Index just past the balanced `opener`…`closer` group starting at `pos`,
+    or None if it never closes. Quote-aware, so a brace in a string is text."""
+    depth, quote = 0, None
+    i, n = pos, len(command)
+    while i < n:
+        c = command[i]
+        if quote:
+            if c == "\\" and quote == '"' and i + 1 < n:
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if c in "'\"":
+            quote = c
+            i += 1
+            continue
+        if c == opener:
+            depth += 1
+        elif c == closer:
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return None
+
+
 def _dequote_word(word: str) -> str:
     """Shell quote removal: drop the quoting, keep what it quoted.
 
@@ -493,6 +541,10 @@ def _segments(command: str):
     block on it. The body is now skipped to its terminator (honouring `<<-`,
     which allows leading tabs, and a quoted delimiter). `<<<` is a here-STRING,
     a single word rather than a body, and is left alone.
+
+    A FUNCTION DEFINITION yields a `("func", (name, body))` event and its body
+    is not emitted as commands — defining is not running. The caller expands
+    the body if and when the function is called.
     """
     events = []
     buf = []
@@ -524,6 +576,30 @@ def _segments(command: str):
     in_single = in_double = False
     while i < n:
         c = command[i]
+        if not in_single and not in_double and not "".join(buf).strip():
+            # At a command position: a function DEFINITION defines, it does not
+            # run. Capture the body and skip past it.
+            match = _FUNC_DEF_RE.match(command, i)
+            if match:
+                k = match.end()
+                while k < n and command[k] in " \t\n":
+                    k += 1
+                opener = command[k : k + 1]
+                if opener in ("{", "("):
+                    end = _skip_group(command, k, opener, "}" if opener == "{" else ")")
+                    if end is not None:
+                        events.append(
+                            (
+                                "func",
+                                (
+                                    match.group("n1") or match.group("n2"),
+                                    command[k + 1 : end - 1],
+                                ),
+                            )
+                        )
+                        buf.clear()
+                        i = end
+                        continue
         if in_single:
             buf.append(c)
             in_single = c != "'"
@@ -1771,7 +1847,21 @@ def main():
     run_uncertain = False
     skip_depth = 0
 
-    for kind, seg in _segments(command):
+    # Shell functions: name -> body. Defining one runs nothing, so the body is
+    # parked here and spliced into the event stream at the CALL instead.
+    functions: dict = {}
+    expansions = 0
+
+    events = _segments(command)
+    event_index = 0
+    while event_index < len(events):
+        kind, seg = events[event_index]
+        event_index += 1
+        if kind == "func":
+            name, body = seg
+            if not skip_depth:
+                functions[name] = body
+            continue
         if skip_depth:
             # Inside a subshell bash never entered.
             if kind == "open":
@@ -1828,6 +1918,15 @@ def main():
             tokens = tokens[1:]
         while tokens and tokens[-1] in _TRAILING_SHELL_WORDS:
             tokens = tokens[:-1]
+
+        # CALLING a function runs its body — so splice the body's events in
+        # here, which is the half that keeps `gc() { git commit; }; gc` caught
+        # while the bare definition is not. The cap stops a recursive function
+        # (`f() { f; }`) from expanding forever.
+        if tokens and tokens[0] in functions and expansions < 32:
+            expansions += 1
+            events[event_index:event_index] = _segments(functions[tokens[0]])
+            continue
 
         # Track `cd` so a subsequent git command in the same chain resolves
         # against the directory the shell actually moved into — or, when that
