@@ -25,9 +25,13 @@ attached to the code. An issue becomes work only when a Linear task references i
 ## Specs and plans
 
 Specs, PRDs and ticket breakdowns live **in Linear**, not in the repo tree. Nothing
-under `docs/specs/` is committed. `/ship` refuses to bump while such paths are
-tracked, but that list is a backstop — the rule is that the artefacts are never
-written into the tree in the first place, so the backstop should never fire.
+under `docs/specs/` is committed.
+
+Treat that as the rule, not as something a tool will catch for you. `/ship` does
+carry a forbidden-paths check, but only on its Python-mode path — plugin-mode
+repos (this one included) dispatch straight to the release script and never reach
+it. So the tree staying clean depends on the artefacts never being written into
+it, which is why the rule is stated here rather than left to enforcement.
 
 ## Ideas
 
