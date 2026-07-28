@@ -769,6 +769,18 @@ def ship_tag(
     cz = resolve_cz(root, dry_run=True) or ["cz"]
 
     remote = _remote_name(root)
+    if remote is None and (configured := _remotes(root)):
+        return fail(
+            "cannot tell which remote to publish this release to: "
+            f"{', '.join('`' + r + '`' for r in configured)}, and none is named "
+            "`origin`.\n"
+            "  `--tag` verifies against a remote and pushes to it, so guessing is "
+            "not an option\n"
+            "  and proceeding without one would silently skip both. Name the "
+            "publishing remote\n"
+            "  `origin`, or run the tag step from a clone that has one. Nothing "
+            "was created."
+        )
 
     # ── 1. Fetch ────────────────────────────────────────────────────────────
     if remote:
@@ -916,17 +928,26 @@ def ship_tag(
     return 0
 
 
+def _remotes(root: Path) -> list[str]:
+    """Every configured remote, in git's order."""
+    listed = _git_out(root, "remote")
+    return [r for r in (listed or "").splitlines() if r.strip()]
+
+
 def _remote_name(root: Path) -> str | None:
     """`origin` if configured, else the sole remote, else None.
 
-    None means a local-only repo: there is nothing to be in sync with and
-    nothing to push to, which `ship_tag` handles explicitly rather than
-    pretending the checks passed.
+    **None is ambiguous on purpose-free reading and must not be treated as "no
+    remote".** It means either a local-only repo or several remotes with no
+    `origin` among them, and those want opposite handling: the first is a
+    legitimate local-only tag, the second is a repo where publishing to the
+    wrong place is a real possibility. Callers that care ask `_remotes()` too —
+    `ship_tag` fails closed on the ambiguous case rather than announcing "no
+    remote is configured" and quietly skipping the sync check and the push,
+    which is precisely the silent-late failure this whole change exists to end.
+    Best-effort callers (the in-flight tag fetch) can take None as "skip".
     """
-    listed = _git_out(root, "remote")
-    if not listed:
-        return None
-    remotes = [r for r in listed.splitlines() if r.strip()]
+    remotes = _remotes(root)
     if "origin" in remotes:
         return "origin"
     return remotes[0] if len(remotes) == 1 else None
@@ -1058,6 +1079,33 @@ def declared_version(root: Path, pyproject: Path, cz: list[str]) -> str | None:
     return version or _current_version(root, pyproject, cz)
 
 
+def _release_tag_matcher(tag: str, version: str):
+    """Predicate for "this tag belongs to the same release series as `tag`".
+
+    Derived from the RESOLVED tag rather than re-parsed out of `tag_format`:
+    whatever cz renders for a version, the literal text around the version is
+    this repo's series, and the version slot is a version.
+
+    An earlier version of this globbed `tag.replace(version, "*")`, which the
+    review on #88 broke correctly: `tag_format = "$version"` is a supported
+    config that renders bare semver tags, and there the glob collapses to `*` —
+    every tag in the repo, so a `nightly-2026-07-28` lying around made a FIRST
+    release look like an abandoned bump. Requiring the version slot to actually
+    look like a version is what keeps the prefix-free format honest.
+
+    If the version does not appear in the tag at all (a `tag_format` this can
+    make no sense of), every tag counts. That direction only over-refuses, and
+    the refusal names its exits.
+    """
+    prefix, found, suffix = tag.partition(version)
+    if not found:
+        return lambda _t: True
+    pattern = re.compile(
+        re.escape(prefix) + r"\d+\.\d+\.\d+\S*" + re.escape(suffix) + r"\Z"
+    )
+    return lambda t: pattern.match(t) is not None
+
+
 def check_bump_in_flight(
     root: Path, cz: list[str], cz_config: dict[str, object], version: str | None
 ) -> int:
@@ -1089,17 +1137,12 @@ def check_bump_in_flight(
 
     tag = resolve_tag(root, cz, cz_config, version)
 
-    # Glob for "tags of this repo's release series", derived from the resolved
-    # tag rather than re-parsed out of `tag_format` — whatever cz renders for a
-    # version, the same shape with the version wildcarded is that series. A
-    # repo carrying only unrelated tags (`nightly-*`, `deploy-*`) is therefore
-    # still recognised as a first release.
-    pattern = tag.replace(version, "*") if version in tag else "*"
-    listed = _git_out(root, "tag", "--list", pattern)
+    listed = _git_out(root, "tag", "--list")
     if listed is None:
         return 0  # not a git repo / git unavailable — nothing to assert against
 
-    existing = [t for t in listed.splitlines() if t.strip()]
+    matches_series = _release_tag_matcher(tag, version)
+    existing = [t for t in listed.splitlines() if t.strip() and matches_series(t)]
     if not existing:
         return 0  # first release
     if tag in existing:

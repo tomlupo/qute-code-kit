@@ -2038,6 +2038,54 @@ class TagCompletesTheRelease(unittest.TestCase):
             self.assertIn("belongs on `main`", result.stderr)
             self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
 
+    def test_refuses_when_no_remote_is_unambiguously_the_publisher(self):
+        """Review blocker on PR #88 (second round), and a real one.
+
+        Several remotes and no `origin` used to resolve to None, which
+        `ship_tag` read as "local-only repo" — so it announced no remote was
+        configured, skipped the fetch AND the sync check, created the tag, and
+        did not push it. A release that looks cut and is not: the exact
+        silent-late failure this change exists to end.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "rename", "origin", "upstream")
+            git(work, "remote", "add", "fork", str(base / "fork.git"))
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("cannot tell which remote", result.stderr)
+            self.assertIn("upstream", result.stderr)
+            self.assertIn("fork", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_a_single_non_origin_remote_is_unambiguous(self):
+        """One remote is not a guess — it is the only answer."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "rename", "origin", "upstream")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
+
+    def test_a_repo_with_no_remote_at_all_tags_locally(self):
+        """No remote is a legitimate state; ambiguity is not."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "remove", "origin")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("no git remote is configured", result.stdout)
+            self.assertIn("v0.2.0", git(work, "tag", "--list").split())
+
     def test_dry_run_asserts_everything_and_creates_nothing(self):
         with tempfile.TemporaryDirectory() as d:
             origin, work, env = self._bumped_and_squash_merged(Path(d))
@@ -2191,6 +2239,53 @@ class InFlightBumpGuard(unittest.TestCase):
                 ),
                 1,
             )
+
+    def test_a_prefix_free_tag_format_still_recognises_a_first_release(self):
+        """Review blocker on PR #88 (second round), and a real one.
+
+        `tag_format = "$version"` is a supported config that renders bare
+        semver tags. The series matcher used to be the glob
+        `tag.replace(version, "*")`, which there collapses to `*` — every tag
+        in the repo — so a stray `nightly-*` made a FIRST release look like an
+        abandoned bump. The `v$version` test passed throughout, because `v*`
+        happens to exclude it.
+        """
+        mod = _ship_module()
+        cfg = {"tag_format": "$version"}
+        no_cz = ["definitely-not-a-real-binary-xyz"]  # forces local rendering
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "tag", "-d", "v0.1.0")
+            git(root, "tag", "-a", "nightly-2026-07-28", "-m", "nightly")
+
+            # Only unrelated tags -> first release, not an abandoned bump.
+            self.assertEqual(mod.check_bump_in_flight(root, no_cz, cfg, "0.2.0"), 0)
+
+            # A real release tag in the series -> the guard fires again.
+            git(root, "tag", "-a", "0.1.0", "-m", "Release 0.1.0")
+            self.assertEqual(mod.check_bump_in_flight(root, no_cz, cfg, "0.2.0"), 1)
+            # ...and stands down once the declared version IS tagged.
+            self.assertEqual(mod.check_bump_in_flight(root, no_cz, cfg, "0.1.0"), 0)
+
+    def test_the_series_matcher_reads_the_shape_around_the_version(self):
+        mod = _ship_module()
+        for tag, version, yes, no in [
+            ("v0.1.0", "0.1.0", ["v0.1.0", "v10.2.3", "v1.0.0rc1"], ["nightly-1", "v"]),
+            ("0.1.0", "0.1.0", ["0.1.0", "2.0.0"], ["nightly-2026-07-28", "deploy-3"]),
+            (
+                "release-0.1.0",
+                "0.1.0",
+                ["release-1.2.3"],
+                ["0.1.0", "release-x", "prerelease-1.2.3"],
+            ),
+        ]:
+            with self.subTest(tag=tag):
+                matches = mod._release_tag_matcher(tag, version)
+                for t in yes:
+                    self.assertTrue(matches(t), f"{t} should match {tag}")
+                for t in no:
+                    self.assertFalse(matches(t), f"{t} should not match {tag}")
 
     def test_a_tagged_declared_version_proceeds(self):
         mod = _ship_module()
