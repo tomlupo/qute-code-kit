@@ -451,9 +451,31 @@ def bumped_files(
             else:
                 candidates.append(root / raw)
 
+    # Normalize the changelog ONCE, then use the normalized form as both the
+    # candidate and the exemption key. Raw config text used to be compared
+    # against candidates that had been through `resolve().relative_to(root)`,
+    # so the exemption only matched when a repo spelled `changelog_file`
+    # canonically. `./CHANGELOG.md` and `docs/../CHANGELOG.md` are ordinary
+    # valid spellings, and under them a FIRST release — whose changelog is
+    # untracked precisely because cz had just created it — committed without
+    # the changelog cz wrote. Exactly the partial release this function exists
+    # to prevent.
+    #
+    # The candidate must be normalized too, not just the key: `docs/../X` does
+    # not `stat()` when `docs/` does not exist (the kernel walks components
+    # literally), so the raw spelling would be dropped as non-existent even
+    # with the exemption keyed correctly.
+    #
+    # `None` means the configured path escapes the repo: no candidate, no
+    # exemption. `changelog_section()` refuses to read such a path; this
+    # refuses to stage it.
     changelog = cz_config.get("changelog_file")
-    changelog_rel = changelog if isinstance(changelog, str) else DEFAULT_CHANGELOG_FILE
-    candidates.append(root / changelog_rel)
+    changelog_rel = _repo_relative(
+        root / (changelog if isinstance(changelog, str) else DEFAULT_CHANGELOG_FILE),
+        root,
+    )
+    if changelog_rel is not None:
+        candidates.append(root / changelog_rel)
 
     # Backstop: anything git reports as a modified TRACKED file was written by
     # cz, because `check_clean_worktree` already refused to get here unless the
@@ -472,9 +494,8 @@ def bumped_files(
     for path in candidates:
         if not path.exists():
             continue
-        try:
-            rel = path.resolve().relative_to(root.resolve()).as_posix()
-        except ValueError:  # outside the repo — cz would not have touched it
+        rel = _repo_relative(path, root)
+        if rel is None:  # outside the repo — cz would not have touched it
             continue
         # The one filter, applied to every source. `tracked is None` means git
         # could not be asked at all; there is nothing to filter against, and the
@@ -483,6 +504,21 @@ def bumped_files(
             continue
         seen.setdefault(rel, None)
     return list(seen)
+
+
+def _repo_relative(path: Path, root: Path) -> str | None:
+    """`path` as a repo-relative posix string, or None if it escapes `root`.
+
+    The single normalizer for this module: every path that gets compared,
+    filtered or staged goes through it, so `./CHANGELOG.md`, `CHANGELOG.md` and
+    `docs/../CHANGELOG.md` cannot disagree about whether they are the same
+    file. Comparing a normalized path against raw config text is precisely the
+    bug this exists to make unrepresentable.
+    """
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except (ValueError, OSError):
+        return None
 
 
 def _tracked_files(root: Path) -> set[str] | None:

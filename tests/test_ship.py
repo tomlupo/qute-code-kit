@@ -872,6 +872,76 @@ class BumpCommitCompleteness(unittest.TestCase):
             self.assertNotIn("src/gamma/matched_scratch.py", files)  # untracked
             self.assertIn("CHANGELOG.md", files)  # untracked, exempt
 
+    def test_changelog_exemption_survives_every_spelling_of_the_path(self):
+        """The exemption is keyed on the normalized path, not on config text.
+
+        Sixth review round on PR #84, and the bug was mine from the round that
+        added the exemption: candidates were normalized through
+        `resolve().relative_to(root)` while the exemption stayed raw config
+        text, so it only matched when a repo spelled `changelog_file`
+        canonically. `./CHANGELOG.md` and `docs/../CHANGELOG.md` are ordinary
+        valid spellings, and under them a FIRST release — where the changelog
+        is untracked precisely because cz had just created it — committed
+        without the changelog cz wrote. A partial release, which is the whole
+        thing this function exists to prevent.
+        """
+        mod = self._ship_module()
+        for configured in ("CHANGELOG.md", "./CHANGELOG.md", "docs/../CHANGELOG.md"):
+            with self.subTest(changelog_file=configured):
+                with tempfile.TemporaryDirectory() as d:
+                    root = Path(d)
+                    self._init_repo(root)
+                    # Untracked: cz created it moments ago on a first release.
+                    (root / "CHANGELOG.md").write_text(
+                        "# Changelog\n", encoding="utf-8"
+                    )
+                    files = set(
+                        mod.bumped_files(
+                            root,
+                            root / "pyproject.toml",
+                            {"changelog_file": configured},
+                        )
+                    )
+                    self.assertIn("CHANGELOG.md", files)
+
+    def test_changelog_exemption_handles_a_nested_path(self):
+        """A changelog somewhere other than the repo root is still exempt."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "docs").mkdir(exist_ok=True)
+            (root / "docs" / "CHANGES.md").write_text("# Changelog\n", encoding="utf-8")
+            files = set(
+                mod.bumped_files(
+                    root,
+                    root / "pyproject.toml",
+                    {"changelog_file": "docs/CHANGES.md"},
+                )
+            )
+            self.assertIn("docs/CHANGES.md", files)
+
+    def test_a_changelog_outside_the_repo_is_not_exempted_in(self):
+        """The exemption must not become a way back out of the repo.
+
+        `changelog_file` is repo-controlled config; an escaping path gets no
+        exemption and no staging, the same answer `changelog_section()` gives
+        when asked to read one.
+        """
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            root = base / "repo"
+            root.mkdir()
+            self._init_repo(root)
+            (base / "outside.md").write_text("# Changelog\n", encoding="utf-8")
+            files = set(
+                mod.bumped_files(
+                    root, root / "pyproject.toml", {"changelog_file": "../outside.md"}
+                )
+            )
+            self.assertFalse(any("outside" in f for f in files), files)
+
     def test_a_rewritten_file_no_pattern_resolved_is_staged_anyway(self):
         """The backstop, isolated: dirty tracked file, glob that cannot see it.
 
