@@ -94,6 +94,16 @@ def load_config(base_path: Path) -> dict:
 MARKER_NAME = ".qute-worktree.json"
 
 
+ENVRC_EXPORT = 'export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/${PWD##*/}"'
+
+
+def _read_text_or_empty(path: Path) -> str:
+    try:
+        return path.read_text()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
 def _points_at(link: Path, target: Path) -> bool:
     """True if `link` is a symlink already resolving to `target`."""
     try:
@@ -154,9 +164,12 @@ def setup_worktree(
     holds work (the resume path). Freshly created worktrees contain only what
     `git worktree add` checked out, so replacing an entry there is safe; a
     live worktree may hold hours of edits under exactly those names, and
-    `shared_dirs` deletes what it replaces while `copy_files` overwrites it.
-    With `preserve_existing`, anything already present is left alone and
-    logged instead — setup never destroys work it did not create.
+    `shared_dirs` deletes what it replaces, `copy_files` overwrites it, and
+    `venv_setup: uv` rewrites `.envrc`. With `preserve_existing`, every one of
+    those three is left alone when it already exists, and logged instead —
+    setup never destroys work it did not create. (Nothing else in here writes
+    into the worktree; the only other write is the ownership marker inside the
+    venv this hook created.)
     """
     actions: list[str] = []
     cfg = load_config(base)
@@ -211,9 +224,27 @@ def setup_worktree(
     venv_setup = cfg.get("venv_setup", "none")
     if venv_setup == "uv":
         envrc = worktree / ".envrc"
-        envrc.write_text('export UV_PROJECT_ENVIRONMENT="$HOME/.venvs/${PWD##*/}"\n')
-        if not envrc.is_file():
-            raise SetupError("venv_setup=uv: .envrc was not written")
+        # .envrc is generated, but people extend it (extra exports, `use
+        # flake`, dotenv). On resume it counts as existing work like anything
+        # else — keep it. uv sync below passes UV_PROJECT_ENVIRONMENT
+        # explicitly, so the venv lands in the right place either way; only
+        # direnv's shell integration depends on the file's contents.
+        if preserve_existing and (envrc.is_file() or envrc.is_symlink()):
+            if ENVRC_EXPORT in _read_text_or_empty(envrc):
+                actions.append("venv_setup=uv: .envrc already configured (kept)")
+            else:
+                actions.append(
+                    "venv_setup=uv: KEEP .envrc (already in the worktree; resume "
+                    "does not overwrite it) — it does not export "
+                    f"UV_PROJECT_ENVIRONMENT; add `{ENVRC_EXPORT}` if you want "
+                    "direnv to key the venv per worktree"
+                )
+        else:
+            if envrc.is_symlink():
+                envrc.unlink()  # never write through a pre-existing symlink
+            envrc.write_text(ENVRC_EXPORT + "\n")
+            if not envrc.is_file():
+                raise SetupError("venv_setup=uv: .envrc was not written")
         # direnv is optional sugar; uv sync below is the real setup.
         if shutil.which("direnv"):
             subprocess.run(["direnv", "allow"], cwd=worktree, capture_output=True)

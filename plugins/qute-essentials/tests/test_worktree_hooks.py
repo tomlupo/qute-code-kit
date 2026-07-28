@@ -550,6 +550,43 @@ def test_resume_does_not_clobber_configured_setup_entries(tmp_path):
     assert (repo / "data" / "from-main.bin").read_text() == "main"
 
 
+def test_resume_does_not_clobber_an_edited_envrc(tmp_path):
+    """`.envrc` is generated, but people extend it (extra exports, `use
+    flake`). On resume it is existing work like any other file."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(json.dumps({"venv_setup": "uv"}))
+    stub = _stub_uv(tmp_path)
+
+    first = _hook(tmp_path, _agent_payload(repo), stub)
+    assert first.returncode == 0, first.stderr
+    wt = Path(first.stdout.strip())
+    assert (
+        'UV_PROJECT_ENVIRONMENT="$HOME/.venvs/${PWD##*/}"'
+        in (wt / ".envrc").read_text()
+    )
+
+    (wt / ".envrc").write_text("export API_TOKEN=local\nuse flake\n")
+    second = _hook(tmp_path, _agent_payload(repo), stub)
+    assert second.returncode == 0, second.stderr
+    assert (wt / ".envrc").read_text() == "export API_TOKEN=local\nuse flake\n"
+    assert "KEEP .envrc" in second.stderr
+    # and the venv is still keyed correctly — uv sync gets the env explicitly
+    assert (tmp_path / ".venvs" / wt.name / "pyvenv.cfg").exists()
+
+
+def test_resume_keeps_a_managed_envrc_quietly(tmp_path):
+    """An unedited .envrc is 'already configured', not a scary KEEP warning."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(json.dumps({"venv_setup": "uv"}))
+    stub = _stub_uv(tmp_path)
+    _hook(tmp_path, _agent_payload(repo), stub)
+    second = _hook(tmp_path, _agent_payload(repo), stub)
+    assert second.returncode == 0, second.stderr
+    assert ".envrc already configured (kept)" in second.stderr
+
+
 def test_resume_relinks_a_shared_dir_that_went_missing(tmp_path):
     """Preserve mode keeps what exists; it still creates what does not."""
     repo = _mk_repo(tmp_path)
