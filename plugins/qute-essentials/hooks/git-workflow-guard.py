@@ -126,10 +126,10 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27-30
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27-32
 are parsing; 10-13, 16-18, 22, 25 and 26 are the environment axis, and are the
-reason that axis is written down at all. Most let something THROUGH; 24, 27, 29
-and 30 BLOCKED something they should not have, which is a defect on the same
+reason that axis is written down at all. Most let something THROUGH; 24, 27 and
+29-32 BLOCKED something they should not have, which is a defect on the same
 footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -221,7 +221,13 @@ footing — a guard that cries wolf gets turned off:
       builtins, so git never runs; it was in the run-wrapper list anyway;
   30. here-doc bodies (parsing) — another OVER-denial. `cat <<EOF … EOF` feeds
       its body to stdin, but newline splitting turned every line of it into a
-      command, so a `git commit` line inside one could be blocked.
+      command, so a `git commit` line inside one could be blocked;
+  31. the here-doc TERMINATOR (parsing) — bash needs an exact match, and `<<-`
+      strips only leading tabs. Comparing a stripped line closed the body early
+      on an indented ` EOF`, handing the rest of the data back as commands;
+  32. `command -v` (parsing) — it LOOKS UP a name and prints it, running
+      nothing, but the flag was skipped and `command -v git commit` read as a
+      commit.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -465,7 +471,11 @@ def _segments(command: str):
                 line_end = n if eol < 0 else eol
                 line = command[pos:line_end]
                 pos = n if eol < 0 else eol + 1
-                if (line.lstrip("\t") if strip_tabs else line).strip() == delim:
+                # Bash needs the terminator line to match EXACTLY; `<<-` only
+                # strips leading TABS. Comparing a `.strip()`ed line closed the
+                # body early on an indented ` EOF`, putting real body lines
+                # back in front of the parser.
+                if (line.lstrip("\t") if strip_tabs else line) == delim:
                     break
         return pos
 
@@ -798,15 +808,23 @@ def _strip_env(tokens):
 # the shell. Same reasoning that keeps `env`/`exec` out of `_CD_WRAPPERS` —
 # a wrapper belongs in a list only where it can actually run that command.
 _RUN_WRAPPERS = frozenset({"command", "exec"})
-# Their value-less options (`command -p`, `exec -c`/`-l`) and the one that takes
-# a value (`exec -a NAME`). Anything else is unresolvable -> guarded.
-_WRAPPER_FLAGS = frozenset({"-p", "-v", "-V", "-c", "-l"})
-_WRAPPER_WITH_VALUE = frozenset({"-a"})
+# Per-wrapper options, because they do not share a set: `command -p` and
+# `exec -c`/`-l` take no value, `exec -a NAME` takes one. Anything else is
+# unresolvable -> guarded.
+_WRAPPER_FLAGS = {"command": frozenset({"-p"}), "exec": frozenset({"-c", "-l"})}
+_WRAPPER_WITH_VALUE = {"command": frozenset(), "exec": frozenset({"-a"})}
+# `command -v` / `-V` only LOOK UP a name and print it — nothing is executed,
+# so `command -v git commit` is not a commit.
+_COMMAND_LOOKUP_FLAGS = frozenset({"-v", "-V"})
 
 
 def _strip_run_wrapper(tokens):
-    """Consume a leading `command` / `builtin` / `exec` prefix, returning the
-    remaining tokens, or None when its options cannot be resolved."""
+    """Consume a leading `command` / `exec` prefix, returning the remaining
+    tokens, `[]` when the wrapper executes nothing at all, or None when its
+    options cannot be resolved."""
+    name = tokens[0]
+    flags = _WRAPPER_FLAGS.get(name, frozenset())
+    with_value = _WRAPPER_WITH_VALUE.get(name, frozenset())
     tokens = tokens[1:]
     i, n = 0, len(tokens)
     while i < n:
@@ -816,9 +834,11 @@ def _strip_run_wrapper(tokens):
             break
         if not tok.startswith("-") or tok == "-":
             break
-        if tok in _WRAPPER_FLAGS:
+        if name == "command" and tok in _COMMAND_LOOKUP_FLAGS:
+            return []  # a lookup, not an invocation
+        if tok in flags:
             i += 1
-        elif tok in _WRAPPER_WITH_VALUE:
+        elif tok in with_value:
             if i + 1 >= n:
                 return None
             i += 2

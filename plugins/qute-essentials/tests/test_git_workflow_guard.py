@@ -771,6 +771,36 @@ def test_a_heredoc_terminator_must_match_to_end_the_body(tmp_path, home):
     assert decision == "allow"
 
 
+@pytest.mark.parametrize("near_miss", [" EOF", "EOF ", "\tEOF", "EOFX", "eof"])
+def test_a_near_miss_terminator_does_not_close_a_heredoc(near_miss, tmp_path, home):
+    """Defect 31. Bash needs the terminator line to match EXACTLY — verified:
+    an indented ` EOF` leaves the body open. Matching a stripped line closed it
+    early and handed the remaining DATA lines back to the parser as commands."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(
+        f"cat <<EOF\nline1\n{near_miss}\ngit commit -m x\nEOF", repo, home
+    )
+    assert decision == "allow", near_miss
+
+
+def test_an_exact_terminator_does_close_the_heredoc(tmp_path, home):
+    """The control: once it matches exactly, what follows is live code."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("cat <<EOF\nline1\nEOF\ngit commit -m x", repo, home)
+    assert decision == "deny"
+
+
+def test_a_dash_heredoc_terminator_strips_only_tabs(tmp_path, home):
+    """`<<-` strips leading TABS, not spaces — a space-indented terminator
+    leaves the body open."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("cat <<-END\nline1\n END\ngit commit -m x\nEND", repo, home)
+    assert decision == "allow"
+
+    decision, _ = _run("cat <<-END\nline1\n\tEND\ngit commit -m x", repo, home)
+    assert decision == "deny", "a tab-indented terminator DOES close a <<- body"
+
+
 def test_a_here_string_is_not_a_heredoc(tmp_path, home):
     """`<<<` is a here-STRING — one word, no body — so the command carrying it
     is still a real command."""
@@ -1812,11 +1842,45 @@ def test_unresolvable_run_wrapper_is_a_noop_without_config(tmp_path, home):
     assert decision == "allow"
 
 
-def test_command_v_git_is_not_a_commit(tmp_path, home):
-    """`command -v git` only prints a path — there is no subcommand at all."""
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "command -v git",
+        "command -v git commit",
+        "command -V git commit",
+        "command -v git push origin main",
+    ],
+)
+def test_command_v_is_a_lookup_not_an_invocation(cmd, tmp_path, home):
+    """Defect 32. `command -v`/`-V` only look a name up and print it — verified,
+    `command -v git commit` prints `/usr/bin/git` and commits nothing. Skipping
+    the flag and reading the rest as a real invocation was an over-denial."""
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
-    decision, _ = _run("command -v git", repo, home)
-    assert decision == "allow"
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+def test_command_without_a_lookup_flag_still_runs_git(tmp_path, home):
+    """The control: `command git commit` and `command -p git commit` really do
+    execute git."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in ("command git commit -m x", "command -p git commit -m x"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+
+
+def test_wrapper_options_are_per_wrapper(tmp_path, home):
+    """`-c`/`-a` belong to `exec`, `-p`/`-v` to `command`; using one on the
+    other is an unknown option and fails closed rather than being waved
+    through."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in ("exec -c git commit -m x", "exec -a name git commit -m x"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+    for cmd in ("command -c git commit -m x", "exec -v git commit -m x"):
+        decision, hso = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+        assert "invocation runs" in hso["permissionDecisionReason"], cmd
 
 
 def test_builtin_cannot_run_git(tmp_path, home):
