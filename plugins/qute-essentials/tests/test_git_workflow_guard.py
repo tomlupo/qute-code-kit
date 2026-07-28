@@ -1836,7 +1836,7 @@ def test_unknown_subcommand_alone_is_still_allowed(tmp_path, home):
 # than git was about to write to, and allowing a direct commit on `main`.
 
 
-@pytest.mark.parametrize("sep", [";", "||", "&&"])
+@pytest.mark.parametrize("sep", [";", "||"])
 def test_failing_cd_leaves_the_guard_where_the_shell_stays(sep, tmp_path, home):
     """A `cd` to a directory that does not exist FAILS, so the shell never
     moves and the commit runs in the original — protected — repo. Following the
@@ -1844,8 +1844,10 @@ def test_failing_cd_leaves_the_guard_where_the_shell_stays(sep, tmp_path, home):
     guard". Checking that the directory exists is the shell's semantics, which
     is why `;` and `||` both come out right with no separator modelling.
 
-    `&&` is included as the deliberate over-deny: the shell would not run the
-    commit at all, so denying costs nothing on a line that is already an error.
+    `&&` is NOT in this list any more: bash short-circuits past the commit
+    entirely, so there is nothing to block. It used to be a deliberate
+    over-deny; defect 25 made the short-circuit explicit and the over-deny
+    went away with it — see the test below.
     """
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     decision, hso = _run(f"cd /does/not/exist {sep} git commit -m x", repo, home)
@@ -2373,14 +2375,117 @@ def test_cd_in_a_later_pipeline_element_also_dies(tmp_path, home):
     assert "main" in hso["permissionDecisionReason"]
 
 
-def test_cd_still_propagates_across_non_subshell_separators(tmp_path, home):
+@pytest.mark.parametrize("sep", [";", "&&"])
+def test_cd_still_propagates_across_non_subshell_separators(sep, tmp_path, home):
     """`;`, `&&` and `||` keep the shell in one process — the control that
-    must not regress."""
+    must not regress. (`||` is excluded because a SUCCEEDING `cd` makes bash
+    skip what follows it; that is defect 25's territory, tested below.)"""
     session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
-    for i, sep in enumerate((";", "&&", "||")):
-        other = _make_repo(tmp_path / f"other{i}", "main", STD_CFG)
-        decision, _ = _run(f"cd {other} {sep} git commit -m x", session, home)
-        assert decision == "deny", sep
+    other = _make_repo(tmp_path / f"other{len(sep)}", "main", STD_CFG)
+    decision, _ = _run(f"cd {other} {sep} git commit -m x", session, home)
+    assert decision == "deny", sep
+
+
+# ─── `&&` / `||` short-circuit ────────────────────────────────
+#
+# Defect 25, environment axis. A `cd` is the one command whose exit status the
+# guard can compute, and bash uses that status to decide whether the NEXT
+# command runs at all. Applying a skipped `cd` moved the guard somewhere the
+# shell never went. All four behaviours below were verified against bash first.
+
+
+def test_a_skipped_cd_does_not_move_the_guard(tmp_path, home):
+    """The reported shape: the first `cd` fails, so bash never runs the second
+    — and the commit happens in the ORIGINAL, guarded repo."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(
+        f"cd /does/not/exist && cd {other} ; git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_failed_cd_short_circuits_the_commit_itself(tmp_path, home):
+    """`cd /gone && git commit` never reaches the commit, so there is nothing
+    to block — the over-deny this used to produce is gone."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("cd /does/not/exist && git commit -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_a_succeeding_cd_short_circuits_an_or(tmp_path, home):
+    """`cd <exists> || git commit` skips the commit."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"cd {other} || git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_a_failed_cd_lets_an_or_branch_run(tmp_path, home):
+    """The mirror: `cd /gone || cd <other>` DOES run the second `cd`."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(
+        f"cd /does/not/exist || cd {other} ; git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_short_circuit_propagates_along_an_and_chain(tmp_path, home):
+    """`a && b && c` skips BOTH b and c when a fails."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"cd /does/not/exist && cd {other} && git commit -m x", session, home
+    )
+    assert decision == "allow", "the commit is skipped too"
+
+
+def test_short_circuit_still_reaches_an_or_after_a_skipped_and(tmp_path, home):
+    """`a && b || c` runs c when a fails — the status carries through the
+    skipped b rather than being reset."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(
+        f"cd /does/not/exist && cd /also/gone || cd {other} ; git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "deny"
+
+
+def test_a_skipped_subshell_is_not_entered(tmp_path, home):
+    """`cd /gone && ( … )` skips the whole group — verified in bash."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"cd /does/not/exist && (cd {other} && git commit -m x)", session, home
+    )
+    assert decision == "allow", "nothing in the subshell runs"
+
+    # And the commit after it is back in the original repo.
+    decision, hso = _run(
+        f"cd /does/not/exist && (cd {other} && git status) ; git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_an_unknown_status_leaves_both_branches_live(tmp_path, home):
+    """A `cd` we could not resolve, or any non-`cd` command, has an unknown
+    status — so the guard must keep evaluating what follows rather than
+    assuming it is skipped."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"git add -A && cd {other} && git commit -m x", session, home)
+    assert decision == "deny"
+
+    decision, _ = _run(f'cd "$D" || cd {other} ; git commit -m x', session, home)
+    assert decision == "deny"
 
 
 def test_pipeline_inside_a_chain_only_rolls_back_its_own_elements(tmp_path, home):

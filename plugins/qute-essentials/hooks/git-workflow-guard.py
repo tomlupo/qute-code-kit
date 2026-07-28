@@ -127,8 +127,8 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23 and 24 are
-parsing; 10-13, 16-18 and 22 are the environment axis, and are the reason that
-axis is written down at all. All but 24 let something THROUGH; 24 blocked
+parsing; 10-13, 16-18, 22 and 25 are the environment axis, and are the reason
+that axis is written down at all. All but 24 let something THROUGH; 24 blocked
 something it should not have, which is a defect on the same footing — a guard
 that cries wolf gets turned off:
 
@@ -202,7 +202,10 @@ that cries wolf gets turned off:
       `git push origin tag <name>` is `refs/tags/<name>`; both were read as
       branch destinations, so from a guarded branch they were blocked. That
       falsified a claim the docs had made from the start — that tag pushes are
-      never blocked — and would have broken `/ship`.
+      never blocked — and would have broken `/ship`;
+  25. `&&` / `||` short-circuit — a `cd` bash SKIPS was applied anyway, so
+      `cd /missing && cd ../feature ; git commit` evaluated `../feature` while
+      the commit really happened in the original, guarded repo.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -895,7 +898,12 @@ def _literal_path(operand: str):
 
 
 def _resolve_cd(base: Path, base_unknown: bool, operand: str):
-    """Where the shell ends up after `cd <operand>`, as `(dir, unknown)`.
+    """Where the shell ends up after `cd <operand>`, as `(dir, unknown, ok)`.
+
+    `ok` is the command's exit status where we can compute it — True, False, or
+    None when the operand was never expanded. It is the ONLY status this guard
+    can determine for any command, and `&&` / `||` short-circuiting depends on
+    it.
 
     Three outcomes, and telling them apart is the whole point:
 
@@ -916,14 +924,14 @@ def _resolve_cd(base: Path, base_unknown: bool, operand: str):
     """
     p = _literal_path(operand)
     if p is None:
-        return (base, True)
+        return (base, True, None)
     if p.is_absolute():
         # An absolute target re-anchors us even from an unknown location.
-        return (p, False) if p.is_dir() else (base, base_unknown)
+        return (p, False, True) if p.is_dir() else (base, base_unknown, False)
     if base_unknown:
-        return (base, True)  # relative to nowhere we can name
+        return (base, True, None)  # relative to nowhere we can name
     target = base / p
-    return (target, False) if target.is_dir() else (base, False)
+    return (target, False, True) if target.is_dir() else (base, False, False)
 
 
 def _resolve_git_target_dir(base: Path, base_unknown: bool, opts: dict):
@@ -1447,7 +1455,32 @@ def main():
     state_before = None
     after_pipe = False
 
+    # `&&` / `||` SHORT-CIRCUIT. `last_status` is the exit status of the last
+    # command we could determine one for — which is only ever a `cd`, since
+    # that is the only command whose outcome the guard can compute. Everything
+    # else leaves it None (unknown), and an unknown condition means the next
+    # command might run, so it is still processed.
+    #
+    # Without this, `cd /missing && cd ../feature ; git commit` applied the
+    # SECOND `cd` even though bash skips it, and the commit — which really
+    # happens in the original, guarded repo — was evaluated against
+    # `../feature` and allowed (environment-axis defect, round 13).
+    #
+    # A skipped command leaves `last_status` untouched, which is what makes a
+    # chain behave: `a && b && c` skips both b and c when a fails, while
+    # `a && b || c` still runs c.
+    last_status = None
+    run_next = True
+    skip_depth = 0
+
     for kind, seg in _segments(command):
+        if skip_depth:
+            # Inside a subshell bash never entered.
+            if kind == "open":
+                skip_depth += 1
+            elif kind == "close":
+                skip_depth -= 1
+            continue
         if kind == "sep":
             # A `cd` inside a pipeline element, or before a `&`, dies with that
             # element's process — so roll the shell back to where that element
@@ -1455,15 +1488,32 @@ def main():
             if state_before is not None and (seg in _SUBSHELL_SEPARATORS or after_pipe):
                 base_dir, base_unknown, prev_dir = state_before
             after_pipe = seg == "|"
+            if seg == "&&":
+                run_next = last_status is not False
+            elif seg == "||":
+                run_next = last_status is not True
+            else:
+                run_next = True
             continue
         if kind == "open":
+            if not run_next:
+                skip_depth = 1
+                continue
             dir_stack.append((base_dir, base_unknown, prev_dir))
             continue
         if kind == "close":
+            # A subshell's status is its own; we cannot compute it.
+            last_status = None
             # A subshell's `cd` dies with the subshell. An unmatched `)` (a
             # `case` arm, say) has nothing to restore and is ignored.
             if dir_stack:
                 base_dir, base_unknown, prev_dir = dir_stack.pop()
+            continue
+
+        if not run_next:
+            # Bash short-circuits past this command, so it neither moves the
+            # shell nor writes anything. `last_status` carries through, which
+            # keeps `a && b && c` and `a && b || c` both correct.
             continue
 
         state_before = (base_dir, base_unknown, prev_dir)
@@ -1484,20 +1534,30 @@ def main():
             was_dir, was_unknown = base_dir, base_unknown
             if operand is None:
                 # Bare `cd` goes to $HOME, and the hook runs as the same user.
-                base_dir, base_unknown = Path.home(), False
+                home_dir = Path.home()
+                base_dir, base_unknown = home_dir, False
+                last_status = home_dir.is_dir()
             elif operand == "-":
                 # `cd -` returns to the previous directory. We know it only if
                 # we saw the `cd` that set it.
                 if prev_dir is None:
                     base_unknown = True
+                    last_status = None
                 else:
                     base_dir, base_unknown = prev_dir, False
+                    last_status = True
             else:
-                base_dir, base_unknown = _resolve_cd(base_dir, base_unknown, operand)
+                base_dir, base_unknown, last_status = _resolve_cd(
+                    base_dir, base_unknown, operand
+                )
             # $OLDPWD only moves when the `cd` actually succeeded.
             if (base_dir, base_unknown) != (was_dir, was_unknown):
                 prev_dir = None if was_unknown else was_dir
             continue
+
+        # Any other command: we cannot compute its exit status, so a following
+        # `&&` / `||` has to assume it might go either way.
+        last_status = None
 
         sub, args, opts = _git_subcommand(tokens)
         if sub is None:
