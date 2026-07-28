@@ -1423,3 +1423,64 @@ class TestDispatcherFailsClosedWhenTheGuardIsGone:
         self._feature_commit(sandbox)
         out = _push(sandbox, "--no-verify", "origin", "feat/x")
         assert out.returncode == 0, out.stdout + out.stderr
+
+
+@pytestmark_git
+class TestCheckModeAppliesTheSharedPathRule:
+    """Install mode refused an out-of-tree hook path; `--check` did not.
+
+    `--check` writes nothing, so it skipped the refusal entirely and printed a
+    bare OK for a hook file shared with other repositories. The guard really
+    was working there — so the row added here says exactly that, and still
+    withholds a clean bill of health until someone acknowledges the sharing.
+    Reporting "not protected" would be a false alarm in the other direction.
+    """
+
+    def _shared_install(self, sandbox, tmp_path):
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir(exist_ok=True)
+        _run(
+            ["git", "config", "--local", "core.hooksPath", str(shared)],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        assert _install(sandbox, "--allow-shared-hooks-path").returncode == 0
+        return shared
+
+    def test_check_without_the_flag_is_not_ok(self, sandbox, tmp_path):
+        self._shared_install(sandbox, tmp_path)
+        out = _install(sandbox, "--check", "--json")
+        report = json.loads(out.stdout)
+        assert out.returncode != 0
+        assert report["ok"] is False
+        assert report["hook_path_location"] == "outside-repo"
+        assert report["verification"]["coverage"]["hook_file_is_this_repos"] is False
+
+    def test_the_row_does_not_claim_the_guard_is_broken(self, sandbox, tmp_path):
+        """It must not read as 'unprotected' — the coverage probes all pass."""
+        self._shared_install(sandbox, tmp_path)
+        report = json.loads(_install(sandbox, "--check", "--json").stdout)
+        cov = report["verification"]["coverage"]
+        assert cov["protected_update"] is True
+        assert cov["delete_guarded"] is True
+        assert cov["multi_ref"] is True
+        row = next(
+            c
+            for c in report["verification"]["checks"]
+            if "belongs to this repository" in c["name"]
+        )
+        assert "the guard IS working" in row["detail"]
+
+    def test_check_with_the_flag_is_ok(self, sandbox, tmp_path):
+        self._shared_install(sandbox, tmp_path)
+        out = _install(sandbox, "--check", "--allow-shared-hooks-path", "--json")
+        assert out.returncode == 0, out.stdout
+        assert json.loads(out.stdout)["ok"] is True
+
+    def test_in_repo_install_is_unaffected(self, sandbox):
+        assert _install(sandbox).returncode == 0
+        out = _install(sandbox, "--check", "--json")
+        assert out.returncode == 0
+        report = json.loads(out.stdout)
+        assert report["ok"] is True
+        assert "hook_file_is_this_repos" not in report["verification"]["coverage"]

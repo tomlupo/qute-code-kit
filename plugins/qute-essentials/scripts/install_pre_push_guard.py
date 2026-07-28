@@ -749,7 +749,7 @@ def _probe(repo: Path, hook_file: Path, line: str) -> subprocess.CompletedProces
     )
 
 
-def verify(repo: Path, world: dict) -> dict:
+def verify(repo: Path, world: dict, allow_shared: bool = False) -> dict:
     """Drive the hook through git's resolved path and measure what it does."""
     result = {"reachable": False, "checks": [], "coverage": {}, "ok": False}
     hook_file = Path(world["hook_file"]) if world["hook_file"] else None
@@ -903,7 +903,32 @@ def verify(repo: Path, world: dict) -> dict:
         )
     )
 
+    # The hook can work perfectly and still not be THIS repo's hook. Install
+    # mode refuses an out-of-tree hook path without --allow-shared-hooks-path;
+    # --check writes nothing, so it used to skip that question entirely and
+    # print a bare OK. The row below is deliberately worded to say the guard IS
+    # working — reporting "not protected" would be a false alarm in the other
+    # direction — while refusing to call a file shared with other repositories
+    # a clean per-repo install until someone says they meant it.
+    if world["hook_path_location"] == "outside-repo":
+        result["coverage"]["hook_file_is_this_repos"] = allow_shared
+        result["checks"].append(
+            (
+                "hook file belongs to this repository alone",
+                allow_shared,
+                "acknowledged via --allow-shared-hooks-path"
+                if allow_shared
+                else f"the guard IS working, but {hook_file} is outside this "
+                "repo and is shared by every repository pointed at it — another "
+                "repo's install or `pre-commit install` can change it under you. "
+                "Point core.hooksPath inside the tree, or pass "
+                "--allow-shared-hooks-path to accept it.",
+            )
+        )
+
     required = ["protected_update", "feature_allowed", "delete_guarded", "multi_ref"]
+    if world["hook_path_location"] == "outside-repo":
+        required.append("hook_file_is_this_repos")
     if integration:
         required.append("integration_update")
     result["ok"] = all(result["coverage"].get(k) for k in required)
@@ -1040,7 +1065,7 @@ def main() -> int:
         # core.hooksPath may have been created; re-resolve before verifying.
         world = detect_world(repo)
 
-    ver = verify(repo, world)
+    ver = verify(repo, world, allow_shared=args.allow_shared_hooks_path)
     ok = installed and ver["ok"]
 
     report = {
