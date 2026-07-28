@@ -1023,17 +1023,376 @@ def test_env_and_alias_compose(tmp_path, home):
     assert decision == "deny"
 
 
+# ─── how git is invoked ───────────────────────────────────────
+#
+# Eighth shape found by review, and the one that was a hole in the MIDDLE
+# rather than an edge: the parser only ever matched `tokens[0] == "git"`, so an
+# absolute path to git — an ordinary form that scripts and cron entries use
+# constantly — was not a git command as far as the guard was concerned. Nor was
+# the `command` / `builtin` / `exec` prefix. Git is now matched on the BASENAME
+# of the executable, with those prefixes peeled first.
+
+GIT_INVOCATION_FORMS = [
+    "/usr/bin/git",
+    "/usr/local/bin/git",
+    "command git",
+    "command -p git",
+    "builtin git",
+    "exec git",
+    "exec -c git",
+    "command -- git",
+    "env VAR=x command git",
+    "command env VAR=x git",
+]
+
+
+@pytest.mark.parametrize("form", GIT_INVOCATION_FORMS)
+def test_invocation_form_commit_denied_on_protected(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"{form} commit -m x", repo, home)
+    assert decision == "deny", form
+    assert "main" in hso["permissionDecisionReason"], form
+
+
+@pytest.mark.parametrize("form", GIT_INVOCATION_FORMS)
+def test_invocation_form_commit_denied_on_integration(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "dev", STD_CFG)
+    decision, hso = _run(f"{form} commit -m x", repo, home)
+    assert decision == "deny", form
+    assert "dev" in hso["permissionDecisionReason"], form
+
+
+@pytest.mark.parametrize("form", GIT_INVOCATION_FORMS)
+def test_invocation_form_commit_allowed_on_feature_branch(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(f"{form} commit -m x", repo, home)
+    assert decision == "allow", form
+
+
+@pytest.mark.parametrize("form", GIT_INVOCATION_FORMS)
+def test_invocation_form_push_to_protected_denied_from_feature_branch(
+    form, tmp_path, home
+):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(f"{form} push origin main", repo, home)
+    assert decision == "deny", form
+    assert "main" in hso["permissionDecisionReason"], form
+
+
+@pytest.mark.parametrize("form", GIT_INVOCATION_FORMS)
+def test_invocation_form_push_of_unguarded_branch_allowed(form, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(f"{form} push -u origin feat/x", repo, home)
+    assert decision == "allow", form
+
+
+@pytest.mark.parametrize("form", ["/usr/bin/git", "command git", "exec git"])
+def test_invocation_form_bare_push_follows_the_current_branch(form, tmp_path, home):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(form)}", branch, STD_CFG
+        )
+        decision, _ = _run(f"{form} push", repo, home)
+        assert decision == expected, f"{form} push on {branch}"
+
+
+@pytest.mark.parametrize("form", ["/usr/bin/git", "command git"])
+def test_invocation_form_scoping_options_still_apply(form, tmp_path, home):
+    """`-C` and the alias lookup must survive the new executable matching."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(tmp_path / f"other{len(form)}", "main", STD_CFG)
+    _set_alias(sibling, "ci", "commit")
+    decision, _ = _run(f"{form} -C {sibling} ci -m x", session, home)
+    assert decision == "deny", form
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git-foo commit -m x",  # a different program entirely
+        "gitk commit -m x",
+        "/usr/bin/git-secret commit -m x",
+        "mygit commit -m x",
+    ],
+)
+def test_lookalike_executables_are_not_git(cmd, tmp_path, home):
+    """Basename matching must not swallow neighbouring programs."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+def test_exec_dash_a_consumes_its_value(tmp_path, home):
+    """`exec -a NAME CMD` runs CMD under argv[0]=NAME. So `exec -a mygit git
+    commit` IS a git commit, while `exec -a git commit` runs a program called
+    `commit` and is not git at all — the arity has to be modelled to tell the
+    two apart."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("exec -a mygit git commit -m x", repo, home)
+    assert decision == "deny"
+    decision, _ = _run("exec -a git commit -m x", repo, home)
+    assert decision == "allow"
+
+
+@pytest.mark.parametrize("cmd", ["command -X git commit -m x", "exec -Z git push"])
+def test_unresolvable_run_wrapper_denied(cmd, tmp_path, home):
+    """Same fail-closed stance as `env`: a wrapper option we do not know may
+    swallow the command token, so it is guarded, not allowed."""
+    for branch in ("main", "dev", "feat/x"):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(cmd)}", branch, STD_CFG
+        )
+        decision, hso = _run(cmd, repo, home)
+        assert decision == "deny", f"{cmd} on {branch}"
+        assert "invocation runs" in hso["permissionDecisionReason"], cmd
+
+
+def test_unresolvable_run_wrapper_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run("command -X git commit -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_command_v_git_is_not_a_commit(tmp_path, home):
+    """`command -v git` only prints a path — there is no subcommand at all."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("command -v git", repo, home)
+    assert decision == "allow"
+
+
+# ─── `-c alias.<name>=…` on the command line ──────────────────
+#
+# Ninth shape: `_git_subcommand` parsed and discarded `-c key=val`, while
+# `_expand_alias` only read repo config — so an alias defined for that one
+# invocation was invisible, and the docs claimed aliases were handled.
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git -c alias.ci=commit ci -m x",
+        "git -c alias.ci='commit -s' ci -m x",
+        "git -c alias.CI=commit ci -m x",  # config names are case-insensitive
+        "git -c user.name=t -c alias.ci=commit ci -m x",
+        "/usr/bin/git -c alias.ci=commit ci -m x",
+        "env VAR=x git -c alias.ci=commit ci -m x",
+    ],
+)
+def test_cli_alias_to_commit_denied_on_protected(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git -c alias.ci=commit ci -m x",
+        "git -c alias.CI=commit ci -m x",
+    ],
+)
+def test_cli_alias_to_commit_allowed_on_feature_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+def test_cli_alias_to_push_resolves_its_refspec(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run("git -c alias.pub='push origin main' pub", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+    decision, _ = _run("git -c alias.pub='push origin feat/x' pub", repo, home)
+    assert decision == "allow"
+
+
+def test_cli_alias_to_push_head_follows_the_current_branch(tmp_path, home):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+        decision, _ = _run("git -c alias.pub='push origin HEAD' pub", repo, home)
+        assert decision == expected, branch
+
+
+def test_cli_alias_overrides_the_repo_alias(tmp_path, home):
+    """git prefers `-c` over config, and so must the guard — in both
+    directions, so the override is honoured rather than merely unioned."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    _set_alias(repo, "x", "status")  # harmless in config …
+    decision, _ = _run("git -c alias.x=commit x -m y", repo, home)
+    assert decision == "deny"  # … but `commit` on the command line
+
+    repo2 = _make_repo(tmp_path / "r2", "main", STD_CFG)
+    _set_alias(repo2, "x", "commit")  # guarded in config …
+    decision, _ = _run("git -c alias.x=status x", repo2, home)
+    assert decision == "allow"  # … but harmless on the command line
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git -c alias.a=b a",  # alias to another alias
+        "git -c alias.sh='!git push origin main' sh",  # shell alias
+    ],
+)
+def test_unresolvable_cli_alias_denied(cmd, tmp_path, home):
+    """Same one-level, non-recursive rule as repo aliases."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "alias" in hso["permissionDecisionReason"], cmd
+
+
+def test_cli_alias_to_a_builtin_allowed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git -c alias.lg='log --graph' lg", repo, home)
+    assert decision == "allow"
+
+
+def test_cli_alias_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run("git -c alias.ci=commit ci -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_non_alias_dash_c_is_not_mistaken_for_one(tmp_path, home):
+    """`-c` carrying anything but an alias must not disturb parsing."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git -c core.hooksPath=/dev/null status", repo, home)
+    assert decision == "allow"
+    decision, _ = _run("git -c user.name=t commit -m x", repo, home)
+    assert decision == "deny"
+
+
+# ─── option arity ─────────────────────────────────────────────
+#
+# Shapes 6 and 7: an option whose value sits in the NEXT token shifts every
+# positional after it. `git push --recurse-submodules on-demand origin` read
+# `on-demand` as the remote and `origin` as an explicit harmless refspec, so a
+# push of the guarded current branch looked safe; `git --namespace foo commit`
+# read `foo` as the subcommand and never saw the commit. Both are ordinary
+# invocation forms, so both are defects rather than tail.
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push --recurse-submodules on-demand origin",
+        "git push --recurse-submodules check origin",
+        "git push --recurse-submodules=on-demand origin",
+    ],
+)
+def test_push_option_arity_keeps_the_current_branch_fallback(cmd, tmp_path, home):
+    """With the arity known, `origin` is the remote and there is no refspec —
+    so this is a push of the current branch."""
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(cmd)}", branch, STD_CFG
+        )
+        decision, _ = _run(cmd, repo, home)
+        assert decision == expected, f"{cmd} on {branch}"
+
+
+def test_push_option_arity_keeps_explicit_refspecs_readable(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(
+        "git push --recurse-submodules on-demand origin main", repo, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+    decision, _ = _run(
+        "git push --recurse-submodules on-demand origin feat/x", repo, home
+    )
+    assert decision == "allow"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git --namespace foo commit -m x",
+        "git --namespace=foo commit -m x",
+        "git --attr-source HEAD commit -m x",
+        "git --config-env=user.name=N commit -m x",
+    ],
+)
+def test_global_option_arity_still_finds_the_subcommand(cmd, tmp_path, home):
+    for branch, expected in (("main", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(cmd)}", branch, STD_CFG
+        )
+        decision, _ = _run(cmd, repo, home)
+        assert decision == expected, f"{cmd} on {branch}"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git --literal-pathspecs commit -m x",
+        "git --no-optional-locks commit -m x",
+        "git -p commit -m x",
+        "git --bare commit -m x",
+    ],
+)
+def test_value_less_globals_do_not_shift_the_subcommand(cmd, tmp_path, home):
+    """A global we do not model but that takes NO value must still land on the
+    real subcommand — the unknown-arity backstop must not fire here."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "protected branch 'main'" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize(
+    "cmd", ["git --literal-pathspecs status", "git -p log", "git --no-advice diff"]
+)
+def test_value_less_globals_before_harmless_builtins_allowed(cmd, tmp_path, home):
+    """The backstop only fires on an UNIDENTIFIABLE subcommand, so ordinary
+    read-only traffic behind an unmodelled global is untouched."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+def test_unknown_global_hiding_the_subcommand_is_denied(tmp_path, home):
+    """The backstop: a global whose arity we do not know may have eaten a token
+    we then read as the subcommand. Only fires when that token is neither a
+    builtin nor an alias — i.e. when we already know we are lost."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run("git --future-option value commit -m x", repo, home)
+    assert decision == "deny"
+    assert "unknown arity" in hso["permissionDecisionReason"]
+
+
+def test_unknown_global_backstop_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run("git --future-option value commit -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_unknown_subcommand_alone_is_still_allowed(tmp_path, home):
+    """No unknown global in play -> an unrecognised word is just a typo git
+    itself will reject, and must not be denied."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git nosuchthing --flag", repo, home)
+    assert decision == "allow"
+
+
 # ─── the guard describes itself honestly ──────────────────────
 
 
-def test_guidance_calls_itself_a_speed_bump_not_enforcement(tmp_path, home):
-    """Five bypasses in, the denial text must not imply completeness — it has
-    to name the tool-call-only scope and point at `pre-push` as the layer that
-    actually holds."""
+def test_guidance_states_the_coverage_criterion(tmp_path, home):
+    """Nine bypasses in, the denial text must not imply completeness — but nor
+    should it be a bare "best effort" with no criterion. It has to state the
+    line (ordinary invocation forms in, constructed evasion out), name the
+    tool-call-only scope, and point at `pre-push` as the layer that holds."""
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     _, hso = _run("git commit -m x", repo, home)
     guidance = hso["additionalContext"]
-    assert "best-effort" in guidance
     assert "not enforcement" in guidance
+    assert "ordinary invocation forms" in guidance
+    assert "evasion" in guidance
+    assert "Claude tool calls only" in guidance
     assert "pre-push" in guidance
     assert "TOM-348" in guidance
