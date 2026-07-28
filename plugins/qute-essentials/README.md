@@ -77,7 +77,9 @@ Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert 
 
 ### Git Workflow Guard (PreToolUse)
 
-The deterministic stand-in for GitHub branch protection, for repos where protection isn't available (private repos on the Free plan). Blocks one class of mistake: a direct `git commit` / `git push` onto a branch that work is supposed to reach through a PR.
+> **A best-effort agent-side speed bump, not enforcement.** It sees Claude tool calls only, it infers intent from a shell command string, and it has known gaps — five parser bypasses have been found by review so far. **`pre-push` (TOM-348) is the enforcement layer.** Read [Calibrate your trust](#calibrate-your-trust-in-this-guard) below before relying on it for anything.
+
+A nudge for repos where GitHub branch protection isn't available (private repos on the Free plan). Aims at one class of mistake: a direct `git commit` / `git push` onto a branch that work is supposed to reach through a PR.
 
 Two branches are guarded, and denial applies to both:
 
@@ -108,9 +110,33 @@ Each git command in a chain is scoped to the repo it actually targets — `cd <o
 
 The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positional is treated as a refspec rather than one being swallowed as the remote.
 
-**Calibrate your trust in the parser.** It infers intent from a shell command string, and independent review has found three bypasses in it so far (bare `HEAD`; unresolvable refspecs being allowed; `--repo` supplying the remote). Each was a shape it had never met, and that tail has no principled end — the contract above is what we know about, not what exists. The structural fix is the `pre-push` hook (TOM-348): git hands it the actual resolved refs it is about to send, so it needs no parser and is immune to this whole class. This guard stays as the early, in-agent feedback path; `pre-push` is what makes the guarantee.
+**A leading `env` wrapper is unwrapped** — `env GIT_AUTHOR_NAME=x git commit`, bare `env git push origin main`, `/usr/bin/env`, plus `-i`, `-u NAME`, `-C dir` (which scopes the target repo exactly like git's own `-C`). An `env` invocation whose command can't be pinned down — `-S`/`--split-string`, or any option the parser doesn't know, since a new option could swallow the token we'd read as `git` — is **denied**, not allowed.
+
+**An unrecognised subcommand is resolved one level through `git config --get alias.<name>`**, in the *target* repo, so `git ci` and `git publish` are read as the `commit`/`push` they expand to. The lookup is gated on the subcommand being unrecognised *and* the repo being opted in, so ordinary commands cost nothing. Resolution is deliberately **non-recursive**: an alias that expands to another alias, or to a `!shell` command, is **denied** rather than chased — chasing either re-opens exactly the unbounded-parser problem below. That over-denies a `!git status` alias in an opted-in repo; `/guard git-workflow off` is the escape hatch.
 
 Fail-open by design: no config, malformed config, a non-git directory, or any internal error all allow. Deliberate gaps: a switch-then-act chain (`git checkout main && git commit`) reads the *current* branch and isn't caught, and `git push --all`/`--mirror` is only caught from a guarded branch. `/ship` needs no exemption — its git calls run inside a Python subprocess no PreToolUse hook observes, and its tag push carries a tag refspec, not a branch.
+
+#### Calibrate your trust in this guard
+
+This is a **speed bump**, not a control. Two structural reasons, neither fixable by more parsing:
+
+**It observes Claude tool calls only.** A human typing in their own terminal, a Makefile target, a CI job, or any script an agent launches that shells out to git internally are all invisible to it — no PreToolUse hook ever sees them.
+
+**It infers intent from a shell command string, and that parser has an inherent tail.** Every round of independent review so far has turned up another command shape it had never met. Five to date — evidence *that the tail exists*, not a checklist that's now complete:
+
+| # | Shape | What went wrong |
+|---|---|---|
+| 1 | bare `HEAD` | compared as the literal `"HEAD"`, never equal to `main` |
+| 2 | unresolvable refspecs | were allowed rather than denied |
+| 3 | `--repo <remote>` | supplies the remote, so every positional is a refspec — `git push --repo=origin main` parsed as "no refspec at all" |
+| 4 | the `env` wrapper | `env GIT_AUTHOR_NAME=x git commit`, bare `env git push origin main` |
+| 5 | git aliases | `git ci`, `git publish` — neither the literal `commit` nor the literal `push` |
+
+All five are handled now. **A sixth almost certainly exists**; we just haven't met it yet.
+
+**`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, none of the five shapes above exist at that layer, and it covers a human's own pushes too.
+
+The two are **complementary, not redundant**: this hook gives an agent immediate feedback and a message naming the right route before the command runs; `pre-push` is what holds. Anyone tempted to harden this parser further should weigh that against landing TOM-348 instead.
 
 ### Provenance Guard (PreToolUse)
 

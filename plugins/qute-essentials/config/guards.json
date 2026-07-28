@@ -15,7 +15,7 @@
   },
   "git-workflow": {
     "enabled": true,
-    "description": "Block direct `git commit`/`git push` on a repo's protected and integration branches (work must arrive via a PR). Opt-in per repo: only fires where `.claude/git-guard.json` exists"
+    "description": "Best-effort agent-side speed bump against direct `git commit`/`git push` on a repo's protected and integration branches (work must arrive via a PR). Sees Claude tool calls only and infers intent from the command string, so it has known gaps — `pre-push` is the enforcement layer. Opt-in per repo: only fires where `.claude/git-guard.json` exists"
   },
   "secrets": {
     "enabled": true,

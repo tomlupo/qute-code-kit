@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-PreToolUse hook (matcher: Bash) — agent-side branch-workflow guard.
+PreToolUse hook (matcher: Bash) — agent-side branch-workflow SPEED BUMP.
 
-The deterministic stand-in for GitHub branch protection, for repos where
-protection is unavailable (private repos on the Free plan). It blocks exactly
-one class of mistake: a direct `git commit` / `git push` to a branch that work
-is supposed to reach through a pull request.
+A best-effort, agent-side nudge for repos where GitHub branch protection is
+unavailable (private repos on the Free plan). It aims at exactly one class of
+mistake: a direct `git commit` / `git push` to a branch that work is supposed
+to reach through a pull request.
+
+It is NOT enforcement, and it is not a stand-in for branch protection. Read
+"WHAT THIS IS, AND WHAT IT IS NOT" below before trusting it with anything.
 
 Two branches are protected:
 
@@ -34,24 +37,54 @@ and a `refs/heads/` prefix are stripped, and only the dst half of `src:dst`
 counts. A destination that cannot be resolved confidently is DENIED rather than
 allowed — see `_resolve_push_dst` for the exact list of unresolvable shapes.
 
-CALIBRATE YOUR TRUST IN THIS PARSER. It infers intent from a shell command
-string, and independent review has now found THREE bypasses in it:
+A leading `env` wrapper is unwrapped (`env FOO=1 git push`, bare `env git push`,
+`/usr/bin/env`), and an unrecognised subcommand is resolved ONE level through
+`git config --get alias.<name>` in the TARGET repo. Both fail closed: an `env`
+invocation or an alias whose meaning cannot be pinned down is denied, not
+allowed. See `_strip_env` and `_expand_alias`.
 
-  1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
-  2. refspecs whose destination could not be resolved were allowed, not denied;
-  3. `--repo <remote>` supplies the remote, so every positional is a refspec —
-     `git push --repo=origin main` parsed as "no refspec at all".
 
-Each was a shape the parser had simply never met, and that tail has no
-principled end. The contract above is what we know about, NOT what exists.
+WHAT THIS IS, AND WHAT IT IS NOT
+================================
 
-The structural answer is not more parsing. It is the `pre-push` hook tracked as
-TOM-348: git invokes `pre-push` with the actual resolved local/remote refs it is
-about to send, so it needs no command-line parser and is immune to this entire
-class of bug. This hook remains the early, in-agent feedback path — it explains
-the route before the command runs — but `pre-push` is what makes the guarantee.
-Anyone tempted to harden the parser further should weigh that against landing
-TOM-348 instead.
+This is a best-effort, agent-side SPEED BUMP with known gaps. It is not
+enforcement. Nothing below should be read as a guarantee, and a reviewer should
+judge it against that claim and no larger one.
+
+  * It observes CLAUDE TOOL CALLS ONLY. A human typing in their own terminal, a
+    Makefile target, a CI job, or any script an agent launches that shells out
+    to git internally are all invisible to it — no PreToolUse hook ever sees
+    them. Anything outside the Bash tool is simply out of scope.
+
+  * It infers intent from a SHELL COMMAND STRING, and that parser has an
+    inherent tail. Every round of independent review so far has found another
+    command shape it had never met. FIVE to date — listed here as EVIDENCE THAT
+    THE TAIL EXISTS, not as a checklist that is now complete:
+
+      1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
+      2. refspecs whose destination could not be resolved were allowed, not
+         denied;
+      3. `--repo <remote>` supplies the remote, so every positional is a
+         refspec — `git push --repo=origin main` parsed as "no refspec at all";
+      4. the `env` wrapper — `env GIT_AUTHOR_NAME=x git commit`, bare
+         `env git push origin main`;
+      5. git aliases — `git ci`, `git publish`, which are neither the literal
+         `commit` nor the literal `push`.
+
+    All five are handled now. A SIXTH SHAPE ALMOST CERTAINLY EXISTS; we have
+    simply not met it yet. Treat the contract above as what we know about, NOT
+    as what exists.
+
+`pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
+Git invokes `pre-push` with the real local/remote refs it is about to send —
+after alias expansion, after `env`, after every shell trick, and regardless of
+who or what ran the command. So it needs no command-line parser, none of the
+five shapes above exist at that layer, and a human's own push is covered too.
+
+The two are COMPLEMENTARY, not redundant. This hook gives an agent IMMEDIATE
+FEEDBACK and a message naming the right route before the command ever runs;
+`pre-push` is what HOLDS. Anyone tempted to harden this parser further should
+weigh that against landing TOM-348 instead.
 
 Documented gaps (deliberate — these are explicit acts, not the accidental
 footgun this guards, and catching them would risk false blocks):
@@ -59,6 +92,7 @@ footgun this guards, and catching them would risk false blocks):
     *current* branch, so a switch-then-act chain is not caught.
   - `git push --all` / `git push --mirror` from an unguarded branch — only
     caught when standing on a guarded branch.
+  - anything that reaches git without going through the Bash tool.
 
 Opt-in: `.claude/git-guard.json` in the TARGET repo root. The PRESENCE of that
 file is what opts a repo in — no file means a total no-op for that repo, which
@@ -93,7 +127,7 @@ import re
 import shlex
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from guard_config import guard_enabled  # noqa: E402
@@ -237,6 +271,107 @@ def _tokens(segment: str):
         return segment.split()
 
 
+_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
+
+# Sentinel subcommands for "this segment invokes something we could not pin
+# down". Both are NUL-prefixed so they can never collide with a real git
+# subcommand or alias name. The caller denies on them when the repo is opted in.
+_ENV_UNRESOLVABLE = "\0env-unresolvable"
+_ALIAS_UNRESOLVABLE = "\0alias-unresolvable"
+
+# `env` long options that never take a value, or whose value can only ever be
+# attached with `=` (so a bare occurrence consumes nothing).
+_ENV_LONG_FLAGS = frozenset(
+    {
+        "--ignore-environment",
+        "--null",
+        "--debug",
+        "--list-signal-handling",
+        "--block-signal",
+        "--default-signal",
+        "--ignore-signal",
+    }
+)
+# `env` long options that take a value, either `--opt=v` or `--opt v`.
+_ENV_LONG_WITH_VALUE = frozenset({"--unset", "--chdir"})
+
+
+def _strip_env(tokens):
+    """Consume a leading `env` invocation, returning (rest_tokens, chdirs), or
+    None when the wrapper cannot be resolved.
+
+    `env [OPTION]... [-] [NAME=VALUE]... [COMMAND [ARG]...]` — the command we
+    care about hides after the options and the assignments, so `env
+    GIT_AUTHOR_NAME=x git commit` and bare `env git push origin main` both have
+    to be unwrapped before anything can look for `git`. (Bypass #4.)
+
+    Options are handled to the extent they can be:
+      `-i` / `--ignore-environment` / `-` / `-v` / `-0`  no effect on WHICH
+          command runs — skipped.
+      `-u NAME` / `--unset=NAME`  consumes its value — skipped.
+      `-C dir` / `--chdir=dir`  changes the directory git runs in, so it is
+          returned and applied to the target-repo resolution exactly like git's
+          own `-C`.
+
+    Anything else returns None -> the caller treats the segment as GUARDED, not
+    allowed. The notable member of that set is `-S` / `--split-string`, which
+    re-splits a whole command line out of one string with its own quoting and
+    `\\c` escapes; re-implementing that is precisely the unbounded-parser trap
+    this guard's docstring warns about. Unknown options land there too, since a
+    new option could consume the token we would otherwise read as `git`.
+    """
+    tokens = tokens[1:]  # drop `env` itself
+    chdirs = []
+    i, n = 0, len(tokens)
+    while i < n:
+        tok = tokens[i]
+        if tok == "-":  # bare `-` is a synonym for `-i`
+            i += 1
+            continue
+        if not tok.startswith("-"):
+            break  # first non-option: assignments or the command itself
+        if tok.startswith("--"):
+            name, eq, attached = tok.partition("=")
+            if name in _ENV_LONG_FLAGS:
+                i += 1
+            elif name in _ENV_LONG_WITH_VALUE:
+                if eq:
+                    value, step = attached, 1
+                elif i + 1 < n:
+                    value, step = tokens[i + 1], 2
+                else:
+                    return None
+                if name == "--chdir":
+                    chdirs.append(value)
+                i += step
+            else:
+                return None
+            continue
+        # Short-option cluster: `-i`, `-iu FOO`, `-uFOO`, `-C dir`.
+        j, step = 1, 1
+        while j < len(tok):
+            c = tok[j]
+            if c in "iv0":
+                j += 1
+                continue
+            if c not in "uCS":
+                return None  # unknown short option — it may eat the command
+            if c == "S":
+                return None  # --split-string: see the docstring
+            attached = tok[j + 1 :]
+            if attached:
+                value = attached
+            elif i + 1 < n:
+                value, step = tokens[i + 1], 2
+            else:
+                return None
+            if c == "C":
+                chdirs.append(value)
+            break
+        i += step
+    return tokens[i:], chdirs
+
+
 def _git_subcommand(tokens):
     """Return (subcommand, args_after_it, global_opts) if this segment is a git
     invocation, else (None, [], {}).
@@ -245,15 +380,31 @@ def _git_subcommand(tokens):
     git command targets: `-C <path>` (repeatable, cumulative), `--git-dir`,
     `--work-tree`. Used to resolve the target repo per-command so the guard
     evaluates the right repo's branch/config instead of the session's.
+
+    A subcommand of `_ENV_UNRESOLVABLE` means the segment starts with an `env`
+    wrapper whose command could not be determined; `args` then holds the raw
+    tokens so the caller can decide whether git is even in play.
     """
     empty = (None, [], {})
     if not tokens:
         return empty
-    # Skip leading inline env-var assignments (`FOO=1 git push ...`). Note an
-    # inline `CLAUDE_GUARD_GIT_WORKFLOW=0 git ...` does NOT override this hook —
-    # the hook runs as a separate process and only sees exported env.
-    while tokens and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[0]):
-        tokens = tokens[1:]
+    original = list(tokens)
+    env_chdirs = []
+    # Peel inline env-var assignments and `env` wrappers, in any order and any
+    # number: `FOO=1 git push`, `env FOO=1 git push`, `FOO=1 env BAR=2 git push`.
+    # Note an inline `CLAUDE_GUARD_GIT_WORKFLOW=0 git ...` does NOT override this
+    # hook — the hook runs as a separate process and only sees exported env.
+    while tokens:
+        while tokens and _ASSIGN_RE.fullmatch(tokens[0]):
+            tokens = tokens[1:]
+        if tokens and PurePosixPath(tokens[0]).name == "env":
+            stripped = _strip_env(tokens)
+            if stripped is None:
+                return (_ENV_UNRESOLVABLE, original, {})
+            tokens, chdirs = stripped
+            env_chdirs.extend(chdirs)
+            continue
+        break
     if not tokens or tokens[0] != "git":
         return empty
     i = 1
@@ -282,7 +433,9 @@ def _git_subcommand(tokens):
             i += 1
     if i >= len(tokens):
         return empty
-    opts = {"C": c_paths, "git_dir": git_dir, "work_tree": work_tree}
+    # `env -C dir` happens BEFORE git starts, so it precedes git's own `-C`
+    # chain in the cumulative resolution.
+    opts = {"C": env_chdirs + c_paths, "git_dir": git_dir, "work_tree": work_tree}
     return tokens[i], tokens[i + 1 :], opts
 
 
@@ -446,6 +599,84 @@ def _push_targets(args, current_branch):
     return targets, had_refspec, unresolvable
 
 
+# Git subcommands that are definitely NOT `commit`/`push`. This list exists
+# purely to keep `git config --get alias.<name>` OFF THE HOT PATH: an ordinary
+# `git status` / `git log` short-circuits here with no subprocess at all. Git
+# ignores any alias that shadows a builtin, so a name in this set can never be
+# an alias — and the set being incomplete costs a config lookup, never
+# correctness (an unlisted builtin simply resolves to "no such alias").
+_GIT_BUILTINS = frozenset(
+    """
+    add am annotate apply archive bisect blame branch bundle cat-file
+    check-ignore check-ref-format checkout cherry cherry-pick clean clone
+    column config count-objects describe diff diff-tree difftool fetch
+    filter-branch for-each-ref format-patch fsck gc grep help init instaweb
+    log ls-files ls-remote ls-tree maintenance merge merge-base mergetool mv
+    name-rev notes pack-refs prune pull range-diff rebase reflog remote repack
+    replace request-pull rerere reset restore rev-list rev-parse revert rm
+    shortlog show show-branch sparse-checkout stash status submodule switch
+    symbolic-ref tag update-index update-ref var verify-commit version
+    whatchanged worktree
+    """.split()
+)
+
+
+def _mentions_git(tokens) -> bool:
+    """Whether any token contains `git` at all — used ONLY to decide whether an
+    unresolvable `env` segment is worth denying over.
+
+    Deliberately a substring test, not a word-boundary one: in `env -Sgit\\ push`
+    the option letter is glued to the command, so `\\bgit\\b` misses it. Erring
+    toward "yes" is the correct direction on this path — the alternative is
+    letting an env wrapper we admit we cannot parse through unexamined.
+    """
+    return any("git" in t for t in tokens)
+
+
+def _expand_alias(target_dir: Path, name: str):
+    """Resolve `git <name>` one level through `git config --get alias.<name>`,
+    run IN THE TARGET REPO. Returns:
+
+      None                      no such alias, or an alias that plainly expands
+                                to a harmless builtin (`lg = log --graph`);
+      (`commit`|`push`, args)   the alias expands to a guarded verb — the caller
+                                re-parses `args + original args` under the
+                                normal rules;
+      (_ALIAS_UNRESOLVABLE, []) the expansion cannot be pinned down.
+
+    Bypass #5: `git ci` / `git publish` are neither the literal `commit` nor the
+    literal `push`, so they sailed straight past a check that only knew those
+    two words.
+
+    Resolution is DELIBERATELY ONE LEVEL. An alias that expands to another
+    alias, or to a `!shell` command, is not chased: `!` expansions are arbitrary
+    shell (they can pipe, chain, and re-invoke git through further aliases), and
+    following an alias chain re-opens exactly the unbounded-parser problem this
+    guard's docstring warns about. Both are therefore treated as GUARDED rather
+    than resolved. That is a deliberate false-positive cost — a `!git status`
+    alias in an opted-in repo is denied — and `/guard git-workflow off` is the
+    escape hatch.
+    """
+    raw = _git(target_dir, "config", "--get", f"alias.{name}")
+    if not raw:
+        return None
+    raw = raw.strip()
+    if raw.startswith("!"):
+        return (_ALIAS_UNRESOLVABLE, [])
+    try:
+        parts = shlex.split(raw)
+    except ValueError:
+        return (_ALIAS_UNRESOLVABLE, [])
+    if not parts:
+        return None
+    head = parts[0]
+    if head in ("commit", "push"):
+        return (head, parts[1:])
+    if head in _GIT_BUILTINS:
+        return None
+    return (_ALIAS_UNRESOLVABLE, [])
+
+
 def _guidance(cfg: dict) -> str:
     protected = cfg["protected"]
     integration = cfg["integration"]
@@ -473,7 +704,13 @@ def _guidance(cfg: dict) -> str:
         )
     return (
         route + " Deliberate override (visible and reversible): run "
-        "`/guard git-workflow off`, do the work, then `/guard git-workflow on`."
+        "`/guard git-workflow off`, do the work, then `/guard git-workflow on`. "
+        "Note this guard is a best-effort agent-side speed bump, not "
+        "enforcement: it sees Claude tool calls only (a human's own shell and "
+        "any script they run are invisible to it), and it infers intent from a "
+        "command string, so shapes it has never met get through — review has "
+        "found five so far. The `pre-push` hook (TOM-348) is the layer that "
+        "actually holds; this one is here to tell you the route early."
     )
 
 
@@ -503,6 +740,17 @@ def main():
     # config / re-shelling rev-parse for repeated ops on the same repo.
     cfg_cache: dict = {}
 
+    def _cfg_for(target_dir: Path):
+        """This repo's guard config, or None when it isn't a resolvable repo or
+        isn't opted in. Both mean "nothing to guard here"."""
+        repo_root = _repo_root(target_dir)
+        if repo_root is None:
+            return None
+        key = str(repo_root)
+        if key not in cfg_cache:
+            cfg_cache[key] = _load_config(repo_root)
+        return cfg_cache[key]
+
     for seg in _segments(command):
         tokens = _tokens(seg)
 
@@ -515,21 +763,61 @@ def main():
             continue
 
         sub, args, opts = _git_subcommand(tokens)
-        if sub not in ("commit", "push"):
+        if sub is None:
+            continue
+
+        if sub == _ENV_UNRESOLVABLE:
+            # An `env` wrapper we could not see through. Only worth denying over
+            # if git is plausibly the wrapped command — otherwise a chain like
+            # `env -S 'echo hi' && git status` would block on the echo.
+            if not _mentions_git(args):
+                continue
+            cfg = _cfg_for(base_dir)
+            if cfg is None:
+                continue  # not opted in -> total no-op, as everywhere else
+            _deny(
+                "Blocked: cannot determine which command this `env ...` "
+                "invocation runs, and it mentions git — it may be a commit or "
+                f"push to '{cfg['protected']}'"
+                + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+                + ". Run git directly instead of through `env`.",
+                _guidance(cfg),
+            )
+            continue
+
+        if sub not in ("commit", "push") and sub in _GIT_BUILTINS:
+            # Hot path: an ordinary git command, resolved with no subprocess and
+            # no config read. Git ignores aliases that shadow builtins, so there
+            # is nothing further to resolve here.
             continue
 
         # Resolve the repo this specific git command targets, then load THAT
         # repo's guard config and current branch.
         target_dir = _resolve_git_target_dir(base_dir, opts)
-        repo_root = _repo_root(target_dir)
-        if repo_root is None:
-            continue  # not a git repo we can resolve -> nothing to guard
-        key = str(repo_root)
-        if key not in cfg_cache:
-            cfg_cache[key] = _load_config(repo_root)
-        cfg = cfg_cache[key]
+        cfg = _cfg_for(target_dir)
         if cfg is None:
-            continue  # target repo not opted in -> no-op for it
+            continue  # not a resolvable repo, or not opted in -> no-op for it
+
+        if sub not in ("commit", "push"):
+            # Unrecognised subcommand in an opted-in repo: it may be an alias.
+            # The config lookup is gated on BOTH conditions so ordinary traffic
+            # never pays for it.
+            expanded = _expand_alias(target_dir, sub)
+            if expanded is None:
+                continue  # no alias, or one that expands to a harmless builtin
+            alias_name = sub
+            sub, alias_args = expanded
+            if sub == _ALIAS_UNRESOLVABLE:
+                _deny(
+                    f"Blocked: the git alias '{alias_name}' expands to a shell "
+                    "command or to another alias, which this guard resolves "
+                    "one level only — so it cannot rule out a commit or push "
+                    f"to '{cfg['protected']}'"
+                    + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+                    + ". Run the underlying git command directly.",
+                    _guidance(cfg),
+                )
+            args = alias_args + args
 
         protected = cfg["protected"]
         integration = cfg["integration"]

@@ -73,6 +73,10 @@ def _make_repo(
     return root
 
 
+def _set_alias(root: Path, name: str, expansion: str) -> None:
+    _git(root, "config", f"alias.{name}", expansion)
+
+
 def _write_raw_cfg(root: Path, text: str) -> None:
     cdir = root / ".claude"
     cdir.mkdir(exist_ok=True)
@@ -751,3 +755,285 @@ def test_repo_option_value_never_becomes_a_target(spelling, tmp_path, home):
     repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
     decision, _ = _run(f"git push {spelling} upstream feat/y", repo, home)
     assert decision == "allow"
+
+
+# ─── the `env` wrapper ────────────────────────────────────────
+#
+# Fourth parsing bypass found by review. The parser skipped INLINE assignments
+# (`FOO=1 git push`) but not the `env` COMMAND, so `env GIT_AUTHOR_NAME=x git
+# commit` and bare `env git push origin main` never reached the `git` check at
+# all and sailed through on a guarded branch.
+
+ENV_WRAPPED_COMMITS = [
+    "env VAR=x git commit -m y",
+    "env GIT_AUTHOR_NAME=x GIT_AUTHOR_EMAIL=y@z git commit -m w",
+    "env git commit -m y",
+    "/usr/bin/env git commit -m y",
+    "env -i git commit -m y",
+    "env - git commit -m y",
+    "env -u SOMEVAR git commit -m y",
+    "env -uSOMEVAR git commit -m y",
+    "env --unset=SOMEVAR git commit -m y",
+    "env --ignore-environment VAR=x git commit -m y",
+    "env -iu SOMEVAR VAR=x git commit -m y",
+    "FOO=1 env BAR=2 git commit -m y",
+]
+
+
+@pytest.mark.parametrize("cmd", ENV_WRAPPED_COMMITS)
+def test_env_wrapped_commit_denied_on_protected(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("cmd", ENV_WRAPPED_COMMITS)
+def test_env_wrapped_commit_denied_on_integration(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "dev", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "dev" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("cmd", ENV_WRAPPED_COMMITS)
+def test_env_wrapped_commit_allowed_on_feature_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+ENV_WRAPPED_PUSHES = [
+    "env git push origin main",
+    "env VAR=x git push origin main",
+    "/usr/bin/env git push origin main",
+    "env -i git push origin refs/heads/main",
+    "env -u SOMEVAR git push origin +main",
+    "env git push --repo=origin main",
+    "env git push origin HEAD:main",
+]
+
+
+@pytest.mark.parametrize("cmd", ENV_WRAPPED_PUSHES)
+def test_env_wrapped_push_to_protected_denied_from_feature_branch(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize(
+    "cmd", ["env git push", "env VAR=x git push origin", "env -i git push origin HEAD"]
+)
+def test_env_wrapped_bare_push_follows_the_current_branch(cmd, tmp_path, home):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(cmd)}", branch, STD_CFG
+        )
+        decision, _ = _run(cmd, repo, home)
+        assert decision == expected, f"{cmd} on {branch}"
+
+
+def test_env_wrapped_push_of_unguarded_branch_allowed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("env VAR=x git push -u origin feat/x", repo, home)
+    assert decision == "allow"
+
+
+def test_env_chdir_scopes_to_the_target_repo(tmp_path, home):
+    """`env -C dir` moves git before it starts, exactly like git's own `-C`."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(tmp_path / "other", "main", STD_CFG)
+    for spelling in (f"-C {sibling}", f"--chdir={sibling}"):
+        decision, _ = _run(f"env {spelling} git commit -m x", session, home)
+        assert decision == "deny", spelling
+
+    session2 = _make_repo(tmp_path / "lab2", "main", STD_CFG)
+    sibling2 = _make_repo(tmp_path / "other2", "feat/data", STD_CFG)
+    decision, _ = _run(f"env -C {sibling2} git commit -m x", session2, home)
+    assert decision == "allow"
+
+
+# `env` shapes whose command cannot be determined. Fail CLOSED, consistent with
+# unresolvable refspecs: a check that cannot verify must not report success.
+UNRESOLVABLE_ENV = [
+    "env -S 'git commit -m x'",
+    "env --split-string='git push origin main'",
+    "env -Sgit\\ push",
+    "env --argv0 sneaky git push origin main",
+    "env -z git commit -m x",
+]
+
+
+@pytest.mark.parametrize("cmd", UNRESOLVABLE_ENV)
+def test_unresolvable_env_wrapper_denied(cmd, tmp_path, home):
+    for branch in ("main", "dev", "feat/x"):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{len(cmd)}", branch, STD_CFG
+        )
+        decision, hso = _run(cmd, repo, home)
+        assert decision == "deny", f"{cmd} on {branch}"
+        assert "`env ...`" in hso["permissionDecisionReason"], cmd
+
+
+def test_unresolvable_env_wrapper_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run("env -S 'git commit -m x'", repo, home)
+    assert decision == "allow"
+
+
+def test_unresolvable_env_without_git_does_not_block_the_chain(tmp_path, home):
+    """An unparseable `env` segment that has nothing to do with git must not
+    take the whole command down — only the `git` mention makes it worth a deny.
+    (`git status` is in the same chain, so the hook is definitely running.)"""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("env -S 'echo hi' && git status", repo, home)
+    assert decision == "allow"
+
+
+# ─── git aliases ──────────────────────────────────────────────
+#
+# Fifth parsing bypass found by review: only the literal `commit` and `push`
+# were recognised, so `git ci` and `git publish` — the exact shorthands a repo
+# defines to make those two verbs easier to type — walked straight past. An
+# unrecognised subcommand is now resolved ONE level through
+# `git config --get alias.<name>` in the TARGET repo.
+
+
+def test_alias_to_commit_denied_on_guarded_branches(tmp_path, home):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+        _set_alias(repo, "ci", "commit -s")
+        decision, _ = _run("git ci -m x", repo, home)
+        assert decision == expected, f"git ci on {branch}"
+
+
+def test_alias_to_push_with_refspec_denied_from_feature_branch(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_alias(repo, "publish", "push origin main")
+    decision, hso = _run("git publish", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_alias_to_push_head_resolves_against_the_current_branch(tmp_path, home):
+    """`publish = push origin HEAD` follows the branch you are standing on."""
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+        _set_alias(repo, "publish", "push origin HEAD")
+        decision, _ = _run("git publish", repo, home)
+        assert decision == expected, f"git publish on {branch}"
+
+
+def test_alias_args_are_prepended_to_the_command_line(tmp_path, home):
+    """`p = push` + `git p origin main` must read as `git push origin main`."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_alias(repo, "p", "push")
+    decision, hso = _run("git p origin main", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+    _set_alias(repo, "po", "push origin")
+    decision, _ = _run("git po feat/x", repo, home)
+    assert decision == "allow"
+
+
+def test_alias_to_a_harmless_builtin_allowed(tmp_path, home):
+    """`lg = log --graph` expands to a builtin that is neither commit nor push
+    — resolvable, and plainly not a guarded verb, so it sails through even on
+    the protected branch."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for name, expansion in (
+        ("lg", "log --oneline --graph"),
+        ("st", "status -sb"),
+        ("co", "checkout"),
+    ):
+        _set_alias(repo, name, expansion)
+        decision, _ = _run(f"git {name}", repo, home)
+        assert decision == "allow", name
+
+
+def test_alias_to_alias_is_unresolvable_and_denied(tmp_path, home):
+    """Resolution is deliberately ONE level: an alias pointing at another alias
+    is not chased, it is guarded."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_alias(repo, "ci", "commit")
+    _set_alias(repo, "c", "ci")
+    decision, hso = _run("git c -m x", repo, home)
+    assert decision == "deny"
+    assert "'c'" in hso["permissionDecisionReason"]
+    assert "another alias" in hso["permissionDecisionReason"]
+
+
+def test_shell_alias_is_unresolvable_and_denied(tmp_path, home):
+    """A `!shell` alias is arbitrary shell — it can chain, pipe and re-enter git
+    through further aliases — so it is guarded rather than parsed."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_alias(repo, "yolo", "!git commit -am wip && git push origin main")
+    decision, hso = _run("git yolo", repo, home)
+    assert decision == "deny"
+    assert "'yolo'" in hso["permissionDecisionReason"]
+
+
+def test_unresolvable_alias_denied_from_every_branch(tmp_path, home):
+    for branch in ("main", "dev", "feat/x"):
+        repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+        _set_alias(repo, "sh", "!git status")
+        decision, _ = _run("git sh", repo, home)
+        assert decision == "deny", branch
+
+
+def test_unknown_subcommand_without_an_alias_is_allowed(tmp_path, home):
+    """No alias of that name -> git itself would error; nothing to guard."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git nosuchthing --flag", repo, home)
+    assert decision == "allow"
+
+
+def test_aliases_are_a_noop_in_a_repo_without_config(tmp_path, home):
+    """Opt-in gates the alias lookup too: an un-opted-in repo stays a total
+    no-op, `!shell` aliases included."""
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _set_alias(repo, "ci", "commit")
+    _set_alias(repo, "sh", "!git push origin main")
+    for cmd in ("git ci -m x", "git sh"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", cmd
+
+
+def test_alias_is_resolved_in_the_target_repo_not_the_session(tmp_path, home):
+    """`git -C <other> ci` must read `<other>`'s alias table, not this repo's."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(tmp_path / "other", "main", STD_CFG)
+    _set_alias(sibling, "ci", "commit")
+    decision, _ = _run(f"git -C {sibling} ci -m x", session, home)
+    assert decision == "deny"
+
+    # The session repo has no such alias, so the same word there is a no-op.
+    on_main = _make_repo(tmp_path / "solo", "main", STD_CFG)
+    decision, _ = _run("git ci -m x", on_main, home)
+    assert decision == "allow"
+
+
+def test_env_and_alias_compose(tmp_path, home):
+    """The two bypasses stack: `env VAR=x git ci` has to survive both peels."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    _set_alias(repo, "ci", "commit")
+    decision, _ = _run("env VAR=x git ci -m y", repo, home)
+    assert decision == "deny"
+
+
+# ─── the guard describes itself honestly ──────────────────────
+
+
+def test_guidance_calls_itself_a_speed_bump_not_enforcement(tmp_path, home):
+    """Five bypasses in, the denial text must not imply completeness — it has
+    to name the tool-call-only scope and point at `pre-push` as the layer that
+    actually holds."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    _, hso = _run("git commit -m x", repo, home)
+    guidance = hso["additionalContext"]
+    assert "best-effort" in guidance
+    assert "not enforcement" in guidance
+    assert "pre-push" in guidance
+    assert "TOM-348" in guidance
