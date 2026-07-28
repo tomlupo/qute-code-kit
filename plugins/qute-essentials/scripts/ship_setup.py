@@ -11,6 +11,10 @@ the first `cz bump` can neither collide with an existing tag nor leave a
 literal stale. Stray literals are also registered in `version_files`.
 
 Idempotent: safe to re-run. Skips any step whose artifact is already in place.
+
+Read-only under `dry_run=True`: every read, git query and version computation
+still runs so the report is accurate, but no file is written and no dependency
+is installed — each write site reports what it *would* have done instead.
 """
 
 from __future__ import annotations
@@ -53,12 +57,14 @@ def main() -> int:
     return setup_python(root, pyproject)
 
 
-def setup_python(root: Path, pyproject: Path) -> int:
+def setup_python(root: Path, pyproject: Path, dry_run: bool = False) -> int:
     pyproject_text = pyproject.read_text(encoding="utf-8")
 
     # 1. Install commitizen as a dev dependency (skip if already declared anywhere).
     if "commitizen" in pyproject_text:
         info("commitizen already declared in pyproject.toml — skipping install")
+    elif dry_run:
+        info("would add commitizen as a dev dependency (`uv add --dev commitizen`)")
     elif shutil.which("uv"):
         try:
             run(["uv", "add", "--dev", "commitizen"])
@@ -99,8 +105,13 @@ def setup_python(root: Path, pyproject: Path) -> int:
         content = re.sub(
             r'(?m)^(version\s*=\s*")[^"]+(")', rf"\g<1>{seed}\g<2>", content, count=1
         )
-        pyproject.write_text(content, encoding="utf-8")
-        info(f"aligned pyproject [project] version {pyproject_version} -> {seed}")
+        if dry_run:
+            info(
+                f"would align pyproject [project] version {pyproject_version} -> {seed}"
+            )
+        else:
+            pyproject.write_text(content, encoding="utf-8")
+            info(f"aligned pyproject [project] version {pyproject_version} -> {seed}")
 
     # Stray literals (e.g. src/pkg/__init__.py __version__) become both
     # version_files entries (so cz keeps them in lockstep) and are aligned now.
@@ -110,6 +121,18 @@ def setup_python(root: Path, pyproject: Path) -> int:
 
     if "[tool.commitizen]" in content:
         info("pyproject.toml already has [tool.commitizen] — skipping block insert")
+        if _ensure_annotated_tag(pyproject, dry_run=dry_run):
+            if dry_run:
+                info(
+                    "would add `annotated_tag = true` to the existing "
+                    "[tool.commitizen] block"
+                )
+            else:
+                info(
+                    "added `annotated_tag = true` to the existing "
+                    "[tool.commitizen] block"
+                )
+                content = pyproject.read_text(encoding="utf-8")
     else:
         snippet = (TEMPLATES / "pyproject-commitizen.toml").read_text(encoding="utf-8")
         snippet = snippet.replace("{{VERSION}}", seed)
@@ -124,24 +147,38 @@ def setup_python(root: Path, pyproject: Path) -> int:
         if not content.endswith("\n"):
             content += "\n"
         content += "\n" + snippet
-        pyproject.write_text(content, encoding="utf-8")
-        info(
-            f"added [tool.commitizen] block (version {seed}, "
-            f"{1 + len(extra_version_files)} version file(s) tracked)"
-        )
+        if dry_run:
+            info(
+                f"would add [tool.commitizen] block (version {seed}, "
+                f"{1 + len(extra_version_files)} version file(s) tracked)"
+            )
+        else:
+            pyproject.write_text(content, encoding="utf-8")
+            info(
+                f"added [tool.commitizen] block (version {seed}, "
+                f"{1 + len(extra_version_files)} version file(s) tracked)"
+            )
 
     for path, cur in literals:
         if cur != seed:
-            _set_version_literal(path, seed)
-            info(
-                f"aligned {path.relative_to(root).as_posix()} "
-                f"__version__ {cur} -> {seed}"
-            )
+            if dry_run:
+                info(
+                    f"would align {path.relative_to(root).as_posix()} "
+                    f"__version__ {cur} -> {seed}"
+                )
+            else:
+                _set_version_literal(path, seed)
+                info(
+                    f"aligned {path.relative_to(root).as_posix()} "
+                    f"__version__ {cur} -> {seed}"
+                )
 
     # 3. Create CHANGELOG.md if missing
     changelog = root / "CHANGELOG.md"
     if changelog.exists():
         info("CHANGELOG.md already exists — skipping")
+    elif dry_run:
+        info("would create CHANGELOG.md from template")
     else:
         template = (TEMPLATES / "CHANGELOG.template.md").read_text(encoding="utf-8")
         changelog.write_text(template, encoding="utf-8")
@@ -163,8 +200,38 @@ def setup_python(root: Path, pyproject: Path) -> int:
     if _warn_if_autobump_workflow(root):
         info("  (left in place — setup does not modify existing workflows)")
 
-    info("setup complete. Commit these changes, then run /ship to cut releases.")
+    if dry_run:
+        info("dry run — setup wrote nothing; the above is what it would have done.")
+    else:
+        info("setup complete. Commit these changes, then run /ship to cut releases.")
     return 0
+
+
+def _ensure_annotated_tag(pyproject: Path, dry_run: bool = False) -> bool:
+    """Add `annotated_tag = true` to an existing [tool.commitizen] block.
+
+    Belt and braces: `/ship` creates the tag itself and always annotates it, so
+    this only governs someone running `cz bump` by hand. Without it cz cuts a
+    LIGHTWEIGHT tag, which `git push --follow-tags` silently declines to push —
+    a release that looks cut but never leaves the machine.
+
+    Narrow and idempotent by design: it inserts one line into a block that is
+    otherwise left exactly as the repo wrote it. Returns True if it wrote — or,
+    under `dry_run`, if it would have written.
+    """
+    content = pyproject.read_text(encoding="utf-8")
+    block = re.search(r"^\[tool\.commitizen\]\n(.*?)(?=^\[|\Z)", content, re.S | re.M)
+    if not block:
+        return False
+    if re.search(r"(?m)^annotated_tag\s*=", block.group(1)):
+        return False
+    if dry_run:
+        return True
+
+    header_end = block.start(1)
+    updated = content[:header_end] + "annotated_tag = true\n" + content[header_end:]
+    pyproject.write_text(updated, encoding="utf-8")
+    return True
 
 
 def _warn_if_autobump_workflow(root: Path) -> bool:

@@ -4,4 +4,5 @@ version = "{{VERSION}}"
 version_files = ["pyproject.toml:version"]
 update_changelog_on_bump = true
 tag_format = "v$version"
+annotated_tag = true
 major_version_zero = true
