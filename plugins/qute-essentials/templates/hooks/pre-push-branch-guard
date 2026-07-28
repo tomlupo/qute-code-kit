@@ -90,6 +90,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -212,6 +213,46 @@ def _valid_branch_name(repo_root: Path, name: str) -> bool:
     return True
 
 
+def _normalise_branch(key: str, value: str) -> str:
+    """Reduce a configured branch to the SHORT name, or refuse.
+
+    THE INVARIANT: everything in the guarded set is a short branch name, the
+    same shape `evaluate()` produces when it strips `refs/heads/` off a pushed
+    ref. Normalising here rather than comparing cleverly there is what makes
+    that comparison obviously correct instead of correct-by-argument.
+
+    Both spellings of the release branch therefore behave identically —
+    `"main"` and `"refs/heads/main"` resolve to `main`. Rejecting the qualified
+    form was the alternative; normalising is better because the two spellings
+    mean the same thing to a human and a guard that disagrees with the human on
+    that point is a guard that quietly protects nothing.
+
+    Anything still under `refs/` after that (`refs/tags/v1`,
+    `refs/remotes/origin/main`) is refused: it names something that is not a
+    local branch, could never match a pushed branch destination, and would be
+    silently unguarded — the exact failure this validation exists to stop.
+    `refs/heads/refs/heads/main` is a legal ref name, which is how the earlier
+    `check-ref-format` check waved the qualified form through; normalisation
+    runs BEFORE that check so what gets validated is what gets compared.
+    """
+    if value.startswith(BRANCH_PREFIX):
+        value = value[len(BRANCH_PREFIX) :]
+        if not value:
+            raise ConfigError(
+                f'"{key}" is just "{BRANCH_PREFIX}" with no branch after it.'
+                f"{_SCHEMA_HELP}"
+            )
+    if value.startswith("refs/"):
+        raise ConfigError(
+            f'"{key}" is a fully-qualified ref that is not a branch: '
+            f"{_describe(value)}. This field takes a branch NAME (e.g. "
+            f'"main"); only "{BRANCH_PREFIX}<name>" is accepted in qualified '
+            f"form. Anything else could never match a pushed branch and would "
+            f"guard nothing.{_SCHEMA_HELP}"
+        )
+    return value
+
+
 def _branch_field(repo_root: Path, raw: dict, key: str, allow_null: bool):
     """One branch field, validated. Returns the name, or None for null/absent."""
     if key not in raw:
@@ -227,6 +268,17 @@ def _branch_field(repo_root: Path, raw: dict, key: str, allow_null: bool):
     if not isinstance(value, str) or isinstance(value, bool):
         # `isinstance(True, int)` is True in Python, and `True` is a plausible
         # typo for a branch name field, so bool is excluded explicitly.
+        #
+        # A LIST is refused rather than supported, deliberately. Wanting to
+        # guard several branches is reasonable, but this file is read by TWO
+        # layers — this hook and the agent-side `git-workflow-guard.py` — and
+        # only one of them would honour a list. A third guarded branch that one
+        # layer enforces and the other waves through is worse than either layer
+        # alone: it is protection you would believe in and only sometimes have.
+        # Widening the schema is therefore a change to both layers, made
+        # together, not a convenience added here. The message says so, so that
+        # someone who wanted two branches learns the supported spelling instead
+        # of being told only "no".
         kind = "a list" if isinstance(value, list) else "not a string"
         raise ConfigError(
             f'"{key}" is {kind}: {_describe(value)}. A branch name must be a '
@@ -237,6 +289,9 @@ def _branch_field(repo_root: Path, raw: dict, key: str, allow_null: bool):
             f'"{key}" is empty. Name a branch, or remove the field to take the '
             f"default.{_SCHEMA_HELP}"
         )
+
+    value = _normalise_branch(key, value)
+
     if not _valid_branch_name(repo_root, value):
         raise ConfigError(
             f'"{key}" is not a valid git branch name: {_describe(value)}. It '
@@ -260,8 +315,38 @@ def load_config(repo_root: Path):
     branch.
     """
     cfg_path = repo_root / ".claude" / "git-guard.json"
-    if not cfg_path.is_file():
+
+    # `lstat`, not `is_file()`. `is_file()` follows symlinks and answers False
+    # for a BROKEN one — so a repo carrying a tracked `.claude/git-guard.json`
+    # that points at a gitignored or machine-specific path reads as opted in to
+    # anyone looking at `git ls-files`, while the guard silently treated it as
+    # "no config" and waved every push through. Same for a directory of that
+    # name. Absent is a no-op; present-but-not-a-regular-file is a config we
+    # cannot read, which fails closed like any other.
+    try:
+        st = os.lstat(cfg_path)
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise ConfigError(f"{cfg_path} could not be examined: {exc}") from exc
+
+    if not stat.S_ISREG(st.st_mode):
+        if stat.S_ISLNK(st.st_mode):
+            try:
+                target = os.readlink(cfg_path)
+            except OSError:
+                target = "?"
+            what = f"a symlink (-> {target})"
+        elif stat.S_ISDIR(st.st_mode):
+            what = "a directory"
+        else:
+            what = "not a regular file"
+        raise ConfigError(
+            f"{cfg_path} is {what}. The guard config must be a regular file — "
+            "the repo looks opted in, so refusing rather than quietly guarding "
+            f"nothing.{_SCHEMA_HELP}"
+        )
+
     try:
         text = cfg_path.read_text(encoding="utf-8")
     except OSError as exc:

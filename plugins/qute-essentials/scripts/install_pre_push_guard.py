@@ -67,6 +67,8 @@ Exit code is 0 when the final state is what was asked for, 1 otherwise.
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
+import importlib.util
 import json
 import os
 import shutil
@@ -678,8 +680,19 @@ def verify(repo: Path, world: dict) -> dict:
         ("hook present + executable at git's resolved path", True, str(hook_file))
     )
 
-    cfg_path = repo / ".claude" / "git-guard.json"
-    if not cfg_path.is_file():
+    guard = _guard_module()
+    try:
+        cfg = guard.load_config(repo)
+    except guard.ConfigError as exc:
+        result["checks"].append(
+            (
+                "repo's .claude/git-guard.json is usable",
+                False,
+                f"{exc}".splitlines()[0],
+            )
+        )
+        return result
+    if cfg is None:
         result["checks"].append(
             (
                 "repo opted in (.claude/git-guard.json)",
@@ -688,8 +701,7 @@ def verify(repo: Path, world: dict) -> dict:
             )
         )
         return result
-
-    protected, integration = _resolve_branches(repo, cfg_path)
+    protected, integration = cfg["protected"], cfg["integration"]
 
     head = git_out(repo, "rev-parse", "HEAD")
     if not head:
@@ -796,28 +808,25 @@ def verify(repo: Path, world: dict) -> dict:
     return result
 
 
-def _resolve_branches(repo: Path, cfg_path: Path):
-    """Mirror of the guard's config resolution, for probe construction."""
-    try:
-        raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        raw = {}
-    if not isinstance(raw, dict):
-        raw = {}
-    protected = raw.get("protected_branch") or "main"
-    if "integration_branch" in raw:
-        integration = raw["integration_branch"] or None
-    else:
-        exists = (
-            git(
-                repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/dev"
-            ).returncode
-            == 0
-        )
-        integration = "dev" if exists else None
-    if integration == protected:
-        integration = None
-    return protected, integration
+def _guard_module():
+    """The guard script itself, imported — NOT a reimplementation of it.
+
+    The probes below have to agree with the installed hook about which branches
+    are guarded, or verification measures something the hook does not do. This
+    used to be a hand-written mirror of `load_config`; it drifted the moment
+    the guard learned to normalise `refs/heads/<name>`, and a second copy of
+    "which branches are guarded" is exactly the duplication this PR flagged as
+    maintained-by-hand. So load the real thing.
+    """
+    spec = importlib.util.spec_from_loader(
+        "qute_pre_push_guard_template",
+        importlib.machinery.SourceFileLoader(
+            "qute_pre_push_guard_template", str(GUARD_SRC)
+        ),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 # -------------------------------------------------------------------- main

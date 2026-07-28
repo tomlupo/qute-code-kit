@@ -977,3 +977,168 @@ class TestMalformedConfigRefusesRealPushes:
         _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
         _commit(sandbox)
         assert _push(sandbox, "--no-verify", "origin", "feat/x").returncode == 0
+
+
+class TestOptInDetectionUsesLstat:
+    """`is_file()` follows symlinks and is False for a broken one.
+
+    A repo can carry a tracked `.claude/git-guard.json` that is a symlink to a
+    gitignored or machine-specific path — a normal thing to do, not an attack.
+    It reads as opted in to anyone looking at `git ls-files`, while the guard
+    treated it as "no config" and waved every push through. Absent is still a
+    no-op; present-but-not-a-regular-file now fails closed.
+    """
+
+    def _cfg(self, tmp_path):
+        (tmp_path / ".claude").mkdir(parents=True, exist_ok=True)
+        return tmp_path / ".claude" / "git-guard.json"
+
+    def test_absent_config_is_still_a_no_op(self, tmp_path):
+        self._cfg(tmp_path)
+        assert guard.load_config(tmp_path) is None
+
+    def test_broken_symlink_fails_closed(self, tmp_path):
+        self._cfg(tmp_path).symlink_to(tmp_path / "does-not-exist.json")
+        with pytest.raises(guard.ConfigError, match="symlink"):
+            guard.load_config(tmp_path)
+
+    def test_symlink_to_a_real_config_fails_closed(self, tmp_path):
+        real = tmp_path / "real.json"
+        real.write_text("{}")
+        self._cfg(tmp_path).symlink_to(real)
+        with pytest.raises(guard.ConfigError, match="symlink"):
+            guard.load_config(tmp_path)
+
+    def test_directory_named_like_the_config_fails_closed(self, tmp_path):
+        self._cfg(tmp_path).mkdir()
+        with pytest.raises(guard.ConfigError, match="directory"):
+            guard.load_config(tmp_path)
+
+    def test_regular_file_still_works(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(guard, "_remote_branch_exists", lambda *_: False)
+        self._cfg(tmp_path).write_text("{}")
+        assert guard.load_config(tmp_path)["protected"] == "main"
+
+
+class TestQualifiedRefsNormalise:
+    """`refs/heads/main` passed `check-ref-format refs/heads/refs/heads/main`
+    — a legal ref name — then never matched a push to `main`.
+
+    Chosen fix: NORMALISE to the short name rather than reject the spelling, so
+    the guarded set always holds exactly what `evaluate()` compares against.
+    Both spellings must therefore be indistinguishable.
+    """
+
+    def _cfg(self, tmp_path, body):
+        (tmp_path / ".claude").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".claude" / "git-guard.json").write_text(body)
+        return tmp_path
+
+    @pytest.mark.parametrize("spelling", ["main", "refs/heads/main"])
+    def test_both_spellings_resolve_to_the_short_name(
+        self, tmp_path, spelling, monkeypatch
+    ):
+        monkeypatch.setattr(guard, "_remote_branch_exists", lambda *_: False)
+        cfg = guard.load_config(
+            self._cfg(tmp_path, f'{{"protected_branch": "{spelling}"}}')
+        )
+        assert cfg["protected"] == "main"
+
+    @pytest.mark.parametrize("spelling", ["dev", "refs/heads/dev"])
+    def test_integration_branch_normalises_too(self, tmp_path, spelling):
+        cfg = guard.load_config(
+            self._cfg(tmp_path, f'{{"integration_branch": "{spelling}"}}')
+        )
+        assert cfg["integration"] == "dev"
+
+    @pytest.mark.parametrize("spelling", ["main", "refs/heads/main"])
+    def test_both_spellings_guard_the_same_push(self, tmp_path, spelling, monkeypatch):
+        monkeypatch.setattr(guard, "_remote_branch_exists", lambda *_: False)
+        cfg = guard.load_config(
+            self._cfg(tmp_path, f'{{"protected_branch": "{spelling}"}}')
+        )
+        guarded = {b for b in (cfg["protected"], cfg["integration"]) if b}
+        refs = [("refs/heads/x", "a" * 40, "refs/heads/main", "b" * 40)]
+        assert guard.evaluate(refs, guarded) == ("main", "update")
+
+    def test_collapse_still_works_through_the_qualified_spelling(self, tmp_path):
+        """protected == integration must collapse regardless of spelling."""
+        cfg = guard.load_config(
+            self._cfg(
+                tmp_path,
+                '{"protected_branch": "main", "integration_branch": "refs/heads/main"}',
+            )
+        )
+        assert cfg["integration"] is None
+
+    @pytest.mark.parametrize(
+        "value",
+        ["refs/tags/v1", "refs/remotes/origin/main", "refs/heads/", "refs/", "refs/x"],
+    )
+    def test_non_branch_qualified_refs_fail_closed(self, tmp_path, value):
+        with pytest.raises(guard.ConfigError):
+            guard.load_config(self._cfg(tmp_path, f'{{"protected_branch": "{value}"}}'))
+
+    def test_message_says_what_the_field_takes(self, tmp_path):
+        with pytest.raises(guard.ConfigError) as exc:
+            guard.load_config(
+                self._cfg(tmp_path, '{"protected_branch": "refs/tags/v1"}')
+            )
+        msg = str(exc.value)
+        assert "refs/tags/v1" in msg
+        assert "branch NAME" in msg
+
+
+@pytestmark_git
+class TestQualifiedRefAndBadOptInOnRealPushes:
+    def test_qualified_spelling_refuses_a_real_push_to_main(self, sandbox):
+        _install(sandbox)
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text(
+            '{"protected_branch": "refs/heads/main"}'
+        )
+        _commit(sandbox)
+        out = _push(sandbox, "origin", "main")
+        assert out.returncode != 0, out.stdout + out.stderr
+        assert "REFUSED" in out.stdout + out.stderr
+
+    def test_qualified_spelling_still_allows_a_feature_push(self, sandbox):
+        _install(sandbox)
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text(
+            '{"protected_branch": "refs/heads/main"}'
+        )
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        assert _push(sandbox, "origin", "feat/x").returncode == 0
+
+    def test_broken_symlink_config_refuses_a_real_push(self, sandbox):
+        _install(sandbox)
+        cfg = sandbox["repo"] / ".claude" / "git-guard.json"
+        cfg.unlink()
+        cfg.symlink_to(sandbox["repo"] / "gone.json")
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        out = _push(sandbox, "origin", "feat/x")
+        assert out.returncode != 0
+        assert "config is unusable" in out.stdout + out.stderr
+
+    def test_installer_verification_agrees_with_the_guard_on_spelling(self, sandbox):
+        """The installer must not carry its own idea of the guarded set."""
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text(
+            '{"protected_branch": "refs/heads/main"}'
+        )
+        out = _install(sandbox, "--json")
+        report = json.loads(out.stdout)
+        assert report["ok"] is True, out.stdout
+        names = " ".join(c["name"] for c in report["verification"]["checks"])
+        assert "'main'" in names  # short name, not refs/heads/main
+
+    def test_installer_reports_an_unusable_config_instead_of_crashing(self, sandbox):
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text(
+            '{"protected_branch": ["main","dev"]}'
+        )
+        out = _install(sandbox, "--json")
+        report = json.loads(out.stdout)
+        assert report["ok"] is False
+        assert any("usable" in c["name"] for c in report["verification"]["checks"]), (
+            out.stdout
+        )

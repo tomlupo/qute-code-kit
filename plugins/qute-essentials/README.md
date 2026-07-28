@@ -213,6 +213,13 @@ alike.
   form, because the sibling guard reads the same two slots and a third guarded
   branch in one layer only would be worse than either alone). Unknown keys warn
   rather than refuse, so the other layer can grow a field first.
+  `"refs/heads/main"` and `"main"` are the same thing — the qualified form is
+  normalised to the short name so the guarded set always holds exactly what the
+  push comparison produces; a qualified ref that is *not* a branch
+  (`refs/tags/v1`) is refused, since it could never match. **Opt-in is detected
+  with `lstat`**, so a `git-guard.json` that is a broken symlink or a directory
+  fails closed rather than reading as "not opted in" — a repo that carries a
+  tracked config must never be quietly unguarded.
 - **An internal error fails OPEN, loudly.** A `QUTE_PRE_PUSH_GUARD: internal
   error …` warning is printed and the push proceeds — a bug in the guard must
   not wedge every push in a repo. Note the asymmetry with the previous bullet:
