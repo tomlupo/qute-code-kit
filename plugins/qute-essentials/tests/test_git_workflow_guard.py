@@ -616,6 +616,41 @@ def test_push_all_allowed_when_no_guarded_branch_exists_locally(tmp_path, home):
     assert decision == "allow"
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    ["git push --mirror origin", "git push origin --mirror", "git push --mirror"],
+)
+def test_mirror_is_denied_even_without_a_local_guarded_branch(cmd, tmp_path, home):
+    """Defect 35. `--mirror` makes the remote MATCH this repo, so it DELETES
+    remote refs that are absent locally — verified, `- [deleted] main`. The
+    local branch list, which is the right question for `--all`, answers the
+    wrong one here: the guarded branch is written whether it is present
+    (updated) or absent (deleted)."""
+    repo = _make_repo(
+        tmp_path / "r",
+        "feat/x",
+        {"protected_branch": "release", "integration_branch": None},
+    )
+    assert not (repo / ".git" / "refs" / "heads" / "release").exists()
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "DELETE" in hso["permissionDecisionReason"], cmd
+    assert "release" in hso["permissionDecisionReason"], cmd
+
+
+def test_mirror_dry_run_is_still_allowed(tmp_path, home):
+    """Fail-closed does not outrank "writes nothing"."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run("git push --mirror --dry-run origin", repo, home)
+    assert decision == "allow"
+
+
+def test_mirror_is_a_noop_in_a_repo_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", None)
+    decision, _ = _run("git push --mirror origin", repo, home)
+    assert decision == "allow"
+
+
 def test_push_all_is_a_noop_in_a_repo_without_config(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "feat/x", None)
     decision, _ = _run("git push --all origin", repo, home)

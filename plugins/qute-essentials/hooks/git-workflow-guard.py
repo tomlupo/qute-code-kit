@@ -126,8 +126,8 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34 are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32, 34
+and 35 are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27 and 29-32 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -236,7 +236,11 @@ the same footing — a guard that cries wolf gets turned off:
   34. a QUOTED here-doc delimiter (parsing) — bash quote-removes the word, so
       `<<\\EOF` and `<<E"OF"` are closed by a plain `EOF`. Storing the quoting
       meant the terminator never matched and the body ran to the end of the
-      script, swallowing a real `git commit` after it.
+      script, swallowing a real `git commit` after it;
+  35. `--mirror` read as `--all` — it also DELETES remote refs that are absent
+      locally, so the guarded branch is written whether it is present or not.
+      Checking the LOCAL branch list answered the wrong question and allowed a
+      mirror push from a repo with no local `main`.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1236,8 +1240,18 @@ _REPO_OPT_EQ = "--repo="
 # Options that push EVERY local branch, so the destination set is the local
 # branch list rather than anything on the command line. Verified: from `feat/x`
 # with a local `main`, `git push --all origin --dry-run` reports `main -> main`.
-# `--branches` is git's newer spelling of `--all`.
-_PUSH_ALL_OPTS = frozenset({"--all", "--branches", "--mirror"})
+# `--branches` is git's newer spelling of `--all`. These only ADD refs, so
+# enumerating the local branches answers the question exactly.
+_PUSH_ALL_OPTS = frozenset({"--all", "--branches"})
+
+# `--mirror` is NOT one of them. It makes the remote MATCH the local ref set,
+# which means it also DELETES remote refs that are absent locally — verified:
+# with a remote `main` and no local `main`, `git push --mirror origin
+# --dry-run` reports `- [deleted] main`. So the local branch list is the wrong
+# question: the guarded branch is written whether it is present (updated) or
+# absent (deleted), and answering "is it on the remote?" would need either the
+# network or a remote-tracking ref that may be stale. It fails closed instead.
+_MIRROR_OPT = "--mirror"
 
 # `--tags` alone pushes ONLY tags; `--follow-tags` pushes the branch as well.
 _TAGS_OPT = "--tags"
@@ -1307,15 +1321,16 @@ def _push_targets(args, current_branch):
     the raw refspecs whose destination could not be pinned down, `remotes` are
     the remotes this push might go to (more than one only for the ambiguous
     `--repo` shape), which the no-refspec fallback needs in order to read
-    `remote.<name>.push`, `push_all` marks `--all`/`--mirror`, whose
-    destinations are every LOCAL branch, and `tags_only` marks a push that
-    sends tags and no branch at all.
+    `remote.<name>.push`, `push_all` marks `--all`, whose destinations are
+    every LOCAL branch, `push_mirror` marks `--mirror`, which also DELETES
+    remote refs absent locally, and `tags_only` marks a push that sends tags
+    and no branch at all.
     """
     positionals = []
     remote_from_opt = None
     skip_value = False
     value_is_repo = False
-    push_all = False
+    push_all = push_mirror = False
     all_tags = follow_tags = False
     dry_run = False
     for a in args:
@@ -1339,6 +1354,8 @@ def _push_targets(args, current_branch):
                 skip_value = True
             elif a in _PUSH_ALL_OPTS:
                 push_all = True
+            elif a == _MIRROR_OPT:
+                push_mirror = True
             elif a == _TAGS_OPT:
                 all_tags = True
             elif a == _FOLLOW_TAGS_OPT:
@@ -1396,7 +1413,16 @@ def _push_targets(args, current_branch):
     # implicit branch destination to work out. With a refspec, or alongside
     # `--follow-tags`, a branch IS pushed and the normal reading applies.
     tags_only = all_tags and not follow_tags and not had_refspec
-    return targets, had_refspec, unresolvable, remotes, push_all, tags_only, dry_run
+    return (
+        targets,
+        had_refspec,
+        unresolvable,
+        remotes,
+        push_all,
+        push_mirror,
+        tags_only,
+        dry_run,
+    )
 
 
 # `git commit` options that consume the FOLLOWING token. Needed only so a
@@ -1996,6 +2022,7 @@ def _check_git_command(base_dir, base_unknown, sub, args, opts, _cfg_for, cfgmap
             unresolvable,
             remotes,
             push_all,
+            push_mirror,
             tags_only,
             dry_run,
         ) = _push_targets(args, branch)
@@ -2006,20 +2033,35 @@ def _check_git_command(base_dir, base_unknown, sub, args, opts, _cfg_for, cfgmap
             return
         implicit_targets = []
         remote_name = None
+        if push_mirror:
+            # `--mirror` makes the remote MATCH the local ref set, so it
+            # writes the guarded branch whether that branch is present
+            # (updated) or absent (DELETED — verified: with a remote `main`
+            # and no local one, `--dry-run` reports `- [deleted] main`).
+            # Enumerating local branches, which is the right question for
+            # `--all`, answers the wrong one here, and the right one needs
+            # the remote's actual refs. So it fails closed (defect 35).
+            _deny(
+                "Blocked: `git push --mirror` makes the remote match this "
+                "repo exactly — it would update or DELETE "
+                f"'{protected}'"
+                + (f" and '{integration}'" if integration else "")
+                + " on the remote. Push an explicit branch refspec instead.",
+                guidance,
+            )
         if push_all:
-            # `--all` / `--mirror` push every LOCAL branch and override
-            # push.default entirely, so the destinations are the local
-            # branch list — nothing on the command line names them. This
-            # was the last "documented gap", but `git push --all origin`
-            # from a feature branch is an ordinary invocation that writes
-            # the protected branch, so by this guard's own criterion it was
-            # a defect (20).
+            # `--all` pushes every LOCAL branch and overrides push.default
+            # entirely, so the destinations are the local branch list —
+            # nothing on the command line names them. This was the last
+            # "documented gap", but `git push --all origin` from a feature
+            # branch is an ordinary invocation that writes the protected
+            # branch, so by this guard's own criterion it was a defect (20).
             local = _local_branches(target_dir)
             if local is None:
                 _deny(
-                    "Blocked: `git push --all`/`--mirror` pushes every "
-                    "local branch and the branch list could not be read, "
-                    f"so it may include '{protected}'"
+                    "Blocked: `git push --all` pushes every local branch and "
+                    "the branch list could not be read, so it may include "
+                    f"'{protected}'"
                     + (f" or '{integration}'" if integration else "")
                     + ". Push an explicit branch refspec instead.",
                     guidance,
@@ -2030,9 +2072,8 @@ def _check_git_command(base_dir, base_unknown, sub, args, opts, _cfg_for, cfgmap
             ):
                 if name and name in local:
                     _deny(
-                        "Blocked: `git push --all`/`--mirror` pushes every "
-                        f"local branch, including the {label} branch "
-                        f"'{name}'.",
+                        "Blocked: `git push --all` pushes every local branch, "
+                        f"including the {label} branch '{name}'.",
                         guidance,
                     )
         elif tags_only:
