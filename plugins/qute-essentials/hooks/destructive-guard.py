@@ -466,7 +466,25 @@ def is_safe_context(command: str) -> bool:
 #   * anything in the same call as a program that could execute a file —
 #     `bash`, `.`, `make`, `./script`, or a name not on the inert allowlist.
 #   * any of the above when the segment also pipes or substitutes.
-# The route for those is the Write tool (never screened by this guard —
+#
+# …and two shapes it blocks purely because this code declines to parse them,
+# raised in review and left as-is ON PURPOSE. Both fail toward blocking, and
+# the fix for each is more shell parsing — which is what produced four separate
+# bypasses in review before this landed. Widen them only with tests that prove
+# the widening cannot exempt something executable:
+#
+#     python3 -c "open(f,'w').write(\"…\")"   escaped quotes inside the payload:
+#                                             `_dash_c_payload` stops at the
+#                                             first raw quote, so the tail of
+#                                             the payload stays scanned.
+#     python3 -W ignore -c "…"                `_python_source_mode` cannot tell
+#                                             an option's VALUE from a script
+#                                             name, so `ignore` reads as a
+#                                             script and the payload is not
+#                                             exempt. `python3 -u -c` works —
+#                                             flags that take no value are fine.
+#
+# The route for any of this is the Write tool (never screened by this guard —
 # it only matches Bash) or `/guard destructive off` for the one session.
 
 # stdin consumers that cannot execute what they read.

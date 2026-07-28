@@ -375,6 +375,22 @@ class TestPythonPayloadAllowlist:
     def test_indirect_shell_out_is_not_exempt(self, payload):
         assert_denied(f'python3 -c "{payload}"', RM_ROOT)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # `_dash_c_payload` stops at the first raw quote.
+            "python3 -c \"open('/tmp/f','w').write(\\\"rm -rf /srv/data\\\")\"",
+            # `_python_source_mode` reads `ignore` as a script name.
+            "python3 -W ignore -c \"data = 'rm -rf /srv/data'\"",
+        ],
+    )
+    def test_shapes_this_code_declines_to_parse_stay_blocked(self, command):
+        """Raised as nits in review and kept: both are FALSE POSITIVES, i.e.
+        they fail toward blocking, and the fix for each is more shell parsing —
+        which is what produced four separate bypasses in earlier rounds. Pinned
+        here so a future widening has to change a test on purpose."""
+        assert_denied(command, RM_ROOT)
+
     def test_an_attribute_call_off_the_allowlist_is_not_exempt(self):
         # No import statement here, so the method allowlist is the only thing
         # standing between this payload and a shell.
