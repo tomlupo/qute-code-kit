@@ -801,6 +801,11 @@ def _segment_can_run_a_program(command: str, seg_range, bodies: dict) -> bool:
     as an executor.
     """
     segment = command[seg_range[0] : seg_range[1]]
+    # A pipe or a substitution reaches a program the command word never names:
+    # `cat /tmp/x | bash` resolves to `cat`, and runs `bash`. So the metachar
+    # check gates the WHOLE call here, not just the segment owning the data.
+    if not _segment_is_plain(segment):
+        return True
     program, args = _split_command(segment)
     if not program:
         return False

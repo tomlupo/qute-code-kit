@@ -308,6 +308,23 @@ class TestWriteThenExecuteInOneCall:
             RM_ROOT,
         )
 
+    @pytest.mark.parametrize(
+        "runner",
+        [
+            "cat /tmp/x | bash",
+            "echo `bash /tmp/x`",
+            "FOO=$(bash /tmp/x)",
+            "diff <(bash /tmp/x) /dev/null",
+            "tee >(bash) < /tmp/x",
+            "cat /tmp/x | xargs -0 sh -c",
+        ],
+    )
+    def test_metacharacters_reach_a_program_the_command_word_never_names(self, runner):
+        """Review finding on #90 round 4: `cat /tmp/x | bash` resolves to
+        `cat`, which is inert — and runs `bash`. So a pipe or a substitution
+        anywhere gates the WHOLE call, not just the segment owning the data."""
+        assert_denied(f"cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\n{runner}", RM_ROOT)
+
     def test_inert_neighbours_do_not_void_it(self):
         # chmod cannot run anything, so the common write-then-mark-executable
         # shape stays exempt.
@@ -423,10 +440,14 @@ class TestSegmentsThatReExecuteData:
     def test_ampersand_redirect_form_does_not_hide_a_later_pipe(self):
         assert_denied("cat <<'EOF' &>/tmp/log | bash\nrm -rf /srv/data\nEOF", RM_ROOT)
 
-    def test_a_real_background_ampersand_still_separates(self):
-        # `&` that is not fd duplication is a genuine separator: the pipe
-        # belongs to the *next* command and must not disqualify this one.
-        assert_allowed("cat > /tmp/f <<'EOF' & ls | wc -l\ngit reset --hard\nEOF")
+    def test_a_pipe_in_an_unrelated_segment_still_voids_the_call(self):
+        # Deliberate false positive. This pipe belongs to `ls | wc -l` and can
+        # reach nothing the heredoc wrote — but after the round-4 finding the
+        # metachar check gates the whole call, and drawing the line finer would
+        # mean deciding which pipes can reach which files. Blocking is cheaper.
+        assert_denied(
+            "cat > /tmp/f <<'EOF' & ls | wc -l\ngit reset --hard\nEOF", RESET_HARD
+        )
 
     def test_command_substitution_is_inert_under_a_quoted_delimiter(self):
         assert_allowed("cat > /tmp/f <<'EOF'\nprefix $(rm -rf /srv/data) suffix\nEOF")
