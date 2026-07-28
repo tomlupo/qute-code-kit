@@ -110,6 +110,9 @@ def setup_python(root: Path, pyproject: Path) -> int:
 
     if "[tool.commitizen]" in content:
         info("pyproject.toml already has [tool.commitizen] — skipping block insert")
+        if _ensure_annotated_tag(pyproject):
+            info("added `annotated_tag = true` to the existing [tool.commitizen] block")
+            content = pyproject.read_text(encoding="utf-8")
     else:
         snippet = (TEMPLATES / "pyproject-commitizen.toml").read_text(encoding="utf-8")
         snippet = snippet.replace("{{VERSION}}", seed)
@@ -165,6 +168,30 @@ def setup_python(root: Path, pyproject: Path) -> int:
 
     info("setup complete. Commit these changes, then run /ship to cut releases.")
     return 0
+
+
+def _ensure_annotated_tag(pyproject: Path) -> bool:
+    """Add `annotated_tag = true` to an existing [tool.commitizen] block.
+
+    Belt and braces: `/ship` creates the tag itself and always annotates it, so
+    this only governs someone running `cz bump` by hand. Without it cz cuts a
+    LIGHTWEIGHT tag, which `git push --follow-tags` silently declines to push —
+    a release that looks cut but never leaves the machine.
+
+    Narrow and idempotent by design: it inserts one line into a block that is
+    otherwise left exactly as the repo wrote it. Returns True if it wrote.
+    """
+    content = pyproject.read_text(encoding="utf-8")
+    block = re.search(r"^\[tool\.commitizen\]\n(.*?)(?=^\[|\Z)", content, re.S | re.M)
+    if not block:
+        return False
+    if re.search(r"(?m)^annotated_tag\s*=", block.group(1)):
+        return False
+
+    header_end = block.start(1)
+    updated = content[:header_end] + "annotated_tag = true\n" + content[header_end:]
+    pyproject.write_text(updated, encoding="utf-8")
+    return True
 
 
 def _warn_if_autobump_workflow(root: Path) -> bool:

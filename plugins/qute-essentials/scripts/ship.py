@@ -6,7 +6,15 @@ One entry point, two modes (detected automatically):
   Delegates to `scripts/release-plugin.sh <plugin> <bump>`.
 * **Python mode** — `pyproject.toml` at repo root (and no marketplace).
   Refuses to bump if any tracked file lives under a forbidden path,
-  runs first-time-setup idempotently, then `cz bump --yes --changelog`.
+  runs first-time-setup idempotently, then bumps.
+
+Python mode drives commitizen in **files-only** mode
+(`cz bump --yes --changelog --version-files-only`): cz rewrites the version
+files and `CHANGELOG.md` but creates neither commit nor tag. This script then
+creates the bump commit and an **annotated** tag itself. One tagging path,
+owned here — a lightweight tag is silently skipped by `git push
+--follow-tags`, so a release can otherwise look cut while never leaving the
+machine.
 
 Webapps (`package.json`) use `gstack ship` instead.
 """
@@ -14,9 +22,11 @@ Webapps (`package.json`) use `gstack ship` instead.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import re
 import shutil
+import string
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +42,12 @@ UNIVERSAL_FORBIDDEN = (
 
 BUMP_KINDS = {"patch", "minor", "major"}
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+# commitizen's own defaults — mirrored so the history a repo already has stays
+# continuous when ship.py takes over commit/tag creation from cz.
+DEFAULT_TAG_FORMAT = "v$version"
+BUMP_MESSAGE = "bump: version $current_version → $new_version"
+DEFAULT_CHANGELOG_FILE = "CHANGELOG.md"
 
 
 def info(msg: str) -> None:
@@ -173,12 +189,20 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
         return rc
 
     # 3. Build the cz command.
+    #
+    # `--version-files-only` makes cz a pure file rewriter: it bumps every
+    # `version_files` entry AND the `[tool.commitizen] version` field, writes
+    # the changelog, and then stops — no commit, no tag, changes left in the
+    # working tree. Commit and tag creation happen below, in this script, so
+    # there is exactly ONE tagging path and it always produces an annotated tag.
     if shutil.which("uv"):
-        cmd = ["uv", "run", "cz", "bump", "--yes", "--changelog"]
+        cz = ["uv", "run", "cz"]
     elif shutil.which("cz"):
-        cmd = ["cz", "bump", "--yes", "--changelog"]
+        cz = ["cz"]
     else:
         return fail("neither `uv` nor `cz` found on PATH. Install commitizen or uv.")
+
+    cmd = [*cz, "bump", "--yes", "--changelog", "--version-files-only"]
 
     if parsed.dry_run:
         cmd.append("--dry-run")
@@ -187,22 +211,156 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     if parsed.version:
         cmd.append(parsed.version)
 
+    cz_config = _read_cz_config(pyproject)
+    old_version = _current_version(root, pyproject, cz)
+
     try:
         run(cmd)
     except subprocess.CalledProcessError as exc:
         return fail(f"commitizen bump failed with exit code {exc.returncode}")
 
     if parsed.dry_run:
-        info("dry run complete; no commit or tag created.")
+        info("dry run complete; no files written, no commit or tag created.")
         return 0
 
-    # 4. Wipe TASKS.md::Completed sections — canonical now in CHANGELOG.md.
+    # 4. Create the bump commit — cz's own default message, so `git log` reads
+    #    continuously across the handover.
+    new_version = _current_version(root, pyproject, cz)
+    if not new_version:
+        return fail(
+            "could not read the bumped version from pyproject.toml after cz bump; "
+            "the version files were rewritten but no commit or tag was created."
+        )
+    if old_version == new_version:
+        return fail(
+            f"cz bump left the version unchanged at {new_version}; "
+            "no commit or tag created."
+        )
+
+    message = (
+        string.Template(BUMP_MESSAGE)
+        .safe_substitute(current_version=old_version or "?", new_version=new_version)
+        .strip()
+    )
+    if rc := git_commit_bump(root, pyproject, cz_config, message):
+        return rc
+
+    # 5. Create the tag — ALWAYS annotated. `git push --follow-tags` silently
+    #    ignores lightweight tags, so a release cut with one never leaves the
+    #    machine; making it annotated here removes the dependency on a config
+    #    key (`annotated_tag`) being set correctly in every consuming repo.
+    tag = render_tag(cz_config, new_version)
+    # Message rule mirrors commitizen's: `annotated_tag_message` if configured,
+    # else the tag name itself.
+    configured_msg = cz_config.get("annotated_tag_message")
+    tag_message = configured_msg if isinstance(configured_msg, str) else tag
+    try:
+        run(["git", "-C", str(root), "tag", "-a", tag, "-m", tag_message])
+    except subprocess.CalledProcessError as exc:
+        return fail(f"`git tag -a {tag}` failed with exit code {exc.returncode}")
+    info(f"created annotated tag {tag}")
+
+    # 6. Wipe TASKS.md::Completed sections — canonical now in CHANGELOG.md.
+    #    Deliberately AFTER the tag: its follow-up commit must land on top of
+    #    the bump commit and must not be captured by the release tag.
     wipe_tasks_completed(root, pyproject)
 
     info(
         "done. Review the bump commit and tag, then `git push --follow-tags` when ready."
     )
     return 0
+
+
+def git_commit_bump(
+    root: Path, pyproject: Path, cz_config: dict[str, object], message: str
+) -> int:
+    """Stage the files cz rewrote and create the bump commit."""
+    files = bumped_files(root, pyproject, cz_config)
+    if not files:
+        return fail("cz bump rewrote no files; nothing to commit.")
+
+    try:
+        run(["git", "-C", str(root), "add", "--", *files])
+        run(["git", "-C", str(root), "commit", "-m", message])
+    except subprocess.CalledProcessError as exc:
+        return fail(f"bump commit failed with exit code {exc.returncode}")
+    return 0
+
+
+def bumped_files(
+    root: Path, pyproject: Path, cz_config: dict[str, object]
+) -> list[str]:
+    """Paths cz may have rewritten: version_files + config file + changelog.
+
+    `pyproject.toml` is always included because cz writes the new version into
+    `[tool.commitizen] version` there regardless of `version_files`.
+    """
+    candidates: list[Path] = [pyproject]
+
+    version_files = cz_config.get("version_files")
+    if isinstance(version_files, list):
+        for entry in version_files:
+            if not isinstance(entry, str):
+                continue
+            # `path:pattern` — cz splits on the first colon; the path half may
+            # itself be a glob.
+            raw = entry.split(":", 1)[0].strip()
+            if not raw:
+                continue
+            matches = glob.glob(str(root / raw))
+            if matches:
+                candidates.extend(Path(m) for m in matches)
+            else:
+                candidates.append(root / raw)
+
+    changelog = cz_config.get("changelog_file")
+    candidates.append(
+        root / (changelog if isinstance(changelog, str) else DEFAULT_CHANGELOG_FILE)
+    )
+
+    seen: dict[str, None] = {}
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            rel = path.resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:  # outside the repo — cz would not have touched it
+            continue
+        seen.setdefault(rel, None)
+    return list(seen)
+
+
+def render_tag(cz_config: dict[str, object], version: str) -> str:
+    """Render `[tool.commitizen] tag_format` for `version` (default `v$version`)."""
+    fmt = cz_config.get("tag_format")
+    if not isinstance(fmt, str) or not fmt.strip():
+        fmt = DEFAULT_TAG_FORMAT
+    parts = (version.split("-", 1)[0].split(".") + ["0", "0", "0"])[:3]
+    return string.Template(fmt).safe_substitute(
+        version=version,
+        major=parts[0],
+        minor=parts[1],
+        patch=parts[2],
+    )
+
+
+def _current_version(root: Path, pyproject: Path, cz: list[str]) -> str | None:
+    """Version cz considers current — the config field, or ask cz's provider."""
+    if version := _read_pyproject_version(pyproject):
+        return version
+    # Non-default `version_provider` (pep621, uv, …) keeps the version
+    # elsewhere; cz itself is the only reliable reader.
+    try:
+        result = subprocess.run(
+            [*cz, "version", "--project"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return result.stdout.strip() or None
 
 
 def wipe_tasks_completed(root: Path, pyproject: Path) -> None:
@@ -242,15 +400,48 @@ def wipe_tasks_completed(root: Path, pyproject: Path) -> None:
 
 
 def _read_pyproject_version(pyproject: Path) -> str | None:
+    version = _read_cz_config(pyproject).get("version")
+    return version if isinstance(version, str) else None
+
+
+def _read_cz_config(pyproject: Path) -> dict[str, object]:
+    """The `[tool.commitizen]` table, or `{}` if absent/unreadable."""
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python < 3.11
+        return _read_cz_config_regex(pyproject)
+
+    try:
+        with pyproject.open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return _read_cz_config_regex(pyproject)
+
+    tool = data.get("tool")
+    cz = tool.get("commitizen") if isinstance(tool, dict) else None
+    return cz if isinstance(cz, dict) else {}
+
+
+def _read_cz_config_regex(pyproject: Path) -> dict[str, object]:
+    """Fallback parse of the keys /ship needs, for interpreters without tomllib."""
     try:
         content = pyproject.read_text(encoding="utf-8")
     except OSError:
-        return None
-    cz_block = re.search(r"\[tool\.commitizen\][^\[]*", content, re.DOTALL)
-    if not cz_block:
-        return None
-    m = re.search(r'^version\s*=\s*"([^"]+)"', cz_block.group(0), re.MULTILINE)
-    return m.group(1) if m else None
+        return {}
+    block = re.search(r"^\[tool\.commitizen\]\n(.*?)(?=^\[|\Z)", content, re.S | re.M)
+    if not block:
+        return {}
+    text = block.group(1)
+
+    config: dict[str, object] = {}
+    for key in ("version", "tag_format", "changelog_file", "annotated_tag_message"):
+        m = re.search(rf'^{key}\s*=\s*"([^"]*)"', text, re.MULTILINE)
+        if m:
+            config[key] = m.group(1)
+    vf = re.search(r"^version_files\s*=\s*\[(.*?)\]", text, re.S | re.M)
+    if vf:
+        config["version_files"] = re.findall(r'"([^"]+)"', vf.group(1))
+    return config
 
 
 def check_forbidden_paths(root: Path) -> int:
