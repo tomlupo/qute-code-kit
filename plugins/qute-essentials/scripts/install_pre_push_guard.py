@@ -397,6 +397,45 @@ def hook_path_is_inside_repo(repo: Path, hook_file: Path) -> bool:
     return False
 
 
+def first_symlinked_component(repo: Path, hook_file: Path):
+    """First symlinked path component of `hook_file` at/below a repo boundary.
+
+    Checking only the final `pre-push` file was not enough: `core.hooksPath =
+    .githooks` with `.githooks` itself a symlink to an outside directory made
+    the LEXICAL containment test answer "in-repo", so the shared-path refusal
+    never fired. The write was still blocked (the gate walks with O_NOFOLLOW),
+    but two things leaked: `--check` never writes, so it reported a shared
+    dispatcher as a healthy per-repo install; and in install mode the guard
+    script and opt-in config landed before the gate refused, contradicting the
+    "nothing is written before the rule has spoken" guarantee.
+
+    So the whole chain is walked here, at DETECTION time. Only components at or
+    below a repo boundary are checked — those are the ones a repository can
+    control. A symlink further up (`/home` on some systems) is the operator's
+    own filesystem, and a hook path genuinely outside the repo is the
+    shared-path rule's business, not this one's.
+    """
+    lexical = _lexical(hook_file)
+    root = None
+    for boundary in _repo_boundaries(repo):
+        if boundary in lexical.parents and (
+            root is None or len(boundary.parts) > len(root.parts)
+        ):
+            root = boundary
+    if root is None:
+        return None
+    current = root
+    for part in lexical.relative_to(root).parts:
+        current = current / part
+        if os.path.islink(current):
+            try:
+                target = os.readlink(current)
+            except OSError:
+                target = "?"
+            return current, target
+    return None
+
+
 def detect_world(repo: Path) -> dict:
     """Which installation world this repo is in, and who owns the hook slot.
 
@@ -415,13 +454,10 @@ def detect_world(repo: Path) -> dict:
     # lstat, not stat: a symlinked slot is a redirect chosen by the REPO, and
     # the operator's --allow-shared-hooks-path consents to a directory they
     # were shown, not to whatever a checked-in symlink points at.
-    slot_is_symlink = bool(hook_file) and os.path.islink(hook_file)
-    slot_target = None
-    if slot_is_symlink:
-        try:
-            slot_target = os.readlink(hook_file)
-        except OSError:
-            slot_target = "?"
+    symlinked = first_symlinked_component(repo, hook_file) if hook_file else None
+    slot_is_symlink = symlinked is not None
+    slot_symlink_path = str(symlinked[0]) if symlinked else None
+    slot_target = symlinked[1] if symlinked else None
     has_pc_config = (repo / PC_CONFIG).is_file()
     pc_bin = shutil.which("pre-commit")
 
@@ -453,13 +489,19 @@ def detect_world(repo: Path) -> dict:
         "world": "hooksPath" if effective else "native",
         "core_hooks_path": effective,
         "hook_path_location": (
-            "in-repo"
+            # A symlinked component is neither honestly "in-repo" nor a plain
+            # shared path — it is a redirect, and saying "in-repo" about it was
+            # the false reassurance `--check` used to print.
+            "symlinked"
+            if slot_is_symlink
+            else "in-repo"
             if hook_file and hook_path_is_inside_repo(repo, hook_file)
             else "outside-repo"
         ),
         "hooks_path_origin": origin,
         "hook_file": str(hook_file) if hook_file else None,
         "slot_is_symlink": slot_is_symlink,
+        "slot_symlink_path": slot_symlink_path,
         "slot_target": slot_target,
         "slot_owner": slot_owner,
         "legacy_is_qute": legacy_is_qute,
@@ -712,6 +754,22 @@ def verify(repo: Path, world: dict) -> dict:
     result = {"reachable": False, "checks": [], "coverage": {}, "ok": False}
     hook_file = Path(world["hook_file"]) if world["hook_file"] else None
 
+    if world.get("slot_is_symlink"):
+        # --check writes nothing, so the WriteGate never runs and cannot be
+        # what catches this. Without an explicit check here, a repo whose
+        # hooks dir is a symlink into a shared directory verified GREEN and was
+        # reported as a per-repo install.
+        result["checks"].append(
+            (
+                "hook path is free of symlinked components",
+                False,
+                f"{world['slot_symlink_path']} is a symlink -> "
+                f"{world['slot_target']}; the repository, not the operator, is "
+                "choosing where this hook lives",
+            )
+        )
+        return result
+
     if hook_file is None or not hook_file.exists():
         result["checks"].append(
             ("hook present at git's resolved path", False, str(hook_file))
@@ -924,8 +982,9 @@ def main() -> int:
             # hid this entirely: the installer reported the symlink's target as
             # "the hooks directory" and, with the flag, wrote to it.
             actions.append(
-                f"BLOCKED: the hook slot {world['hook_file']} is a SYMLINK "
-                f"(-> {world['slot_target']}). Refusing to install through it — "
+                f"BLOCKED: {world['slot_symlink_path']} is a SYMLINK "
+                f"(-> {world['slot_target']}), on the path to the hook slot "
+                f"{world['hook_file']}. Refusing to install through it — "
                 "the repository, not you, would be choosing which file this "
                 "writes to. --allow-shared-hooks-path does NOT cover this: it "
                 "accepts a directory you were shown, not a redirect. Replace "
@@ -993,6 +1052,7 @@ def main() -> int:
         "mechanism": mechanism,
         "hook_file": world["hook_file"],
         "slot_owner": world["slot_owner"],
+        "slot_symlink_path": world["slot_symlink_path"],
         "actions": actions,
         "verification": {
             "reachable": ver["reachable"],

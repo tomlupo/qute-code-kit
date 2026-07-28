@@ -238,6 +238,10 @@ alike.
   directory". A symlinked hook slot is refused outright, and
   `--allow-shared-hooks-path` does **not** override that — the flag accepts a
   directory the operator was shown, not a destination the repository picked.
+  The check covers **every** component of the hook path at or below a repo
+  boundary, not just the final file: `core.hooksPath = .githooks` with
+  `.githooks` itself a symlink outward is a redirect too, and it is classified
+  as such (`hook_path_location: symlinked`) rather than as an in-repo install.
   Writes go to a fresh inode and are `rename`d into place rather than
   truncating what is already there, so a hard link at the destination cannot
   corrupt the file's other name (git cannot deliver a hard link — it does not

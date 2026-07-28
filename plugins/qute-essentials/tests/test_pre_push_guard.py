@@ -1280,3 +1280,75 @@ class TestRefusalNamesTheRightPullRequestBase:
         cfg = {"protected": "release", "integration": "staging", "release_tool": None}
         msg = guard.refusal_message("staging", "update", "origin", cfg, "stdin")
         assert "gh pr create --base staging" in msg
+
+
+@pytestmark_git
+class TestSymlinkedHooksDirectoryComponent:
+    """`core.hooksPath = .githooks` where `.githooks` is a symlink outward.
+
+    Checking only the final `pre-push` file left this shape classified as
+    `in-repo`, so the shared-path refusal never fired. The WriteGate still
+    blocked the write — but `--check` writes nothing, so it reported a shared
+    dispatcher as a healthy per-repo install, and in install mode the guard
+    script and opt-in config landed before the gate refused.
+    """
+
+    def _symlinked_hooks_dir(self, sandbox, tmp_path, seed=False):
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir(exist_ok=True)
+        if seed:  # another repo already installed a dispatcher there
+            (shared / "pre-push").write_text(
+                (ROOT / "templates" / "hooks" / "pre-push").read_text()
+            )
+            (shared / "pre-push").chmod(0o755)
+        (sandbox["repo"] / ".githooks").symlink_to(shared)
+        _run(
+            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        return shared
+
+    def test_check_does_not_report_a_shared_dispatcher_as_per_repo(
+        self, sandbox, tmp_path
+    ):
+        self._symlinked_hooks_dir(sandbox, tmp_path, seed=True)
+        out = _install(sandbox, "--check", "--json")
+        report = json.loads(out.stdout)
+        assert out.returncode != 0
+        assert report["ok"] is False
+        assert report["hook_path_location"] == "symlinked"
+        assert report["slot_symlink_path"] == str(sandbox["repo"] / ".githooks")
+
+    def test_install_writes_nothing_before_refusing(self, sandbox, tmp_path):
+        shared = self._symlinked_hooks_dir(sandbox, tmp_path)
+        (sandbox["repo"] / ".claude" / "git-guard.json").unlink()
+        (sandbox["repo"] / ".claude").rmdir()
+        out = _install(sandbox, "--opt-in")
+        assert out.returncode != 0
+        assert "is a SYMLINK" in out.stdout
+        assert not (sandbox["repo"] / ".claude").exists()
+        assert list(shared.iterdir()) == []
+
+    def test_flag_does_not_override_a_symlinked_directory(self, sandbox, tmp_path):
+        shared = self._symlinked_hooks_dir(sandbox, tmp_path)
+        out = _install(sandbox, "--allow-shared-hooks-path")
+        assert out.returncode != 0
+        assert "is a SYMLINK" in out.stdout
+        assert list(shared.iterdir()) == []
+
+    def test_real_in_tree_hooks_dir_is_unaffected(self, sandbox):
+        (sandbox["repo"] / ".githooks").mkdir()
+        _run(
+            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        out = _install(sandbox)
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert (
+            json.loads(_install(sandbox, "--check", "--json").stdout)[
+                "hook_path_location"
+            ]
+            == "in-repo"
+        )
