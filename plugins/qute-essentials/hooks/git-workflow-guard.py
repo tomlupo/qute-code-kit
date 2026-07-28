@@ -64,9 +64,10 @@ not the one git is about to act in, and says yes.
   the guard's model of the world matches the shell's and git's. A `cd` that
   FAILS leaves the shell where it was. `--work-tree` without `--git-dir` leaves
   the REPO where it was. A `cd` inside `( … )` moves the shell only until the
-  `)`. All three looked like ordinary commands and all three let a direct
-  commit on a guarded branch through, because the guard went looking somewhere
-  else.
+  `)`. A path operand the guard never expanded — `cd "$D"`, `git -C "$D"` —
+  points somewhere it cannot name, which is not the same as "nowhere". Each
+  looked like an ordinary command, and each let a direct commit on a guarded
+  branch through, because the guard went looking somewhere else.
 
 An environment-axis defect is in scope however ordinary the command looks — the
 "ordinary invocation forms" line below bounds the FIRST axis only, and is about
@@ -125,8 +126,8 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15 and 19-21 are parsing;
-10-13, 16, 17 and 18 are the environment axis, and are the reason that axis is
+not as a checklist that is now complete. 1-9, 14, 15, 19-21 and 23 are parsing;
+10-13, 16-18 and 22 are the environment axis, and are the reason that axis is
 written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -186,7 +187,14 @@ written down at all:
   21. the `--repo` ambiguity, half-handled — the positionals were read under
       both meanings, but the CONFIG lookup still used the `--repo` value, so
       `git push --repo=origin upstream` consulted `remote.origin.push` while
-      git pushed to `upstream`.
+      git pushed to `upstream`;
+  22. an unexpanded `-C` / `--git-dir` operand — defect 16 one operand over.
+      `git -C "$MAIN_REPO" commit` was read as a literal directory of that
+      name, found not to be a repo, and allowed;
+  23. command substitutions as command boundaries (parsing) — `$( … )` is part
+      of a word, but both the segment scanner and `shlex` broke it apart, so
+      `git -C $(cat path) commit` stopped being recognised as a git command at
+      all.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -397,10 +405,14 @@ def _segments(command: str):
     bash committed in the original repo (environment-axis defect, round 9).
 
     The scan is quote-aware, so a `)` or a separator inside `git commit -m
-    "done)"` is text, not syntax. `$(...)`, backticks and `((...))` produce
-    balanced open/close pairs, which is harmless — a command substitution
-    genuinely does run in a subshell, so scoping it is right anyway. An
-    unmatched `)` (a `case` arm) is ignored by the caller.
+    "done)"` is text, not syntax. Command substitutions — `$(…)`, `` `…` `` and
+    `$((…))` — are consumed WHOLE as opaque text rather than treated as
+    boundaries, because they are part of a word, not a command break: splitting
+    `git -C $(cat path) commit` at the `(` tore the git command in half and it
+    stopped being recognised at all. Their contents are deliberately not
+    inspected; an operand containing one is unexpanded, which
+    `_literal_path` already reports as unknown. An unmatched `)` (a `case` arm)
+    is ignored by the caller.
     """
     events = []
     buf = []
@@ -440,6 +452,25 @@ def _segments(command: str):
             buf.append(c)
             buf.append(command[i + 1])
             i += 2
+        elif c == "$" and i + 1 < n and command[i + 1] == "(":
+            # `$( … )` / `$(( … ))` — opaque, balanced, part of the word.
+            depth, j = 0, i + 1
+            while j < n:
+                if command[j] == "(":
+                    depth += 1
+                elif command[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                j += 1
+            buf.append(command[i:j])
+            i = j
+        elif c == "`":
+            j = command.find("`", i + 1)
+            j = n if j < 0 else j + 1
+            buf.append(command[i:j])
+            i = j
         elif c in "&|;\n":
             flush()
             nxt = command[i + 1] if i + 1 < n else ""
@@ -499,11 +530,36 @@ _LEADING_SHELL_WORDS = frozenset(
 _TRAILING_SHELL_WORDS = frozenset({"}"})
 
 
+# A command substitution, with one level of nested parens tolerated.
+_SUBST_RE = re.compile(r"\$\((?:[^()]|\([^()]*\))*\)|`[^`]*`")
+_SUBST_HOLE_RE = re.compile(r"\0S(\d+)\0")
+
+
 def _tokens(segment: str):
+    """Split a segment into words, keeping each command substitution WHOLE.
+
+    `shlex` knows nothing about `$( … )`, so `git -C $(cat path.txt) status`
+    tokenized as `['git', '-C', '$(cat', 'path.txt)', 'status']` — the `-C`
+    operand cut in half and `path.txt)` read as the subcommand. Substitutions
+    are therefore masked to a space-free placeholder before splitting and
+    restored after, which matches how `_segments` already treats them.
+    """
+    holes = []
+
+    def stash(match):
+        holes.append(match.group(0))
+        return f"\0S{len(holes) - 1}\0"
+
+    masked = _SUBST_RE.sub(stash, segment)
     try:
-        return shlex.split(segment)
+        words = shlex.split(masked)
     except ValueError:
-        return segment.split()
+        words = masked.split()
+    if not holes:
+        return words
+    return [
+        _SUBST_HOLE_RE.sub(lambda m: holes[int(m.group(1))], word) for word in words
+    ]
 
 
 _ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -793,10 +849,11 @@ def _git_subcommand(tokens):
 # `cd` options, none of which take a value.
 _CD_FLAGS = frozenset({"-L", "-P", "-e", "-@", "--"})
 
-# A `cd` operand holding any of these is one WE NEVER EXPANDED: parameter or
-# command substitution, or a glob. Bash resolves them and moves; we cannot, so
-# the shell's location becomes unknown rather than unchanged. (Same character
-# class as `_UNRESOLVABLE_RE` for refspecs, minus the ref-navigation syntax.)
+# A path operand holding any of these is one WE NEVER EXPANDED: parameter or
+# command substitution, or a glob. Bash resolves it and git acts there; we
+# cannot, so the target becomes unknown rather than "a literal path of that
+# name". (Same character class as `_UNRESOLVABLE_RE` for refspecs, minus the
+# ref-navigation syntax.)
 _UNEXPANDED_RE = re.compile(r"[$`*?\[]")
 
 
@@ -813,6 +870,20 @@ def _cd_argument(tokens):
             continue
         return (True, tok)
     return (True, None)
+
+
+def _literal_path(operand: str):
+    """`Path(operand)` when we can resolve it literally, else None — None means
+    the operand holds expansion we never ran, so where it points is UNKNOWN.
+
+    `~` is expanded because that expansion is deterministic; a `~user` that does
+    not resolve stays unknown. Shared by every path operand the guard reads —
+    `cd`, `-C`, `--git-dir` — because they fail the same way.
+    """
+    expanded = os.path.expanduser(operand)
+    if expanded.startswith("~") or _UNEXPANDED_RE.search(expanded):
+        return None
+    return Path(expanded)
 
 
 def _resolve_cd(base: Path, base_unknown: bool, operand: str):
@@ -835,10 +906,9 @@ def _resolve_cd(base: Path, base_unknown: bool, operand: str):
     an extremely ordinary `cd ~/proj` out of the UNKNOWN bucket. A `~user` that
     does not resolve stays UNKNOWN.
     """
-    expanded = os.path.expanduser(operand)
-    if expanded.startswith("~") or _UNEXPANDED_RE.search(expanded):
+    p = _literal_path(operand)
+    if p is None:
         return (base, True)
-    p = Path(expanded)
     if p.is_absolute():
         # An absolute target re-anchors us even from an unknown location.
         return (p, False) if p.is_dir() else (base, base_unknown)
@@ -848,20 +918,9 @@ def _resolve_cd(base: Path, base_unknown: bool, operand: str):
     return (target, False) if target.is_dir() else (base, False)
 
 
-def _target_is_cwd_independent(opts: dict) -> bool:
-    """Whether this git command's repo is pinned by its own options, so the
-    shell's location does not matter. Mirrors `_resolve_git_target_dir`: an
-    absolute `-C` anchors the fold, and an absolute `--git-dir` overrides it."""
-    anchored = any(Path(p).is_absolute() for p in (opts.get("C") or []))
-    git_dir = opts.get("git_dir")
-    if git_dir:
-        return Path(git_dir).is_absolute() or anchored
-    return anchored
-
-
-def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
+def _resolve_git_target_dir(base: Path, base_unknown: bool, opts: dict):
     """The directory to evaluate this git command against — i.e. one that
-    belongs to the repo git will actually act on.
+    belongs to the repo git will actually act on — as `(dir, unknown)`.
 
     The two options compose, in git's documented order — `-C` FIRST, whatever
     order they appear in on the command line:
@@ -883,20 +942,41 @@ def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
     guard config both still come from HERE. Reading the work tree as the repo
     pointed the guard at a different repo than git would write to, and let a
     protected-branch commit through (environment-axis defect, round 5).
+
+    Every operand runs through `_literal_path`, so an UNEXPANDED one —
+    `git -C "$MAIN_REPO" commit`, `git --git-dir="$D/.git" commit`,
+    `env -C "$D" git commit` — makes the target unknown instead of being read
+    as a literal directory of that name. It was read literally, found not to be
+    a repo, and allowed, while bash expanded the variable and git committed in
+    the guarded repo: the same failure as defect 16, one operand over
+    (defect 22). `unknown` is inherited from the shell's own location and
+    CLEARED by any later absolute literal operand, which genuinely re-anchors
+    the target no matter where the shell is.
     """
-    d = base
+    d, unknown = base, base_unknown
     for p in opts.get("C") or []:
-        pp = Path(p)
-        d = pp if pp.is_absolute() else (d / pp)
+        pp = _literal_path(p)
+        if pp is None:
+            unknown = True
+        elif pp.is_absolute():
+            d, unknown = pp, False
+        elif not unknown:
+            d = d / pp
     git_dir = opts.get("git_dir")
     if git_dir:
-        ap = Path(git_dir)
-        # A --git-dir of `<repo>/.git` -> the repo root is its parent.
-        if ap.name == ".git":
-            ap = ap.parent
-        # Relative git dirs resolve against the post-`-C` directory.
-        d = ap if ap.is_absolute() else (d / ap)
-    return d
+        ap = _literal_path(git_dir)
+        if ap is None:
+            unknown = True
+        else:
+            # A --git-dir of `<repo>/.git` -> the repo root is its parent.
+            if ap.name == ".git":
+                ap = ap.parent
+            if ap.is_absolute():
+                d, unknown = ap, False
+            elif not unknown:
+                # Relative git dirs resolve against the post-`-C` directory.
+                d = d / ap
+    return d, unknown
 
 
 # `git push` options that consume the FOLLOWING token as their value. Without
@@ -1411,29 +1491,33 @@ def main():
             # is nothing further to resolve here.
             continue
 
-        if base_unknown and not _target_is_cwd_independent(opts):
-            # A preceding `cd` moved the shell somewhere we could not name, and
-            # this command's repo still depends on the cwd — so we cannot tell
+        # Resolve the repo this specific git command targets, then load THAT
+        # repo's guard config and current branch.
+        target_dir, target_unknown = _resolve_git_target_dir(
+            base_dir, base_unknown, opts
+        )
+
+        if target_unknown:
+            # Either a preceding `cd`, or one of this command's own path
+            # operands, used something we could not expand — so we cannot tell
             # which repo it writes to. Fail closed, as everywhere else a check
             # cannot verify. The gate is the LAST KNOWN directory's opt-in, so
-            # a repo that never opted in stays a total no-op; and read-only
-            # subcommands never get here, so `cd "$D" && git status` is fine.
+            # a repo that never opted in stays a total no-op (a documented
+            # limit — see the module docstring); and read-only subcommands
+            # never get here, so `cd "$D" && git status` is fine.
             cfg = _cfg_for(base_dir)
             if cfg is None:
                 continue
             _deny(
                 f"Blocked: cannot determine which repo `git {sub}` runs in — a "
-                "preceding `cd` used a path this guard cannot expand (a "
-                "variable, a command substitution or a glob), so the target "
-                f"may be '{cfg['protected']}'"
+                "preceding `cd`, or a `-C`/`--git-dir` operand, used a path "
+                "this guard cannot expand (a variable, a command substitution "
+                f"or a glob), so the target may be '{cfg['protected']}'"
                 + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
-                + ". Use a literal path, or `git -C <path>`.",
+                + ". Use a literal path.",
                 _guidance(cfg),
             )
 
-        # Resolve the repo this specific git command targets, then load THAT
-        # repo's guard config and current branch.
-        target_dir = _resolve_git_target_dir(base_dir, opts)
         cfg = _cfg_for(target_dir)
         if cfg is None:
             continue  # not a resolvable repo, or not opted in -> no-op for it

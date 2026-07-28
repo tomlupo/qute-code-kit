@@ -113,6 +113,8 @@ Each git command in a chain is scoped to the repo it actually targets — `cd <o
 - a `cd` **inside `( … )`** — it dies with the subshell, so a command after the `)` is back in the original repo. Brace groups (`{ …; }`) run in the current shell and their `cd` does persist.
 - a `cd` in a **pipeline element** or before a **`&`** — bash runs those in their own process, so the `cd` dies with it. `;`, `&&` and `||` keep the shell in one process and do propagate.
 
+A path operand the guard **can't expand** — `cd "$D"`, `git -C "$D"`, `git --git-dir="$D/.git"`, a glob, a command substitution — makes the target **unknown**, not "a literal directory of that name". Guarded verbs then fail closed; read-only ones are untouched, and any later *absolute literal* operand re-anchors the target and clears it. Command substitutions are treated as opaque parts of a word, never as command boundaries.
+
 The segment scan is quote-aware, so a `)` or a `;` inside `git commit -m "done)"` is text, not syntax. Shell reserved words that stand in front of a command are peeled before parsing it, so `if …; then git commit; fi`, `while …; do git push origin main; done`, `! git …` and `time git …` are read as the git commands they contain.
 
 **Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.
@@ -155,7 +157,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15 and 19–21 are parsing; 10–13, 16, 17 and 18 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21 and 23 are parsing; 10–13, 16–18 and 22 are the environment axis, and are why that axis is written down at all:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -180,6 +182,8 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 19 | parsing | `--repo <r>` as two tokens | the value was skipped rather than captured, so the no-refspec fallback read the default remote's `push` refspec instead of `<r>`'s |
 | 20 | parsing | `--all` / `--mirror` | they push every *local* branch and override `push.default`, so `git push --all origin` from a feature branch writes the protected branch with nothing on the command line naming it |
 | 21 | parsing | the `--repo` ambiguity, half-handled | the positionals were read under both meanings, but the *config* lookup still used the `--repo` value — so `git push --repo=origin upstream` consulted `remote.origin.push` while git pushed to `upstream` |
+| 22 | environment | an unexpanded `-C` / `--git-dir` operand | defect 16 one operand over — `git -C "$MAIN_REPO" commit` was read as a literal directory of that name, found not to be a repo, and allowed |
+| 23 | parsing | command substitutions as boundaries | `$( … )` is part of a word, but both the segment scanner and `shlex` broke it apart, so `git -C $(cat path) commit` stopped being recognised as a git command |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 

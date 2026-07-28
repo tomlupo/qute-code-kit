@@ -1864,6 +1864,76 @@ def test_unexpandable_cd_is_escaped_by_an_absolute_scoping_option(tmp_path, home
     assert decision == "deny"
 
 
+# Defect 22, environment axis: the same unexpanded-operand failure as 16, one
+# operand over. `git -C "$MAIN_REPO" commit` was read as a LITERAL directory
+# called `$MAIN_REPO`, found not to be a repo, and allowed — while bash
+# expanded the variable and git committed in the guarded repo it named.
+
+UNEXPANDABLE_SCOPING = [
+    'git -C "$MAIN_REPO"',
+    "git -C $MAIN_REPO",
+    "git -C ${MAIN_REPO}",
+    "git -C $(cat path.txt)",
+    "git -C repo-*",
+    'git --git-dir="$MAIN_REPO/.git"',
+    "git --git-dir $MAIN_REPO/.git",
+    'git --work-tree=/tmp --git-dir="$D/.git"',
+    'env -C "$MAIN_REPO" git',
+    "git -C ~nosuchuser/x",
+]
+
+
+@pytest.mark.parametrize("prefix", UNEXPANDABLE_SCOPING)
+@pytest.mark.parametrize("branch", ["main", "feat/x"])
+def test_unexpandable_scoping_operand_fails_closed(prefix, branch, tmp_path, home):
+    """Denied from every branch — the point is that the target repo is
+    unknowable, not that this one is guarded."""
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    decision, hso = _run(f"{prefix} commit -m x", repo, home)
+    assert decision == "deny", f"{prefix} on {branch}"
+    assert "cannot determine which repo" in hso["permissionDecisionReason"], prefix
+
+
+@pytest.mark.parametrize("prefix", UNEXPANDABLE_SCOPING)
+def test_unexpandable_scoping_operand_allows_read_only_git(prefix, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(f"{prefix} status", repo, home)
+    assert decision == "allow", prefix
+
+
+def test_unexpandable_scoping_operand_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run('git -C "$MAIN_REPO" commit -m x', repo, home)
+    assert decision == "allow"
+
+
+def test_a_later_absolute_scoping_operand_re_anchors_the_target(tmp_path, home):
+    """An absolute literal operand pins the repo no matter what came before, so
+    it must clear the unknown rather than be swamped by it."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f'git -C "$D" -C {other} commit -m x', session, home)
+    assert decision == "allow"
+
+    on_main = _make_repo(tmp_path / "onmain", "main", STD_CFG)
+    decision, _ = _run(f'git -C "$D" -C {on_main} commit -m x', session, home)
+    assert decision == "deny"
+
+    decision, _ = _run(f'git -C "$D" --git-dir={other}/.git commit -m x', session, home)
+    assert decision == "allow"
+
+
+def test_literal_scoping_operands_are_unaffected(tmp_path, home):
+    """The control: a `-C` that holds no expansion still resolves exactly as
+    before, including a relative one that is not a repo."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"git -C {other} commit -m x", session, home)
+    assert decision == "deny"
+    decision, _ = _run("git -C nowhere commit -m x", session, home)
+    assert decision == "allow"
+
+
 def test_unknown_cwd_is_sticky_until_an_absolute_cd(tmp_path, home):
     session = _make_repo(tmp_path / "lab", "main", STD_CFG)
     other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
