@@ -146,6 +146,150 @@ class ForbiddenPaths(unittest.TestCase):
         self.assertIn(".claude/handoffs", UNIVERSAL_FORBIDDEN)
 
 
+class CleanWorktreeGate(unittest.TestCase):
+    """A release must be cut from a clean tree (independent review, PR #84).
+
+    `git add -- <version files>` in the bump commit stages WHOLE files, so an
+    unrelated local edit would ride into the release commit and end up inside
+    the annotated tag consumers pin. Plugin mode has always refused a dirty
+    tree (`release-plugin.sh`); Python mode now matches it.
+    """
+
+    @staticmethod
+    def _ship_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ship_under_test", SHIP_PY)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    @staticmethod
+    def _init_repo(root: Path) -> None:
+        def git(*args: str) -> None:
+            subprocess.run(
+                ["git", "-C", str(root), *args],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "test@example.com")
+        git("config", "user.name", "Test")
+        git("config", "commit.gpgsign", "false")
+        (root / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nversion = "0.1.0"\n\n'
+            "[tool.commitizen]\n"
+            'version = "0.1.0"\n'
+            'version_files = ["src/x/__init__.py:__version__"]\n',
+            encoding="utf-8",
+        )
+        (root / "src" / "x").mkdir(parents=True)
+        (root / "src" / "x" / "__init__.py").write_text(
+            '__version__ = "0.1.0"\n', encoding="utf-8"
+        )
+        (root / "README.md").write_text("# x\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "chore: init")
+
+    def test_clean_tree_passes(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            self.assertEqual(mod.check_clean_worktree(root), 0)
+
+    def test_modified_version_file_blocks(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "src" / "x" / "__init__.py").write_text(
+                '__version__ = "0.1.0"\nDEBUG = True\n', encoding="utf-8"
+            )
+            self.assertEqual(mod.check_clean_worktree(root), 1)
+
+    def test_modified_non_version_file_also_blocks(self):
+        """Matches release-plugin.sh: the whole tracked tree must be clean."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "README.md").write_text("# x\nscratch\n", encoding="utf-8")
+            self.assertEqual(mod.check_clean_worktree(root), 1)
+
+    def test_untracked_file_does_not_block(self):
+        """`--untracked-files=no`: lockfiles and scratch output are routine."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "scratch.log").write_text("noise\n", encoding="utf-8")
+            (root / "uv.lock").write_text("# lock\n", encoding="utf-8")
+            self.assertEqual(mod.check_clean_worktree(root), 0)
+
+    def test_staged_change_blocks(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "new.py").write_text("x = 1\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "-C", str(root), "add", "new.py"],
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(mod.check_clean_worktree(root), 1)
+
+    def test_dry_run_reports_instead_of_refusing(self):
+        """A dry run writes no commit and no tag, so it cannot be contaminated."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "README.md").write_text("# x\ndirty\n", encoding="utf-8")
+            self.assertEqual(mod.check_clean_worktree(root, dry_run=True), 0)
+
+    def test_non_git_directory_is_not_blocked(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(mod.check_clean_worktree(Path(d)), 0)
+
+    def test_cli_refuses_and_names_the_dirty_path(self):
+        """End-to-end: refusal happens before setup writes or cz runs."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self._init_repo(root)
+            (root / "src" / "x" / "__init__.py").write_text(
+                '__version__ = "0.1.0"\nDEBUG = True\n', encoding="utf-8"
+            )
+            before = (root / "pyproject.toml").read_text(encoding="utf-8")
+            head = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            result = run_ship(["patch"], root)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            self.assertIn("src/x/__init__.py", result.stderr)
+            self.assertIn("commit or stash", result.stderr.lower())
+            # Nothing was written and nothing was committed.
+            self.assertEqual(
+                before, (root / "pyproject.toml").read_text(encoding="utf-8")
+            )
+            after = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+            self.assertEqual(head, after)
+
+
 if __name__ == "__main__":
     unittest.main()
 

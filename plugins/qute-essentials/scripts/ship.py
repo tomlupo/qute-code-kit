@@ -5,8 +5,9 @@ One entry point, two modes (detected automatically):
 * **Plugin mode** — `.claude-plugin/marketplace.json` at repo root.
   Delegates to `scripts/release-plugin.sh <plugin> <bump>`.
 * **Python mode** — `pyproject.toml` at repo root (and no marketplace).
-  Refuses to bump if any tracked file lives under a forbidden path,
-  runs first-time-setup idempotently, then bumps.
+  Refuses to bump if any tracked file lives under a forbidden path or if the
+  tracked working tree is dirty, runs first-time-setup idempotently, then
+  bumps.
 
 Python mode drives commitizen in **files-only** mode
 (`cz bump --yes --changelog --version-files-only`): cz rewrites the version
@@ -182,13 +183,19 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     if rc := check_forbidden_paths(root):
         return rc
 
-    # 2. First-time setup — idempotent; safe to call every time.
+    # 2. Clean-tree gate. Deliberately BEFORE setup: setup legitimately writes
+    #    to pyproject.toml / CHANGELOG.md, so checking afterwards would trip on
+    #    its own edits. Everything from here on is either a write or a commit.
+    if rc := check_clean_worktree(root, dry_run=parsed.dry_run):
+        return rc
+
+    # 3. First-time setup — idempotent; safe to call every time.
     from ship_setup import setup_python
 
     if rc := setup_python(root, pyproject):
         return rc
 
-    # 3. Build the cz command.
+    # 4. Build the cz command.
     #
     # `--version-files-only` makes cz a pure file rewriter: it bumps every
     # `version_files` entry AND the `[tool.commitizen] version` field, writes
@@ -223,7 +230,7 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
         info("dry run complete; no files written, no commit or tag created.")
         return 0
 
-    # 4. Create the bump commit — cz's own default message, so `git log` reads
+    # 5. Create the bump commit — cz's own default message, so `git log` reads
     #    continuously across the handover.
     new_version = _current_version(root, pyproject, cz)
     if not new_version:
@@ -245,7 +252,7 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     if rc := git_commit_bump(root, pyproject, cz_config, message):
         return rc
 
-    # 5. Create the tag — ALWAYS annotated. `git push --follow-tags` silently
+    # 6. Create the tag — ALWAYS annotated. `git push --follow-tags` silently
     #    ignores lightweight tags, so a release cut with one never leaves the
     #    machine; making it annotated here removes the dependency on a config
     #    key (`annotated_tag`) being set correctly in every consuming repo.
@@ -272,7 +279,7 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
         return fail(f"`git tag -a {tag}` failed with exit code {exc.returncode}")
     info(f"created annotated tag {tag}")
 
-    # 6. Wipe TASKS.md::Completed sections — canonical now in CHANGELOG.md.
+    # 7. Wipe TASKS.md::Completed sections — canonical now in CHANGELOG.md.
     #    Deliberately AFTER the tag: its follow-up commit must land on top of
     #    the bump commit and must not be captured by the release tag.
     wipe_tasks_completed(root, pyproject)
@@ -511,6 +518,61 @@ def _read_cz_config_regex(pyproject: Path) -> dict[str, object]:
     if vf:
         config["version_files"] = re.findall(r'"([^"]+)"', vf.group(1))
     return config
+
+
+def check_clean_worktree(root: Path, *, dry_run: bool = False) -> int:
+    """Refuse to bump when tracked files carry uncommitted changes.
+
+    Mirrors the gate `release-plugin.sh` already applies in plugin mode, in
+    both check and spirit: ANY modified tracked file blocks, not just the
+    configured `version_files`. The bump commit stages whole files, so an
+    unrelated edit would ride into the commit that the release tag points at,
+    and consumers pin that tag. Releases come from a clean tree.
+
+    Untracked files are deliberately ignored (`--untracked-files=no`, same as
+    plugin mode): a lockfile, scratch output, or a stray build artifact is
+    routine and must not be able to block a release.
+
+    `--dry-run` reports instead of refusing. A dry run answers "what would
+    ship" and creates neither commit nor tag, so a dirty tree cannot
+    contaminate anything — and checking the next version mid-edit is exactly
+    when a dry run earns its keep.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=no"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Not a git repo, or no git on PATH. Nothing to protect here; the
+        # commit/tag steps later on fail loudly by themselves.
+        return 0
+
+    dirty = [line for line in result.stdout.splitlines() if line.strip()]
+    if not dirty:
+        return 0
+
+    if dry_run:
+        info("working tree has uncommitted tracked changes:")
+        for line in dirty:
+            print(f"  {line}")
+        info("dry run — reporting only; a real release refuses until these are clean.")
+        return 0
+
+    print("ship: error: working tree has uncommitted tracked changes:", file=sys.stderr)
+    for line in dirty:
+        print(f"  {line}", file=sys.stderr)
+    print(
+        "\nA release must be cut from a clean tree — the bump commit stages whole\n"
+        "files, so these edits would land inside the release commit and inside the\n"
+        "annotated tag that points at it. Commit or stash them first, then re-run:\n"
+        "  git commit -am '...'   # or: git stash push -- <paths>\n"
+        "Untracked files are ignored and never block a release.",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def check_forbidden_paths(root: Path) -> int:

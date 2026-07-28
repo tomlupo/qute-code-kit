@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Cut a release for the current project. One entry point, two modes — Plugin (marketplace.json present → delegates to scripts/release-plugin.sh) and Python (pyproject.toml → bumps via commitizen). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked. First-time setup (commitizen + CHANGELOG + workflow) runs automatically and idempotently for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
+description: Cut a release for the current project. One entry point, two modes — Plugin (marketplace.json present → delegates to scripts/release-plugin.sh) and Python (pyproject.toml → bumps via commitizen). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked or if tracked files have uncommitted changes. First-time setup (commitizen + CHANGELOG + workflow) runs automatically and idempotently for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
 argument-hint: "[plugin-name] [patch|minor|major|X.Y.Z] [--dry-run]"
 ---
 
@@ -101,6 +101,24 @@ paths (skill-generated artifacts that should not reach main):
 Projects may add extras in `.claude/forbidden-paths.txt` (one path per
 line; blank lines and `# comments` allowed).
 
+### Clean working tree (Python mode)
+
+Refuses to bump if **any tracked file** has uncommitted changes — the same
+gate `release-plugin.sh` has always applied in plugin mode. The bump commit
+stages whole files, so an unrelated local edit would land inside the release
+commit and inside the annotated tag that points at it. The error names every
+dirty path; commit or stash them and re-run.
+
+**Untracked files never block.** A lockfile, scratch output or a stray build
+artifact is routine and is ignored (`git status --untracked-files=no`). Only
+*modifications to tracked files* are refused.
+
+The check runs **before** first-time setup, because setup legitimately writes
+to `pyproject.toml` / `CHANGELOG.md`; those writes still land in the bump
+commit as before. With `--dry-run` the dirty paths are **reported, not
+refused** — a dry run creates no commit and no tag, so nothing can be
+contaminated.
+
 ### TASKS.md::Completed wipe (Python mode, auto)
 
 After cz bump succeeds, the script removes any `## Completed (…)` sections
@@ -174,8 +192,11 @@ the stable way to neuter it.
   instead of via `/ship` — `cz bump` can compute unexpected versions. Don't
   hand-tag; verify with `git tag --list 'v*' | sort -V | tail -5` if a bump
   looks off.
-- **Untracked or uncommitted files** don't affect the bump but appear in
-  git noise — commit or stash first for a clean release.
+- **Uncommitted changes to tracked files** → the bump is **refused**, with
+  every dirty path named. Commit or stash them first; a release is cut from a
+  clean tree. `--dry-run` reports them instead of refusing.
+- **Untracked files** → harmless, never block. Lockfiles, scratch output and
+  build artifacts are routinely untracked, so they are ignored outright.
 
 ## Related
 
