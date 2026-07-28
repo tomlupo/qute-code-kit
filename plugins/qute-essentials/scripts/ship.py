@@ -577,11 +577,12 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     #     legitimately moves the declared version past the last tag (seeding cz
     #     from the highest of {project version, latest tag, literals}), and must
     #     not be blocked by the very run that performs it.
+    guard_cz = resolve_cz(root, dry_run=True) or ["cz"]
     if rc := check_bump_in_flight(
         root,
-        resolve_cz(root, dry_run=True) or ["cz"],
+        guard_cz,
         _read_cz_config(pyproject),
-        _read_pyproject_version(pyproject),
+        declared_version(root, pyproject, guard_cz),
     ):
         return rc
 
@@ -1031,6 +1032,30 @@ def refresh_lockfile(root: Path) -> None:
             f"lockfile refresh failed ({exc}); continuing. uv.lock may still name "
             "the previous version — refresh it in a follow-up commit."
         )
+
+
+def declared_version(root: Path, pyproject: Path, cz: list[str]) -> str | None:
+    """The version this project declares, however it declares it.
+
+    Three sources, in order: `[tool.commitizen] version`, `[project] version`,
+    then cz's own provider.
+
+    The middle one is load-bearing and was missing on the first pass (caught in
+    review). Under `version_provider = "pep621"` commitizen keeps NO version of
+    its own — the entire declaration lives in `[project] version` — so reading
+    only the commitizen table returns None there. A guard handed None does not
+    fire, which would have left pep621 repos as precisely the ones with no
+    protection against the double-bump this exists to prevent.
+
+    File reads first, cz last: this runs before first-time setup on a path that
+    may end in a refusal, and `cz version --project` is a subprocess we would
+    rather not spawn to answer a question `pyproject.toml` already answers.
+    """
+    try:
+        version = _declared_version_in_toml(pyproject.read_text(encoding="utf-8"))
+    except OSError:
+        version = None
+    return version or _current_version(root, pyproject, cz)
 
 
 def check_bump_in_flight(

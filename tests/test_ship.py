@@ -1344,6 +1344,32 @@ def make_repo(root: Path, *, version: str = "0.1.0") -> None:
     git(root, "tag", "-a", f"v{version}", "-m", f"Release v{version}")
 
 
+def make_pep621_repo(root: Path) -> None:
+    """A repo where cz keeps NO version of its own — `[project]` is the source.
+
+    `version_provider = "pep621"` is a supported, ordinary commitizen setup, and
+    the one where reading only `[tool.commitizen] version` finds nothing.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "commit.gpgsign", "false")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo621"\nversion = "0.1.0"\n'
+        'requires-python = ">=3.11"\ndependencies = []\n\n'
+        "[tool.commitizen]\n"
+        'name = "cz_conventional_commits"\n'
+        'version_provider = "pep621"\n'
+        'tag_format = "v$version"\n',
+        encoding="utf-8",
+    )
+    (root / "README.md").write_text("# demo621\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "feat: initial")
+    git(root, "tag", "-a", "v0.1.0", "-m", "Release v0.1.0")
+
+
 def make_two_stage(base: Path) -> tuple[Path, Path]:
     """`(bare origin, working clone)` with `main` + `dev` both published.
 
@@ -2107,6 +2133,64 @@ class InFlightBumpGuard(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
             self.assertIn("v0.2.0", git(root, "tag", "--list").split())
+
+    def test_a_pep621_repo_is_guarded_too(self):
+        """Review blocker on PR #88, and a real one.
+
+        Under `version_provider = "pep621"` commitizen keeps no version of its
+        own, so reading only `[tool.commitizen] version` returns None — and a
+        guard handed None does not fire. The repos that declare their version
+        the standard way would have been the ones with no protection. This is
+        the end-to-end proof against a real cz using that provider.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_pep621_repo(root)
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+
+            first = run_ship(["--bump-only"], root, env=env)
+            self.assertEqual(first.returncode, 0, msg=first.stdout + first.stderr)
+            self.assertIn('version = "0.2.0"', git(root, "show", "HEAD:pyproject.toml"))
+            self.assertEqual(git(root, "tag", "--list").split(), ["v0.1.0"])
+
+            feature_commit(root, "second.py")
+            second = run_ship(["--bump-only"], root, env=env)
+
+            self.assertEqual(second.returncode, 1, msg=second.stdout + second.stderr)
+            self.assertIn("already in flight", second.stderr)
+            self.assertIn("v0.2.0", second.stderr)
+            self.assertEqual(git(root, "status", "--porcelain").strip(), "")
+
+    def test_the_declared_version_reader_sees_every_declaration_style(self):
+        """Unit twin: the guard is only as good as the version it is handed."""
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_pep621_repo(root)
+            pyproject = root / "pyproject.toml"
+            # No cz reachable, so this proves the FILE read finds it — not a
+            # subprocess fallback that happens to be available on this host.
+            self.assertEqual(
+                mod.declared_version(root, pyproject, ["definitely-not-cz-xyz"]),
+                "0.1.0",
+            )
+            # ...and the guard therefore fires on it.
+            pyproject.write_text(
+                pyproject.read_text(encoding="utf-8").replace("0.1.0", "0.2.0"),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                mod.check_bump_in_flight(
+                    root,
+                    ["definitely-not-cz-xyz"],
+                    mod._read_cz_config(pyproject),
+                    mod.declared_version(root, pyproject, ["definitely-not-cz-xyz"]),
+                ),
+                1,
+            )
 
     def test_a_tagged_declared_version_proceeds(self):
         mod = _ship_module()
