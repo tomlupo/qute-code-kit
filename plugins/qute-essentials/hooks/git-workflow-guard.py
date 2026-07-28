@@ -126,11 +126,11 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27 and 28
+not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24 and 27-30
 are parsing; 10-13, 16-18, 22, 25 and 26 are the environment axis, and are the
-reason that axis is written down at all. Most let something THROUGH; 24 and 27
-BLOCKED something they should not have, which is a defect on the same footing
-— a guard that cries wolf gets turned off:
+reason that axis is written down at all. Most let something THROUGH; 24, 27, 29
+and 30 BLOCKED something they should not have, which is a defect on the same
+footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -216,7 +216,12 @@ BLOCKED something they should not have, which is a defect on the same footing
       In front, `>/tmp/out git commit -m x` left the redirection as token 0 and
       the segment stopped looking like git; behind, `git push origin >main`
       counted the FILENAME as an explicit refspec and suppressed the
-      current-branch fallback. `2>&1` was split at the `&` on top of that.
+      current-branch fallback. `2>&1` was split at the `&` on top of that;
+  29. `builtin git` (parsing) — an OVER-denial. `builtin` runs only shell
+      builtins, so git never runs; it was in the run-wrapper list anyway;
+  30. here-doc bodies (parsing) — another OVER-denial. `cat <<EOF … EOF` feeds
+      its body to stdin, but newline splitting turned every line of it into a
+      command, so a `git commit` line inside one could be blocked.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -435,6 +440,13 @@ def _segments(command: str):
     inspected; an operand containing one is unexpanded, which
     `_literal_path` already reports as unknown. An unmatched `)` (a `case` arm)
     is ignored by the caller.
+
+    HERE-DOC BODIES ARE DATA, not commands. `cat <<EOF` … `EOF` feeds its body
+    to stdin, so a `git commit` line inside one is text that bash never runs —
+    but splitting on newlines turned every such line into a command and could
+    block on it. The body is now skipped to its terminator (honouring `<<-`,
+    which allows leading tabs, and a quoted delimiter). `<<<` is a here-STRING,
+    a single word rather than a body, and is left alone.
     """
     events = []
     buf = []
@@ -445,6 +457,19 @@ def _segments(command: str):
         if text:
             events.append(("cmd", text))
 
+    def skip_heredoc_bodies(pos, pending):
+        """Consume the bodies queued by `<<` operators on the line just ended."""
+        for delim, strip_tabs in pending:
+            while pos < n:
+                eol = command.find("\n", pos)
+                line_end = n if eol < 0 else eol
+                line = command[pos:line_end]
+                pos = n if eol < 0 else eol + 1
+                if (line.lstrip("\t") if strip_tabs else line).strip() == delim:
+                    break
+        return pos
+
+    pending_heredocs = []
     i, n = 0, len(command)
     in_single = in_double = False
     while i < n:
@@ -493,6 +518,33 @@ def _segments(command: str):
             j = n if j < 0 else j + 1
             buf.append(command[i:j])
             i = j
+        elif (
+            c == "<" and command[i + 1 : i + 2] == "<" and command[i + 2 : i + 3] != "<"
+        ):
+            # `<<WORD` / `<<-WORD` / `<< 'WORD'` — queue the body to skip once
+            # this line ends. (`<<<` is a here-string; it falls through.)
+            j = i + 2
+            strip_tabs = command[j : j + 1] == "-"
+            if strip_tabs:
+                j += 1
+            while j < n and command[j] in " \t":
+                j += 1
+            if j < n and command[j] in "'\"":
+                quote, j = command[j], j + 1
+                start = j
+                while j < n and command[j] != quote:
+                    j += 1
+                delim = command[start:j]
+                j = min(j + 1, n)
+            else:
+                start = j
+                while j < n and command[j] not in " \t\n;&|<>()":
+                    j += 1
+                delim = command[start:j]
+            if delim:
+                pending_heredocs.append((delim, strip_tabs))
+            buf.append(command[i:j])
+            i = j
         elif c in "&|;\n":
             nxt = command[i + 1] if i + 1 < n else ""
             prev = buf[-1] if buf else ""
@@ -515,6 +567,10 @@ def _segments(command: str):
                 sep, width = c, 1
             events.append(("sep", sep))
             i += width
+            if c == "\n" and pending_heredocs:
+                # The line that queued them has ended; its bodies are data.
+                i = skip_heredoc_bodies(i, pending_heredocs)
+                pending_heredocs = []
         elif c in "()":
             flush()
             events.append(("open" if c == "(" else "close", None))
@@ -733,9 +789,15 @@ def _strip_env(tokens):
 
 
 # Shell prefixes that mean "run the following command": `command git push`,
-# `exec git commit` (both ordinary in scripts), `builtin`. Matched literally —
-# unlike `env` these are shell builtins and never appear as a path.
-_RUN_WRAPPERS = frozenset({"command", "builtin", "exec"})
+# `exec git commit` — both ordinary in scripts. Matched literally; unlike `env`
+# these are shell builtins and never appear as a path.
+#
+# `builtin` is NOT here, and the asymmetry with `_CD_WRAPPERS` is deliberate:
+# `builtin` runs ONLY shell builtins, so `builtin git commit` dies with "git:
+# not a shell builtin" and git never runs, while `builtin cd /x` really moves
+# the shell. Same reasoning that keeps `env`/`exec` out of `_CD_WRAPPERS` —
+# a wrapper belongs in a list only where it can actually run that command.
+_RUN_WRAPPERS = frozenset({"command", "exec"})
 # Their value-less options (`command -p`, `exec -c`/`-l`) and the one that takes
 # a value (`exec -a NAME`). Anything else is unresolvable -> guarded.
 _WRAPPER_FLAGS = frozenset({"-p", "-v", "-V", "-c", "-l"})

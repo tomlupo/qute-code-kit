@@ -727,6 +727,58 @@ def test_a_redirection_does_not_hide_a_cd(tmp_path, home):
     assert decision == "deny"
 
 
+# ─── here-doc bodies are data ─────────────────────────────────
+#
+# Defect 30, an over-denial. `cat <<EOF … EOF` feeds its body to stdin; bash
+# never runs those lines. Splitting on newlines turned each one into a command,
+# so a `git commit` line inside a here-doc could be blocked — in a guard whose
+# docs call false blocks defects.
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "cat <<EOF\ngit commit -m x\nEOF",
+        "cat <<'EOF'\ngit push origin main\nEOF",
+        'cat <<"EOF"\ngit commit -m x\nEOF',
+        "cat <<- END\n\tgit commit -m x\n\tEND",
+        "cat <<EOF > script.sh\ngit commit -m x\ngit push origin main\nEOF",
+    ],
+)
+def test_heredoc_body_is_not_executed(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+def test_a_real_command_after_a_heredoc_is_still_seen(tmp_path, home):
+    """The body ends at its terminator — everything after it is live code."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(
+        "cat <<EOF > script.sh\ngit commit -m fake\nEOF\ngit commit -m real",
+        repo,
+        home,
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_heredoc_terminator_must_match_to_end_the_body(tmp_path, home):
+    """A `<<-` body allows leading tabs on its terminator; a plain `<<` does
+    not, so an indented `EOF` does not close it."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("cat <<-END\n\tgit commit -m x\n\tEND", repo, home)
+    assert decision == "allow"
+
+
+def test_a_here_string_is_not_a_heredoc(tmp_path, home):
+    """`<<<` is a here-STRING — one word, no body — so the command carrying it
+    is still a real command."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git commit -m x <<<hi", repo, home)
+    assert decision == "deny"
+
+
 # ─── dry runs write nothing ───────────────────────────────────
 #
 # Defect 27, an over-denial like 24. The criterion is "will this command WRITE
@@ -1590,7 +1642,6 @@ GIT_INVOCATION_FORMS = [
     "/usr/local/bin/git",
     "command git",
     "command -p git",
-    "builtin git",
     "exec git",
     "exec -c git",
     "command -- git",
@@ -1766,6 +1817,23 @@ def test_command_v_git_is_not_a_commit(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     decision, _ = _run("command -v git", repo, home)
     assert decision == "allow"
+
+
+def test_builtin_cannot_run_git(tmp_path, home):
+    """Defect 29. `builtin` runs ONLY shell builtins, so `builtin git commit`
+    dies with "git: not a shell builtin" and git never runs — verified. The
+    asymmetry with `builtin cd`, which really does move the shell, is the
+    point: a wrapper belongs in a list only where it can run that command."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in ("builtin git commit -m x", "builtin git push origin main"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", cmd
+
+    # …while `builtin cd` is still followed.
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"builtin cd {other} && git commit -m x", session, home)
+    assert decision == "deny"
 
 
 # ─── `-c alias.<name>=…` on the command line ──────────────────
