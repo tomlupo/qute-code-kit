@@ -256,7 +256,7 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     #    ignores lightweight tags, so a release cut with one never leaves the
     #    machine; making it annotated here removes the dependency on a config
     #    key (`annotated_tag`) being set correctly in every consuming repo.
-    tag = render_tag(cz_config, new_version)
+    tag = resolve_tag(root, cz, cz_config, new_version)
     tag_message = build_tag_message(root, cz_config, tag, new_version)
     try:
         # `--cleanup=whitespace` because the default (`strip`) treats lines
@@ -406,8 +406,59 @@ def changelog_section(
     return body or None
 
 
+def resolve_tag(
+    root: Path, cz: list[str], cz_config: dict[str, object], version: str
+) -> str:
+    """The tag name commitizen itself would use for `version`.
+
+    `tag_format` is commitizen's syntax, not this script's. It accepts more
+    variables than the four rendered below — `$prerelease`, `$devrelease` —
+    and cz used the real format to compute the version and the changelog. A
+    tag rendered by a second, partial formatter is exactly the provenance
+    break this script exists to prevent: git would carry `v1.2.3$prerelease`
+    while cz's history says `v1.2.3`. So ask the tool that owns the format.
+
+    `cz version --project --tag` prints the tag for the version currently in
+    the project — which, run AFTER the files-only bump, is the new one. It
+    also honours a non-default `version_provider`, which local rendering
+    cannot see.
+
+    Falls back to local `string.Template` rendering when the query fails or
+    returns something unusable (empty output, or whitespace — cz reports "no
+    project information" on stderr and prints nothing). A thin tag beats
+    aborting a release whose bump commit has already landed; the fallback
+    announces itself rather than swapping the tag silently.
+    """
+    try:
+        result = subprocess.run(
+            [*cz, "version", "--project", "--tag"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        local = render_tag(cz_config, version)
+        info(f"`cz version --project --tag` failed ({exc}); using local tag {local}")
+        return local
+
+    tag = result.stdout.strip()
+    if not tag or any(ch.isspace() for ch in tag):
+        local = render_tag(cz_config, version)
+        info(
+            "`cz version --project --tag` returned no usable tag "
+            f"({tag!r}); using local tag {local}"
+        )
+        return local
+    return tag
+
+
 def render_tag(cz_config: dict[str, object], version: str) -> str:
-    """Render `[tool.commitizen] tag_format` for `version` (default `v$version`)."""
+    """Local fallback for `tag_format` — only used when cz cannot be asked.
+
+    Deliberately partial: it knows `$version`/`$major`/`$minor`/`$patch` and
+    leaves anything else as a literal. `resolve_tag` is the real answer.
+    """
     fmt = cz_config.get("tag_format")
     if not isinstance(fmt, str) or not fmt.strip():
         fmt = DEFAULT_TAG_FORMAT

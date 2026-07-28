@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -288,6 +289,161 @@ class CleanWorktreeGate(unittest.TestCase):
                 text=True,
             ).stdout
             self.assertEqual(head, after)
+
+
+class TagRendering(unittest.TestCase):
+    """The tag git creates must be the tag commitizen thinks it cut.
+
+    Regression guard for the second review round on PR #84: `render_tag()`
+    re-rendered `tag_format` with only $version/$major/$minor/$patch, so a
+    config using $prerelease or $devrelease baked those literals into the tag
+    name while cz had used the real format to compute the changelog. /ship now
+    asks cz for the tag (`cz version --project --tag`) and only falls back to
+    local rendering when cz cannot answer.
+    """
+
+    @staticmethod
+    def _ship_module():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("ship_tag_under_test", SHIP_PY)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    # -- fallback behaviour (no commitizen needed) --------------------------
+
+    def test_falls_back_locally_when_cz_is_missing(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            tag = mod.resolve_tag(
+                Path(d), ["definitely-not-a-real-binary-xyz"], {}, "1.2.3"
+            )
+        self.assertEqual(tag, "v1.2.3")
+
+    def test_falls_back_locally_when_cz_prints_nothing(self):
+        """cz reports 'no project information' on stderr and prints no tag."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            tag = mod.resolve_tag(
+                Path(d),
+                [sys.executable, "-c", "pass"],
+                {"tag_format": "release-$version"},
+                "1.2.3",
+            )
+        self.assertEqual(tag, "release-1.2.3")
+
+    def test_rejects_output_that_is_not_a_single_token(self):
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            tag = mod.resolve_tag(
+                Path(d),
+                [sys.executable, "-c", "print('No project information here.')"],
+                {},
+                "1.2.3",
+            )
+        self.assertEqual(tag, "v1.2.3")
+
+    def test_uses_cz_output_verbatim(self):
+        """Whatever cz prints IS the tag — no second-guessing the format."""
+        mod = self._ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            tag = mod.resolve_tag(
+                Path(d),
+                [sys.executable, "-c", "print('v3.0.0')"],
+                {"tag_format": "v$minor.$major.$patch$prerelease"},
+                "0.3.0",
+            )
+        self.assertEqual(tag, "v3.0.0")
+        self.assertNotIn("$", tag)
+
+    # -- end-to-end against real commitizen --------------------------------
+
+    def _release(self, tag_format: str, root: Path) -> str:
+        """Build a repo with `tag_format`, run /ship, return the created tag."""
+
+        def git(*args: str) -> str:
+            return subprocess.run(
+                ["git", "-C", str(root), *args],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout
+
+        (root / "src" / "demo").mkdir(parents=True)
+        (root / "pyproject.toml").write_text(
+            "[project]\n"
+            'name = "demo"\n'
+            'version = "0.1.0"\n'
+            'requires-python = ">=3.11"\n'
+            "dependencies = []\n\n"
+            "[dependency-groups]\n"
+            'dev = ["commitizen"]\n\n'
+            "[tool.commitizen]\n"
+            'name = "cz_conventional_commits"\n'
+            'version = "0.1.0"\n'
+            'version_files = ["pyproject.toml:version"]\n'
+            f'tag_format = "{tag_format}"\n',
+            encoding="utf-8",
+        )
+        (root / "src" / "demo" / "__init__.py").write_text("", encoding="utf-8")
+        git("init", "-q", "-b", "main")
+        git("config", "user.email", "test@example.com")
+        git("config", "user.name", "Test")
+        git("config", "commit.gpgsign", "false")
+        git("add", "-A")
+        git("commit", "-q", "-m", "chore: init")
+        (root / "src" / "demo" / "core.py").write_text("X = 1\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "feat: add X")
+
+        result = run_ship([], root)
+        if result.returncode != 0:
+            self.skipTest(
+                f"commitizen unavailable for end-to-end tag test: {result.stderr[-400:]}"
+            )
+        tags = [t for t in git("tag", "--list").splitlines() if t]
+        self.assertEqual(len(tags), 1, msg=f"tags={tags}\n{result.stdout}")
+        # The tag git created must be exactly what cz reports for the project.
+        reported = subprocess.run(
+            ["uv", "run", "cz", "version", "--project", "--tag"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual(tags[0], reported)
+        # Always annotated — `git push --follow-tags` skips lightweight tags.
+        self.assertEqual(
+            git("cat-file", "-t", git("rev-parse", tags[0]).strip()).strip(), "tag"
+        )
+        return tags[0]
+
+    @unittest.skipUnless(shutil.which("uv"), "uv not on PATH")
+    def test_default_tag_format(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(self._release("v$version", Path(d)), "v0.2.0")
+
+    @unittest.skipUnless(shutil.which("uv"), "uv not on PATH")
+    def test_custom_prefix_tag_format(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(
+                self._release("release-$version", Path(d)), "release-0.2.0"
+            )
+
+    @unittest.skipUnless(shutil.which("uv"), "uv not on PATH")
+    def test_tag_format_with_a_variable_the_local_renderer_lacks(self):
+        """The actual bug: `$prerelease` used to survive into the tag name."""
+        mod = self._ship_module()
+        fmt = "v$minor.$major.$patch$prerelease"
+        with tempfile.TemporaryDirectory() as d:
+            tag = self._release(fmt, Path(d))
+        self.assertNotIn("$", tag)
+        self.assertEqual(tag, "v2.0.0")
+        # And prove the old local-only renderer would have gotten it wrong.
+        self.assertEqual(
+            mod.render_tag({"tag_format": fmt}, "0.2.0"), "v2.0.0$prerelease"
+        )
 
 
 if __name__ == "__main__":

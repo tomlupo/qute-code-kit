@@ -12,6 +12,14 @@ release.
 
 `vX.Y.Z` on `main` is the only release-tag namespace.
 
+In Python mode the tag *name* is asked of commitizen itself
+(`cz version --project --tag`) rather than re-rendered here, so a custom
+`[tool.commitizen] tag_format` — including variables like `$prerelease` /
+`$devrelease` that a partial renderer would leave as literals — produces
+exactly the tag cz used when it computed the version and changelog. If cz
+cannot be asked, /ship falls back to local rendering and says so in its
+output.
+
 ## Mode dispatch (handled by `ship.py`)
 
 The script auto-detects mode by what's in the repo root:
