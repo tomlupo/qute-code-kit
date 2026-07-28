@@ -63,8 +63,9 @@ not the one git is about to act in, and says yes.
   This has nothing to do with how the command is written; it is about whether
   the guard's model of the world matches the shell's and git's. A `cd` that
   FAILS leaves the shell where it was. `--work-tree` without `--git-dir` leaves
-  the REPO where it was. Both looked like ordinary commands and both let a
-  direct commit on `main` through, because the guard went looking somewhere
+  the REPO where it was. A `cd` inside `( … )` moves the shell only until the
+  `)`. All three looked like ordinary commands and all three let a direct
+  commit on a guarded branch through, because the guard went looking somewhere
   else.
 
 An environment-axis defect is in scope however ordinary the command looks — the
@@ -112,7 +113,7 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9 are parsing; 10-11 are the
+not as a checklist that is now complete. 1-9 are parsing; 10-12 are the
 environment axis, and are the reason that axis is written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -135,7 +136,10 @@ environment axis, and are the reason that axis is written down at all:
       the commit in the original repo, but the guard followed the dead path and
       evaluated a directory that is not a repo at all;
   11. `--work-tree` without `--git-dir` — git still uses the current repo's
-      `.git`, but the guard treated the work tree as the repo.
+      `.git`, but the guard treated the work tree as the repo;
+  12. subshell grouping — `(cd ../other && git commit)` was evaluated against
+      the ORIGINAL repo, because the segment splitter dropped `(` and `)`
+      instead of scoping the working directory to them.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -317,13 +321,84 @@ def _current_branch(cwd: Path):
     return branch if branch and branch != "HEAD" else None
 
 
-# Split a shell line into the individual commands joined by &&, ||, ;, | (and
-# newlines). Crude but sufficient: we only need to find git commit/push verbs.
-_SEP = re.compile(r"&&|\|\||;|\n|\|")
-
-
 def _segments(command: str):
-    return [s.strip() for s in _SEP.split(command) if s.strip()]
+    """Split a shell line into events: the individual commands joined by
+    `&&`, `||`, `;`, `|` and newlines, plus the SUBSHELL boundaries between
+    them. Yields `("cmd", text)`, `("open", None)` and `("close", None)`.
+
+    Subshells are events rather than noise because `(` and `)` scope the
+    working directory, and the guard tracks `cd` to know which repo a later
+    command targets. `(cd ../other && git commit)` runs the commit in
+    `../other`, and the cwd reverts afterwards — so a regex split that merely
+    dropped the parens produced BOTH errors: it evaluated the commit against
+    the original repo (missing a direct commit on the other repo's guarded
+    branch), and, had the parens been stripped naively, it would have leaked
+    the `cd` out past the `)` onto every later command. Environment-axis
+    defect, round 6.
+
+    The scan is quote-aware, so a `)` or a separator inside `git commit -m
+    "done)"` is text, not syntax. `$(...)`, backticks and `((...))` produce
+    balanced open/close pairs, which is harmless — a command substitution
+    genuinely does run in a subshell, so scoping it is right anyway. An
+    unmatched `)` (a `case` arm) is ignored by the caller.
+    """
+    events = []
+    buf = []
+
+    def flush():
+        text = "".join(buf).strip()
+        buf.clear()
+        if text:
+            events.append(("cmd", text))
+
+    i, n = 0, len(command)
+    in_single = in_double = False
+    while i < n:
+        c = command[i]
+        if in_single:
+            buf.append(c)
+            in_single = c != "'"
+            i += 1
+        elif in_double:
+            if c == "\\" and i + 1 < n:
+                buf.append(c)
+                buf.append(command[i + 1])
+                i += 2
+                continue
+            buf.append(c)
+            in_double = c != '"'
+            i += 1
+        elif c == "'":
+            in_single = True
+            buf.append(c)
+            i += 1
+        elif c == '"':
+            in_double = True
+            buf.append(c)
+            i += 1
+        elif c == "\\" and i + 1 < n:
+            buf.append(c)
+            buf.append(command[i + 1])
+            i += 2
+        elif c in "&|;\n":
+            flush()
+            # `&&` / `||` consume two chars; `&`, `|`, `;` and newline one.
+            i += 2 if c in "&|" and i + 1 < n and command[i + 1] == c else 1
+        elif c in "()":
+            flush()
+            events.append(("open" if c == "(" else "close", None))
+            i += 1
+        else:
+            buf.append(c)
+            i += 1
+    flush()
+    return events
+
+
+# Brace groups (`{ cd x; git commit; }`) are stripped as noise rather than
+# scoped: unlike `( … )` a brace group runs in the CURRENT shell, so a `cd`
+# inside it must keep applying afterwards.
+_GROUPING_TOKENS = frozenset({"{", "}"})
 
 
 def _tokens(segment: str):
@@ -942,8 +1017,27 @@ def main():
             cfg_cache[key] = _load_config(repo_root)
         return cfg_cache[key]
 
-    for seg in _segments(command):
+    # Working directories saved by an open subshell, restored when it closes.
+    dir_stack: list = []
+
+    for kind, seg in _segments(command):
+        if kind == "open":
+            dir_stack.append(base_dir)
+            continue
+        if kind == "close":
+            # A subshell's `cd` dies with the subshell. An unmatched `)` (a
+            # `case` arm, say) has nothing to restore and is ignored.
+            if dir_stack:
+                base_dir = dir_stack.pop()
+            continue
+
         tokens = _tokens(seg)
+        # Brace groups run in the current shell, so they are noise here — but
+        # the tokens `{` / `}` would otherwise hide the command behind them.
+        while tokens and tokens[0] in _GROUPING_TOKENS:
+            tokens = tokens[1:]
+        while tokens and tokens[-1] in _GROUPING_TOKENS:
+            tokens = tokens[:-1]
 
         # Track `cd` so a subsequent git command in the same chain resolves
         # against the directory the shell actually moved into.

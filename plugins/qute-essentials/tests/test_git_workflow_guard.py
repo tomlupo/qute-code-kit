@@ -1502,6 +1502,126 @@ def test_dash_c_still_wins_over_git_dir(tmp_path, home):
     assert decision == "deny"
 
 
+# ─── subshells scope the working directory ────────────────────
+#
+# Defect 12, environment axis again. The old regex split dropped `(` and `)`
+# entirely, so `(cd ../other && git commit)` was evaluated against the ORIGINAL
+# repo — and a naive fix that merely stripped the parens would have made the
+# opposite error, leaking the subshell's `cd` onto every later command. Both
+# directions are pinned here.
+
+
+def test_subshell_cd_scopes_the_commit_to_the_inner_repo(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(f"(cd {other} && git commit -m x)", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_subshell_cd_to_an_unguarded_repo_is_allowed(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"(cd {other} && git commit -m x)", session, home)
+    assert decision == "allow"
+
+
+def test_subshell_cd_does_not_leak_past_the_closing_paren(tmp_path, home):
+    """The other half: after `)` the shell is back where it started, so a later
+    command must be evaluated against the ORIGINAL repo."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(
+        f"(cd {other} && git status) && git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_subshell_push_refspec_is_not_mangled_by_the_paren(tmp_path, home):
+    """`(… git push origin main)` — the `)` must not end up glued to the
+    refspec, or `main)` would never match the guarded branch."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(f"(cd {repo} && git push origin main)", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_nested_subshells_restore_one_level_at_a_time(tmp_path, home):
+    outer = _make_repo(tmp_path / "outer", "main", STD_CFG)
+    mid = _make_repo(tmp_path / "mid", "feat/mid", STD_CFG)
+    inner = _make_repo(tmp_path / "inner", "dev", STD_CFG)
+    decision, hso = _run(f"(cd {mid} && (cd {inner} && git commit -m x))", outer, home)
+    assert decision == "deny"
+    assert "dev" in hso["permissionDecisionReason"]
+
+    # Back out of the inner subshell only: `mid` is unguarded, so allowed.
+    decision, _ = _run(
+        f"(cd {mid} && (cd {inner} && git status) && git commit -m x)", outer, home
+    )
+    assert decision == "allow"
+
+
+def test_subshell_cd_to_a_missing_directory_still_stays_put(tmp_path, home):
+    """Both environment fixes at once: the `cd` fails, so the subshell runs the
+    commit in the original repo."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("(cd /does/not/exist ; git commit -m x)", repo, home)
+    assert decision == "deny"
+
+
+def test_brace_group_cd_still_applies_afterwards(tmp_path, home):
+    """A brace group runs in the CURRENT shell, so unlike a subshell its `cd`
+    persists — and the `{`/`}` tokens must not hide the commands."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(f"{{ cd {other}; git commit -m x; }}", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+    session2 = _make_repo(tmp_path / "lab2", "feat/work", STD_CFG)
+    other2 = _make_repo(tmp_path / "other2", "main", STD_CFG)
+    decision, _ = _run(
+        f"{{ cd {other2}; git status; }}; git commit -m x", session2, home
+    )
+    assert decision == "deny", "a brace-group cd persists after the group"
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        'git commit -m "done)"',
+        "git commit -m 'wrap (up)'",
+        'git commit -m "a ; b && c"',
+    ],
+)
+def test_parens_and_separators_inside_quotes_are_text(cmd, tmp_path, home):
+    """The scan is quote-aware: punctuation inside a commit message is not
+    shell syntax, and must neither split the command nor pop a scope."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+
+    repo2 = _make_repo(tmp_path / "r2", "feat/x", STD_CFG)
+    decision, _ = _run(cmd, repo2, home)
+    assert decision == "allow", cmd
+
+
+def test_unmatched_closing_paren_is_harmless(tmp_path, home):
+    """A `case` arm's `)` has no scope to restore and must not disturb the
+    command that follows."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("case $x in a) echo hi;; esac; git commit -m x", repo, home)
+    assert decision == "deny"
+
+
+def test_command_substitution_does_not_disturb_the_base_dir(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/x", STD_CFG)
+    decision, _ = _run(f"echo $(cd {other} && pwd) && git commit -m x", repo, home)
+    assert decision == "deny"
+
+
 # ─── the guard describes itself honestly ──────────────────────
 
 

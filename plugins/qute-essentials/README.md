@@ -104,7 +104,13 @@ An explicit `"integration_branch": null` means *this repo genuinely has none* (f
 
 **Push destinations are resolved, not string-matched.** `git push origin HEAD` (and `@`) resolves to the branch you are standing on, a `+` force sigil and a `refs/heads/` prefix are stripped, and in `src:dst` only `dst` counts — so `HEAD`, `@`, `+main`, `refs/heads/main`, `HEAD:refs/heads/main` and `:main` are all recognised as the protected branch. A destination the guard *cannot* resolve — an unexpanded `$BRANCH`, a glob refspec (`refs/heads/*:refs/heads/*`), ref navigation (`@{-1}`, `HEAD~1`, `main^`), an empty dst (`main:`), or `HEAD` on a detached HEAD — is **denied**, not allowed: a check that cannot verify must not report success.
 
-Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `git -C <other> commit` and `git --git-dir=<other>/.git commit` all resolve to that repo's branch and config, not the session's. Two cases where the repo does *not* move, because git and the shell don't move it either: a `cd` to a directory that doesn't exist (the shell stays put, so the guard does), and `--work-tree` without `--git-dir` (git identifies a repo by its git dir and still discovers `.git` from the current directory, so `git --work-tree ../scratch commit` commits *here*).
+Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `(cd <other> && git commit)`, `git -C <other> commit` and `git --git-dir=<other>/.git commit` all resolve to that repo's branch and config, not the session's. Equally, the repo does *not* move where git and the shell don't move it either:
+
+- a `cd` to a directory that **doesn't exist** — it fails, so the shell stays put and the guard stays with it;
+- **`--work-tree` without `--git-dir`** — git identifies a repo by its git dir and still discovers `.git` from the current directory, so `git --work-tree ../scratch commit` commits *here*;
+- a `cd` **inside `( … )`** — it dies with the subshell, so a command after the `)` is back in the original repo. Brace groups (`{ …; }`) run in the current shell and their `cd` does persist.
+
+The segment scan is quote-aware, so a `)` or a `;` inside `git commit -m "done)"` is text, not syntax.
 
 **Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.
 
@@ -123,7 +129,7 @@ Fail-open by design: no config, malformed config, a non-git directory, or any in
 The guard answers one question: **will this command write to a guarded branch?** It can be wrong about that on two independent axes, and a defect on **either** is in scope, because both end the same way — it evaluates a context that isn't the one git is about to act in, and says yes.
 
 - **The command (parsing)** — *what* is being run, and against which destination. `/usr/bin/git commit`, `env VAR=x git commit`, `command git push`, a `git ci` alias, `git push origin HEAD`, an option whose arity shifts the positionals.
-- **The environment (context)** — *which* repo and branch git will actually act on. Nothing to do with how the command is written; it's about whether the guard's model of the world matches the shell's and git's. A `cd` that **fails** leaves the shell where it was; `--work-tree` without `--git-dir` leaves the **repo** where it was. Both looked like ordinary commands and both let a direct commit on `main` through, because the guard went looking somewhere else.
+- **The environment (context)** — *which* repo and branch git will actually act on. Nothing to do with how the command is written; it's about whether the guard's model of the world matches the shell's and git's. A `cd` that **fails** leaves the shell where it was; `--work-tree` without `--git-dir` leaves the **repo** where it was; a `cd` inside `( … )` moves the shell only until the `)`. All three looked like ordinary commands and all three let a direct commit on a guarded branch through, because the guard went looking somewhere else.
 
 An environment-axis defect is in scope however ordinary the command looks. The "ordinary invocation forms" line below bounds the **first** axis only, and is about the kind of command, not the kind of bug.
 
@@ -143,7 +149,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **It observes Claude tool calls only.** A human typing in their own terminal, a Makefile target, a CI job, or any script an agent launches that shells out to git internally are all invisible to it — no PreToolUse hook ever sees them.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9 are parsing; 10–11 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9 are parsing; 10–12 are the environment axis, and are why that axis is written down at all:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -158,6 +164,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 9 | parsing | `-c alias.ci=commit` | an alias defined on the command line, invisible to a repo-config lookup |
 | 10 | environment | a failing `cd` | `cd /gone ; git commit` and `cd /gone \|\| git commit` run the commit in the original repo, but the guard followed the dead path into a non-repo |
 | 11 | environment | `--work-tree` without `--git-dir` | git still uses the current repo's `.git`, but the guard treated the work tree as the repo |
+| 12 | environment | subshell grouping | `(cd ../other && git commit)` was evaluated against the original repo — the segment splitter dropped `(` and `)` instead of scoping the working directory to them |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 
