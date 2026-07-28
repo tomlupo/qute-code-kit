@@ -1024,10 +1024,27 @@ def main() -> int:
             else:
                 approved = Path(world["hook_file"]).parent
                 roots.append(approved)
-                actions.append(
-                    f"--allow-shared-hooks-path: {approved} approved as a write "
-                    "target even though it is outside this repo"
+                note = (
+                    f"--allow-shared-hooks-path: {approved} approved as a "
+                    "write target even though it is outside this repo"
                 )
+                # If that directory is itself a symlink, say where it actually
+                # leads. git resolves it too — it runs the hook at the target,
+                # so writing there is what makes the hook work, and refusing
+                # would break the ordinary `~/.githooks -> ~/dotfiles/githooks`
+                # pattern AND leave the guard installed where git will not look.
+                # But consent should be informed, so name the target.
+                if os.path.islink(approved):
+                    try:
+                        target = os.readlink(approved)
+                    except OSError:
+                        target = "?"
+                    note += (
+                        f" — note that path is a symlink to {target}, which is "
+                        "where the hook will actually be written (git resolves "
+                        "it the same way when running the hook)"
+                    )
+                actions.append(note)
         gate = WriteGate(roots)
 
         if installed:

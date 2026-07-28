@@ -90,6 +90,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import stat
 import subprocess
 import sys
@@ -184,7 +185,9 @@ _SCHEMA_HELP = """
 
 def _describe(value) -> str:
     """A value and its type, for a message someone has to act on."""
-    return f"{json.dumps(value) if value is not None else 'null'} ({type(value).__name__})"
+    return (
+        f"{json.dumps(value) if value is not None else 'null'} ({type(value).__name__})"
+    )
 
 
 def _valid_branch_name(repo_root: Path, name: str) -> bool:
@@ -498,7 +501,13 @@ def refusal_message(branch, kind, remote_name, cfg, source) -> str:
         # "--base main" sends the change to the wrong place — and a refusal
         # whose instructions are wrong is worse than a bare refusal, because it
         # gets followed.
-        f"    gh pr create --base {branch}",
+        # shlex.quote: `branch` comes from a config file the REPOSITORY ships,
+        # and git's ref rules permit `$`, `&`, `|`, `(`, backticks — verified,
+        # `main$(id)` is a legal branch name. This line is guidance a human is
+        # meant to copy and paste, so an unquoted name would be a
+        # copy-pasteable command injection. (A refusal that hands you a
+        # poisoned command is a special kind of bad refusal.)
+        f"    gh pr create --base {shlex.quote(branch)}",
         "",
         f"  Guarded branches ({guarded}) come from .claude/git-guard.json.",
     ]
@@ -519,8 +528,7 @@ def refusal_message(branch, kind, remote_name, cfg, source) -> str:
     ]
     if source == "pre-commit-env":
         lines += [
-            "  (running under the pre-commit framework — see"
-            " install_pre_push_guard.py",
+            "  (running under the pre-commit framework — see install_pre_push_guard.py",
             "   for why the native hook path sees strictly more than this one does)",
             "",
         ]

@@ -21,6 +21,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1484,3 +1485,96 @@ class TestCheckModeAppliesTheSharedPathRule:
         report = json.loads(out.stdout)
         assert report["ok"] is True
         assert "hook_file_is_this_repos" not in report["verification"]["coverage"]
+
+
+class TestGuidanceIsNotCopyPasteableInjection:
+    """`gh pr create --base <branch>` is guidance a human is meant to paste.
+
+    The branch name comes from a config file the REPOSITORY ships, and git's
+    ref rules permit `$`, `&`, `|`, `(` and backticks — `main$(id)` is a legal
+    branch name (`main;rm -rf ~` is not, only because of the space). So an
+    unquoted name would hand the reader a poisoned command.
+    """
+
+    CFG = {"protected": "main", "integration": None, "release_tool": None}
+
+    def _line(self, branch):
+        cfg = dict(self.CFG, protected=branch)
+        msg = guard.refusal_message(branch, "update", "origin", cfg, "stdin")
+        return next(ln for ln in msg.splitlines() if "gh pr create" in ln)
+
+    @pytest.mark.parametrize("branch", ["main$(id)", "a&b", "a|b", "a`id`"])
+    def test_metacharacters_are_quoted(self, branch):
+        line = self._line(branch)
+        assert f"--base {branch}" not in line  # not raw
+        assert shlex.split(line)[-1] == branch  # …but still the right value
+
+    @pytest.mark.parametrize("branch", ["main", "dev", "release/2.0"])
+    def test_ordinary_names_stay_readable(self, branch):
+        assert self._line(branch).endswith(f"--base {branch}")
+
+    def test_git_really_does_allow_these_names(self, tmp_path):
+        """If this ever fails, git tightened its rules and the quoting could
+        in principle be dropped — but do not, this is guidance text."""
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        allowed = [
+            n
+            for n in ["main$(id)", "a&b", "a|b"]
+            if subprocess.run(
+                ["git", "check-ref-format", f"refs/heads/{n}"], cwd=tmp_path
+            ).returncode
+            == 0
+        ]
+        assert allowed, "expected git to accept at least one metacharacter name"
+
+
+@pytestmark_git
+class TestSymlinkedApprovedRootIsDisclosedNotRefused:
+    """An out-of-tree `core.hooksPath` that is itself a symlink.
+
+    Deliberately NOT refused. `core.hooksPath` lives in `.git/config`, which a
+    clone never inherits — so this is operator-controlled, not repo-controlled —
+    and git resolves the symlink itself when running the hook, meaning the
+    target IS where the hook has to be written. Refusing would break the
+    ordinary `~/.githooks -> ~/dotfiles/githooks` pattern and install the guard
+    where git would not look. What was missing is informed consent, so the
+    approval line names the target.
+    """
+
+    def test_target_is_named_in_the_approval_and_the_hook_lands_there(
+        self, sandbox, tmp_path
+    ):
+        real = tmp_path / "real-hooks"
+        real.mkdir()
+        link = tmp_path / "linkdir"
+        link.symlink_to(real)
+        _run(
+            ["git", "config", "--local", "core.hooksPath", str(link)],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        out = _install(sandbox, "--allow-shared-hooks-path")
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert "is a symlink to" in out.stdout
+        assert str(real) in out.stdout
+        assert (real / "pre-push").exists()  # where git will actually look
+
+    def test_a_clone_cannot_deliver_core_hooks_path(self, sandbox, tmp_path):
+        """The premise of the decision above, asserted rather than assumed."""
+        _run(
+            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        clone = tmp_path / "clone"
+        _run(
+            ["git", "clone", "-q", str(sandbox["repo"]), str(clone)],
+            tmp_path,
+            sandbox["env"],
+        )
+        got = _run(
+            ["git", "config", "--local", "--get", "core.hooksPath"],
+            clone,
+            sandbox["env"],
+        )
+        assert got.stdout.strip() == "", "a clone must not inherit core.hooksPath"
