@@ -683,3 +683,71 @@ def test_deletion_flag_refspec_is_read_as_a_destination(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
     decision, _ = _run("git push --de" + "lete origin main", repo, home)
     assert decision == "deny"
+
+
+# ─── a remote whose NAME collides with a guarded branch ───────
+#
+# `--repo <r>` consumes its value, so the remote NAME never reaches the target
+# list: a remote called `main` or `dev` must behave exactly like one called
+# `origin`. Round-3 review asserted the opposite — that the option value was
+# appended to the positionals and could block a harmless feature-branch push
+# on the strength of the remote name alone. It does not reproduce. These tests
+# pin the behaviour, including the `origin` control that shows the remote name
+# is not what any decision turns on.
+
+
+@pytest.mark.parametrize("remote", ["main", "dev", "origin"])
+@pytest.mark.parametrize("spelling", ["--repo {r}", "--repo={r}"])
+def test_colliding_remote_name_allows_feature_push_from_feature_branch(
+    remote, spelling, tmp_path, home
+):
+    """The exact shape round-3 review claimed was broken."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    cmd = f"git push {spelling.format(r=remote)} feat/x"
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize("remote", ["main", "dev", "origin"])
+@pytest.mark.parametrize("spelling", ["--repo {r}", "--repo={r}"])
+@pytest.mark.parametrize("branch", ["main", "dev"])
+def test_colliding_remote_name_is_not_what_denies_on_a_guarded_branch(
+    remote, spelling, branch, tmp_path, home
+):
+    """From a GUARDED branch the same command is denied — but by the
+    fail-closed union rule, not by the remote's name. With a single positional
+    git may still be reading it as the remote and pushing the current branch,
+    so the current-branch fallback stays alive. Parametrising `origin`
+    alongside `main`/`dev` is the control: all three behave identically, which
+    is what proves the remote name plays no part."""
+    repo = _make_repo(tmp_path / "r", branch, STD_CFG)
+    cmd = f"git push {spelling.format(r=remote)} feat/x"
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "current branch" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("remote", ["main", "dev", "origin"])
+@pytest.mark.parametrize("spelling", ["--repo {r}", "--repo={r}"])
+@pytest.mark.parametrize("dst", ["main", "dev"])
+def test_guarded_destination_denied_through_a_colliding_remote(
+    remote, spelling, dst, tmp_path, home
+):
+    """Mirror image: when the POSITIONAL genuinely is a guarded branch the push
+    is denied on that destination — a remote named `main` neither masks it nor
+    manufactures it."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    cmd = f"git push {spelling.format(r=remote)} {dst}"
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert dst in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize("spelling", ["--repo main", "--repo=main"])
+def test_repo_option_value_never_becomes_a_target(spelling, tmp_path, home):
+    """Two positionals settle the ambiguity: git reads `upstream` as the remote
+    and `feat/y` as the refspec, so nothing guarded is in play and the remote
+    named `main` must not conjure a denial."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, _ = _run(f"git push {spelling} upstream feat/y", repo, home)
+    assert decision == "allow"
