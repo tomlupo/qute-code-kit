@@ -103,6 +103,18 @@ this file:
     to git internally are all invisible to it — no PreToolUse hook ever sees
     them.
 
+  * Its opt-in gate needs a repo it can NAME. Every decision starts from
+    "is THIS repo opted in", and when a `cd` leaves the location unknown
+    (defect 16) the fail-closed deny is gated on the LAST KNOWN directory. So
+    `cd "$MAIN_REPO" && git commit`, started from a scratch repo that never
+    opted in, stays a no-op even if `$MAIN_REPO` expands into a guarded repo.
+    The only way to close that is to deny on every unexpandable `cd` in every
+    repo on the machine — which ends the opt-in contract (`.claude/
+    git-guard.json` present = guarded, absent = TOTAL no-op) that keeps this
+    hook out of scratch repos and third-party clones. That trade is not worth
+    making here, and it is not a trade `pre-push` has to make at all: it is
+    installed IN the guarded repo, so it is reached by definition.
+
   * Its knowledge of git's option arity is a table, and git's surface grows. A
     FUTURE value-taking `git push` option we do not know about would shift the
     positionals the way `--recurse-submodules` did. `_git_subcommand` carries a
@@ -113,9 +125,9 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14 and 15 are parsing; 10-13 and
-16 are the environment axis, and are the reason that axis is written down at
-all:
+not as a checklist that is now complete. 1-9, 14 and 15 are parsing; 10-13, 16
+and 17 are the environment axis, and are the reason that axis is written down
+at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
    2. refspecs whose destination could not be resolved were allowed, not denied;
@@ -157,7 +169,11 @@ all:
       a failed `cd` (defect 10's fix, applied where it did not belong), so the
       guard went on evaluating the current repo while bash expanded the
       variable and committed somewhere else. `cd -` and a bare `cd` had the
-      same shape.
+      same shape;
+  17. where a refspec-less push GOES — `git push` with no refspec was read as
+      "the current branch", but git consults config first, and both
+      `push.default=upstream` and a configured `remote.<name>.push` send it to
+      `main` from a feature branch tracking `origin/main`.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -933,12 +949,14 @@ def _push_targets(args, current_branch):
     """
     Destination branch names for a `git push` invocation.
 
-    Returns (targets, had_explicit_refspec, unresolvable) — `targets` are the
-    branch names the push would land on, and `unresolvable` holds the raw
-    refspecs whose destination could not be pinned down.
+    Returns (targets, had_explicit_refspec, unresolvable, remote) — `targets`
+    are the branch names the push would land on, `unresolvable` holds the raw
+    refspecs whose destination could not be pinned down, and `remote` is the
+    remote named on the command line (or None), which the no-refspec fallback
+    needs in order to read `remote.<name>.push`.
     """
     positionals = []
-    remote_from_opt = False
+    remote_from_opt = None
     skip_value = False
     for a in args:
         if skip_value:
@@ -946,16 +964,16 @@ def _push_targets(args, current_branch):
             continue
         if a.startswith("-"):
             if a == _REPO_OPT:
-                remote_from_opt = True
+                remote_from_opt = ""  # value arrives as the next token
                 skip_value = True
             elif a.startswith(_REPO_OPT_EQ):
-                remote_from_opt = True
+                remote_from_opt = a[len(_REPO_OPT_EQ) :]
             elif a in _PUSH_OPTS_WITH_VALUE:
                 skip_value = True
             continue
         positionals.append(a)
 
-    if remote_from_opt:
+    if remote_from_opt is not None:
         # `--repo` already named the remote, so EVERY positional is a refspec.
         # Git does ignore `--repo` when a positional repository is ALSO given,
         # and we cannot tell those two readings apart without knowing the
@@ -964,10 +982,12 @@ def _push_targets(args, current_branch):
         # unless a second positional proves the first one was the remote.
         refspecs = positionals
         had_refspec = len(positionals) > 1
+        remote = remote_from_opt or (positionals[0] if positionals else None)
     else:
         # First positional is the remote; the rest are refspecs.
         refspecs = positionals[1:]
         had_refspec = len(refspecs) > 0
+        remote = positionals[0] if positionals else None
     targets = []
     unresolvable = []
     for ref in refspecs:
@@ -976,7 +996,83 @@ def _push_targets(args, current_branch):
             unresolvable.append(ref)
         else:
             targets.append(dst)
-    return targets, had_refspec, unresolvable
+    return targets, had_refspec, unresolvable, remote
+
+
+def _config_map(target_dir: Path) -> dict:
+    """The repo's effective git config as `{key: [values]}`, lowercased section
+    and variable names (git's own normalisation) with subsection case intact.
+
+    One `git config --list -z` call rather than a handful of `--get`s, and only
+    ever made on the no-refspec push path.
+    """
+    raw = _git(target_dir, "config", "--list", "-z")
+    out: dict = {}
+    if not raw:
+        return out
+    for entry in raw.split("\0"):
+        if not entry:
+            continue
+        key, _, value = entry.partition("\n")
+        out.setdefault(key, []).append(value)
+    return out
+
+
+def _push_remote(cfg_map: dict, explicit, branch) -> str:
+    """The remote a push goes to, in git's precedence order. Only the NAME
+    matters here — it is the key for `remote.<name>.push`."""
+    if explicit:
+        return explicit
+    for key in (
+        f"branch.{branch}.pushremote",
+        "remote.pushdefault",
+        f"branch.{branch}.remote",
+    ):
+        values = cfg_map.get(key)
+        if values and values[-1]:
+            return values[-1]
+    return "origin"
+
+
+def _implicit_push_refspecs(cfg_map: dict, remote: str, branch):
+    """The refspecs a `git push` with NO refspec on the command line actually
+    uses, as `(refspecs, unresolvable)`.
+
+    "No refspec" does NOT mean "the current branch": git consults config, and
+    two ordinary settings redirect it somewhere else entirely (defect 17).
+    Verified against real git — from `feat/x` with an upstream of `origin/main`,
+    a bare `git push` reports `feat/x -> main` under both:
+
+      `remote.<name>.push`   configured refspecs, used verbatim and in
+                             preference to `push.default`;
+      `push.default=upstream` (or the `tracking` alias) — pushes to
+                             `branch.<cur>.merge`, which is `refs/heads/main`
+                             for any branch made with `git checkout -b … origin/main`.
+
+    The rest resolve without surprises:
+      `nothing`            pushes nothing;
+      `current` / `simple` the same-name branch. (`simple` additionally REFUSES
+                           when the upstream name differs, so reading it as the
+                           current branch can only over-deny, never under-.)
+      `matching`           pushes every branch that exists on both sides, which
+                           includes a guarded one — unresolvable, so fail closed.
+    """
+    if branch is None:
+        return [], []  # detached HEAD: nothing to push by default
+    configured = [v for v in cfg_map.get(f"remote.{remote}.push", []) if v]
+    if configured:
+        return configured, []
+    modes = cfg_map.get("push.default") or []
+    mode = (modes[-1] if modes else "simple").strip().lower()
+    if mode == "nothing":
+        return [], []
+    if mode in ("upstream", "tracking"):
+        merge = [v for v in cfg_map.get(f"branch.{branch}.merge", []) if v]
+        # No upstream configured -> git errors out, nothing is pushed.
+        return ([merge[-1]] if merge else []), []
+    if mode == "matching":
+        return [], ["push.default=matching"]
+    return [branch], []
 
 
 # Git subcommands that are definitely NOT `commit`/`push`. This list exists
@@ -1130,6 +1226,8 @@ def main():
     # Per-target-repo config cache: repo-root -> cfg (or None). Avoids re-reading
     # config / re-shelling rev-parse for repeated ops on the same repo.
     cfg_cache: dict = {}
+    # Full `git config --list` per repo, read only on the no-refspec push path.
+    cfgmap_cache: dict = {}
 
     def _cfg_for(target_dir: Path):
         """This repo's guard config, or None when it isn't a resolvable repo or
@@ -1309,7 +1407,29 @@ def main():
                 )
 
         elif sub == "push":
-            targets, had_refspec, unresolvable = _push_targets(args, branch)
+            targets, had_refspec, unresolvable, remote = _push_targets(args, branch)
+            implicit_targets = []
+            remote_name = None
+            if not had_refspec:
+                # "No refspec" does NOT mean "the current branch": git reads
+                # `remote.<name>.push` and `push.default`, and either can send
+                # the push to a different branch entirely.
+                key = str(target_dir)
+                if key not in cfgmap_cache:
+                    cfgmap_cache[key] = _config_map(target_dir)
+                cmap = cfgmap_cache[key]
+                remote_name = _push_remote(cmap, remote, branch)
+                implicit, unresolvable_modes = _implicit_push_refspecs(
+                    cmap, remote_name, branch
+                )
+                unresolvable = unresolvable + unresolvable_modes
+                for ref in implicit:
+                    dst = _resolve_push_dst(ref, branch)
+                    if dst is None:
+                        unresolvable.append(ref)
+                    else:
+                        implicit_targets.append(dst)
+
             if protected in targets:
                 _deny(
                     f"Blocked: push to protected branch '{protected}'.",
@@ -1333,17 +1453,20 @@ def main():
                     + ". Push an explicit branch refspec instead.",
                     guidance,
                 )
-            # No explicit refspec -> pushes the current branch. If that's a
-            # guarded branch, it's a direct push to it.
-            if not had_refspec:
-                if branch == protected:
+            # Destinations git supplies itself when no refspec was given.
+            for name, label in ((protected, "protected"), (integration, "integration")):
+                if name and name in implicit_targets:
+                    if name == branch:
+                        _deny(
+                            f"Blocked: push of current branch '{name}' "
+                            f"(the {label} branch).",
+                            guidance,
+                        )
                     _deny(
-                        f"Blocked: push of current branch '{protected}' (the protected branch).",
-                        guidance,
-                    )
-                if integration and branch == integration:
-                    _deny(
-                        f"Blocked: push of current branch '{integration}' (the integration branch).",
+                        f"Blocked: `git push` with no refspec sends '{branch}' to "
+                        f"the {label} branch '{name}' in this repo — git's own "
+                        f"config says so (`remote.{remote_name}.push` or "
+                        "`push.default`), even though no refspec names it.",
                         guidance,
                     )
 

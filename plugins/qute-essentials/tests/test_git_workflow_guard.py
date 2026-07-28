@@ -557,6 +557,154 @@ def test_bare_push_fallback_not_regressed(cmd, tmp_path, home):
         assert decision == expected, f"{cmd} on {branch}"
 
 
+# ─── where a refspec-less push actually goes ──────────────────
+#
+# Defect 17, environment axis. "No refspec" was read as "pushes the current
+# branch", but git consults config first — and two ordinary settings redirect
+# it. Verified against real git: from `feat/x` with an upstream of
+# `origin/main`, `git push --dry-run` reports `feat/x -> main` under BOTH
+# `push.default=upstream` and a configured `remote.origin.push`.
+
+
+def _set_upstream(repo: Path, branch: str, remote: str, merge: str) -> None:
+    _git(repo, "config", f"branch.{branch}.remote", remote)
+    _git(repo, "config", f"branch.{branch}.merge", merge)
+
+
+@pytest.mark.parametrize("mode", ["upstream", "tracking"])
+def test_push_default_upstream_follows_the_configured_upstream(mode, tmp_path, home):
+    """`push.default=upstream` sends a bare push to `branch.<cur>.merge` — for
+    a branch made with `git checkout -b feat/x origin/main`, that is `main`."""
+    repo = _make_repo(tmp_path / f"r{mode}", "feat/x", STD_CFG)
+    _set_upstream(repo, "feat/x", "origin", "refs/heads/main")
+    _git(repo, "config", "push.default", mode)
+    decision, hso = _run("git push", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+    assert "no refspec" in hso["permissionDecisionReason"]
+
+
+def test_push_default_upstream_to_an_unguarded_branch_allowed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_upstream(repo, "feat/x", "origin", "refs/heads/feat/upstream")
+    _git(repo, "config", "push.default", "upstream")
+    decision, _ = _run("git push", repo, home)
+    assert decision == "allow"
+
+
+def test_push_default_upstream_pointing_at_integration_denied(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_upstream(repo, "feat/x", "origin", "refs/heads/dev")
+    _git(repo, "config", "push.default", "upstream")
+    decision, hso = _run("git push", repo, home)
+    assert decision == "deny"
+    assert "dev" in hso["permissionDecisionReason"]
+
+
+def test_push_default_upstream_without_an_upstream_pushes_nothing(tmp_path, home):
+    """Git errors out rather than pushing, so there is nothing to guard."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "push.default", "upstream")
+    decision, _ = _run("git push", repo, home)
+    assert decision == "allow"
+
+
+def test_remote_push_refspec_is_honoured(tmp_path, home):
+    """`remote.<name>.push` supplies refspecs and takes precedence over
+    push.default."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.origin.push", "refs/heads/feat/x:refs/heads/main")
+    decision, hso = _run("git push", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+    repo2 = _make_repo(tmp_path / "r2", "feat/x", STD_CFG)
+    _git(repo2, "config", "remote.origin.push", "refs/heads/feat/x:refs/heads/feat/y")
+    decision, _ = _run("git push", repo2, home)
+    assert decision == "allow"
+
+
+def test_remote_push_refspec_is_read_for_the_named_remote(tmp_path, home):
+    """The refspec is looked up under the remote actually being pushed to."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.upstream.push", "refs/heads/feat/x:refs/heads/main")
+    decision, _ = _run("git push upstream", repo, home)
+    assert decision == "deny"
+    # A different remote has no such refspec, so the default applies.
+    decision, _ = _run("git push origin", repo, home)
+    assert decision == "allow"
+
+
+def test_push_remote_precedence_is_followed(tmp_path, home):
+    """With no remote on the command line, `branch.<cur>.pushRemote` wins over
+    `remote.pushDefault`, which wins over `branch.<cur>.remote`."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "branch.feat/x.remote", "c")
+    _git(repo, "config", "remote.pushDefault", "b")
+    _git(repo, "config", "branch.feat/x.pushRemote", "a")
+    _git(repo, "config", "remote.a.push", "refs/heads/feat/x:refs/heads/main")
+    _git(repo, "config", "remote.b.push", "refs/heads/feat/x:refs/heads/feat/b")
+    _git(repo, "config", "remote.c.push", "refs/heads/feat/x:refs/heads/feat/c")
+    decision, _ = _run("git push", repo, home)
+    assert decision == "deny"
+
+
+def test_glob_push_refspec_in_config_fails_closed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.origin.push", "refs/heads/*:refs/heads/*")
+    decision, hso = _run("git push", repo, home)
+    assert decision == "deny"
+    assert "cannot resolve" in hso["permissionDecisionReason"]
+
+
+def test_push_default_matching_fails_closed(tmp_path, home):
+    """`matching` pushes every branch that exists on both sides, which includes
+    the guarded ones — and nothing on the command line names them."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "push.default", "matching")
+    decision, hso = _run("git push", repo, home)
+    assert decision == "deny"
+    assert "cannot resolve" in hso["permissionDecisionReason"]
+
+
+def test_push_default_nothing_pushes_nothing(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    _git(repo, "config", "push.default", "nothing")
+    decision, _ = _run("git push", repo, home)
+    assert decision == "allow"
+
+
+@pytest.mark.parametrize("mode", ["simple", "current"])
+def test_push_default_same_name_modes_keep_the_current_branch_reading(
+    mode, tmp_path, home
+):
+    for branch, expected in (("main", "deny"), ("dev", "deny"), ("feat/x", "allow")):
+        repo = _make_repo(
+            tmp_path / f"{branch.replace('/', '_')}-{mode}", branch, STD_CFG
+        )
+        _git(repo, "config", "push.default", mode)
+        decision, _ = _run("git push", repo, home)
+        assert decision == expected, f"{mode} on {branch}"
+
+
+def test_explicit_refspec_still_overrides_config(tmp_path, home):
+    """Config only applies when the command line gives no refspec."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _set_upstream(repo, "feat/x", "origin", "refs/heads/main")
+    _git(repo, "config", "push.default", "upstream")
+    decision, _ = _run("git push origin feat/x", repo, home)
+    assert decision == "allow", "an explicit unguarded refspec wins"
+
+
+def test_implicit_push_config_is_read_from_the_target_repo(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    sibling = _make_repo(tmp_path / "other", "feat/x", STD_CFG)
+    _set_upstream(sibling, "feat/x", "origin", "refs/heads/main")
+    _git(sibling, "config", "push.default", "upstream")
+    decision, _ = _run(f"git -C {sibling} push", session, home)
+    assert decision == "deny"
+
+
 def test_sibling_repo_head_push_scoped_to_sibling(tmp_path, home):
     """`HEAD` resolves against the TARGET repo's branch, not the session's."""
     session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
@@ -1533,6 +1681,14 @@ def test_unexpandable_cd_does_not_block_read_only_git(cd, tmp_path, home):
 
 
 def test_unexpandable_cd_is_a_noop_without_config(tmp_path, home):
+    """A DOCUMENTED LIMIT, not an oversight: the fail-closed deny is gated on
+    the last known directory being opted in, so starting from a repo that never
+    opted in this stays a no-op — even though `$MAIN_REPO` might expand into a
+    guarded repo. Closing it would mean denying on every unexpandable `cd` in
+    every repo on the machine, which ends the opt-in contract that keeps this
+    hook out of scratch repos and third-party clones. See the module
+    docstring's structural limits; `pre-push` is installed in the guarded repo
+    and so is reached by definition."""
     repo = _make_repo(tmp_path / "r", "main", None)
     decision, _ = _run('cd "$MAIN_REPO" && git commit -m x', repo, home)
     assert decision == "allow"

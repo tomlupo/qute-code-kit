@@ -102,6 +102,8 @@ The integration branch is guarded for the same reason as the protected one: that
 
 An explicit `"integration_branch": null` means *this repo genuinely has none* (feature → PR → `main`) and is never overridden by the `dev` default. `release_tool` only feeds the guidance text.
 
+**A push with no refspec is resolved from config, not assumed to be the current branch.** Git consults `remote.<name>.push` first, then `push.default` — and `upstream`/`tracking` send the push to `branch.<cur>.merge`, which is `main` for any branch created with `git checkout -b feat/x origin/main`. `matching` is unresolvable (it pushes every branch that exists on both sides) and therefore **denied**; `nothing` pushes nothing; `simple`/`current` mean the same-name branch.
+
 **Push destinations are resolved, not string-matched.** `git push origin HEAD` (and `@`) resolves to the branch you are standing on, a `+` force sigil and a `refs/heads/` prefix are stripped, and in `src:dst` only `dst` counts — so `HEAD`, `@`, `+main`, `refs/heads/main`, `HEAD:refs/heads/main` and `:main` are all recognised as the protected branch. A destination the guard *cannot* resolve — an unexpanded `$BRANCH`, a glob refspec (`refs/heads/*:refs/heads/*`), ref navigation (`@{-1}`, `HEAD~1`, `main^`), an empty dst (`main:`), or `HEAD` on a detached HEAD — is **denied**, not allowed: a check that cannot verify must not report success.
 
 Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `(cd <other> && git commit)`, `git -C <other> commit` and `git --git-dir=<other>/.git commit` all resolve to that repo's branch and config, not the session's. `-C` and `--git-dir` **compose** in git's documented order — `-C` moves the cwd first (whatever order they appear in), then `--git-dir` names the repo, with a relative git dir resolved against the `-C` directory. Equally, the repo does *not* move where git and the shell don't move it either:
@@ -147,9 +149,10 @@ So: a **speed bump, not enforcement** — but with a criterion, not a shrug.
 Two limits are structural rather than defects, and neither has a fix in this hook:
 
 - **It observes Claude tool calls only.** A human typing in their own terminal, a Makefile target, a CI job, or any script an agent launches that shells out to git internally are all invisible to it — no PreToolUse hook ever sees them.
+- **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14 and 15 are parsing; 10–13 and 16 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14 and 15 are parsing; 10–13, 16 and 17 are the environment axis, and are why that axis is written down at all:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -169,6 +172,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 14 | parsing | shell control flow | reserved words sit in front of the command they introduce, so `if …; then git commit; fi` tokenized as `["then", "git", …]` and never registered as a git command |
 | 15 | parsing | the Windows spelling | `git.exe commit`, `/mingw64/bin/git.exe push origin main` and any case variant matched neither the executable check nor the `"git" in command` fast path |
 | 16 | environment | an unexpanded `cd` operand | `cd "$MAIN_REPO" && git commit` was read as a *failed* `cd`, so the guard kept evaluating the current repo while bash expanded the variable and committed elsewhere |
+| 17 | environment | where a refspec-less push goes | `git push` was read as "the current branch", but `push.default=upstream` and a configured `remote.<name>.push` send it to `main` from a feature branch tracking `origin/main` |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 
