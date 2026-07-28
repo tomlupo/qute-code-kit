@@ -218,6 +218,48 @@ gate binds it on conclude.
 
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
+- **`pre-push` branch guard** (TOM-348) — the deterministic stand-in for
+  server-side branch protection, which is unavailable on these repos' plan.
+  Opt-in is `.claude/git-guard.json` in the repo root: its **presence** arms the
+  guard, all fields are optional (`{}` = protect `main`, plus `dev` when
+  `origin/dev` exists; `"integration_branch": null` = this repo genuinely has
+  none). Skip scratch repos and third-party clones. Do NOT hand-copy files or
+  hand-run `pre-commit install`; run the installer, which detects the world,
+  installs, and then *measures* the result:
+
+  ```bash
+  python3 "$(claude plugin path qute-essentials)/scripts/install_pre_push_guard.py" \
+      --repo . [--opt-in] [--adopt-existing]
+  ```
+
+  Read the report it prints, and put its `verification:` block in the step's
+  summary — "ran the installer" is not evidence, and a hook that silently is
+  not installed is worse than no hook because it manufactures confidence.
+  Things to get right:
+
+  - **Two worlds, detected not assumed.** A repo with `core.hooksPath` set
+    makes git ignore `.git/hooks` entirely, so `pre-commit install` there
+    installs nothing that will ever run (pre-commit ≥3 refuses outright; older
+    versions succeed silently). The installer resolves the hook path with
+    `git rev-parse --git-path hooks/pre-push` — git's own answer — and uses the
+    native dispatcher there. Everywhere else with a `.pre-commit-config.yaml`
+    it adds a `stages: [pre-push]` entry and runs `pre-commit install
+    --hook-type pre-push`.
+  - **An existing `pre-push` is never clobbered.** Without `--adopt-existing`
+    the installer reports `BLOCKED` and stops. With it, the old hook moves to
+    `<hooks dir>/pre-push.d/00-legacy-pre-push` and the qute dispatcher runs in
+    front of it, replaying the ref lines so the adopted hook still gets its
+    stdin.
+  - **Report the coverage gap honestly.** Under the pre-commit framework the
+    guard cannot see branch *deletions* — pre-commit drops ref lines whose
+    local sha is all zeros before running any hook, and exposes only the first
+    pushable ref. The native path has neither limitation. The installer's
+    coverage block states this per-repo; do not paraphrase it away.
+  - **`git push --no-verify` bypasses it**, as it does every client-side hook.
+    That is the design, not a defect: this catches the accidental push and
+    yields to the deliberate one. It is not a substitute for server-side branch
+    protection — it exists precisely because protection is unavailable on these
+    repos' plan.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).

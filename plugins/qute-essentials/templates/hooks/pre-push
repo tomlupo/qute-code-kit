@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# qute-pre-push-dispatcher v1 — stamped by /setup-qute-repo (do not hand-edit;
+# add your own hooks to pre-push.d/ instead).
+#
+# Git gives a pre-push hook the refs it is about to send on STDIN, and stdin
+# can only be consumed once. So this dispatcher reads the ref lines exactly
+# once and replays them to each consumer:
+#
+#   1. the qute branch guard at <repo>/.claude/hooks/pre-push-branch-guard
+#      (first, and fatal — a refused destination stops the push immediately);
+#   2. every executable in <hooks dir>/pre-push.d/, in lexical order. A repo
+#      that already had its own pre-push hook when the guard was installed will
+#      find it there as 00-legacy-pre-push.
+#
+# Bypass (all of it): git push --no-verify
+set -uo pipefail
+
+hooks_dir="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null || echo "")"
+
+# Read stdin once. `$(cat)` strips trailing newlines, which is why replay uses
+# printf with an explicit newline — and skips it entirely when there is no
+# input, so a consumer never sees a spurious blank line.
+refs="$(cat)"
+emit() { [ -n "$refs" ] && printf '%s\n' "$refs"; return 0; }
+
+guard="${repo_root:-.}/.claude/hooks/pre-push-branch-guard"
+if [ -x "$guard" ]; then
+  emit | "$guard" "$@" || exit $?
+fi
+
+status=0
+if [ -d "$hooks_dir/pre-push.d" ]; then
+  for hook in "$hooks_dir"/pre-push.d/*; do
+    [ -x "$hook" ] || continue
+    emit | "$hook" "$@" || status=$?
+  done
+fi
+
+exit "$status"

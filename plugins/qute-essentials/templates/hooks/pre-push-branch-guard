@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""qute pre-push branch guard — refuse pushes that land on a guarded branch.
+
+WHY THIS EXISTS AT THIS LAYER
+-----------------------------
+The plugin's `git-workflow` guard is a Claude `PreToolUse` hook: it reads a
+shell command string and infers intent. That makes it useful (it explains the
+route *before* the command runs) but structurally leaky in two ways:
+
+  1. it only sees tool calls, so a human at a terminal or a shell script is
+     invisible to it;
+  2. inferring a push destination from a command line has an unbounded tail of
+     shapes — `git push origin HEAD`, unresolvable refspecs, `--repo=origin
+     main`, git aliases, `env VAR=x git push …` — each of which was a real
+     bypass found by review.
+
+`pre-push` has neither problem. Git runs it after alias expansion, after `env`,
+after option parsing — for humans, scripts and agents alike — and hands it the
+refs it is actually about to send. There is nothing to parse and nothing to
+infer. This is the layer that holds.
+
+WHAT IT IS NOT
+--------------
+`git push --no-verify` skips every local hook, including this one. That is not
+a defect; it is the contract of a client-side hook, and it is what makes this
+guard safe to install: it catches the accidental push and yields to the
+deliberate one. It is also NOT a substitute for server-side branch protection —
+these repos are on a plan where protection is unavailable, which is the reason
+any of this exists. If branch protection ever becomes available, it supersedes
+this hook rather than complementing it.
+
+Deliberately, this hook does NOT consult `/guard git-workflow on|off`
+(`~/.claude/qute-guards.json`). That toggle governs an agent-side Claude hook.
+This one fires for a human at a terminal too, and a Claude-session preference
+must not silently disarm a git hook for a human. `--no-verify` is the override.
+
+OPT-IN AND CONFIG
+-----------------
+Reads the SAME per-repo file as the `git-workflow` PreToolUse guard —
+`.claude/git-guard.json` in the repo root — with the same rules, so the two
+layers can never disagree about which branches are guarded:
+
+    {
+      "protected_branch": "main",       // default "main"
+      "integration_branch": "dev",      // default "dev" iff origin/dev exists;
+                                        // explicit null = this repo has none
+      "release_tool": "commitizen (/ship)"   // guidance text only
+    }
+
+The PRESENCE of the file is the opt-in. No file → this hook is a no-op, which
+is what keeps it out of scratch repos and third-party clones. A repo that wants
+the house defaults commits `{}`.
+
+INPUT MODES
+-----------
+1. Native git hook (full fidelity). argv = (remote_name, remote_url); stdin
+   carries one `<local ref> <local sha> <remote ref> <remote sha>` line per ref.
+
+2. Under the `pre-commit` framework's `pre-push` stage (reduced fidelity).
+   pre-commit consumes stdin itself and re-exposes ONE ref through
+   `PRE_COMMIT_REMOTE_BRANCH` / `PRE_COMMIT_LOCAL_BRANCH` /
+   `PRE_COMMIT_FROM_REF` / `PRE_COMMIT_TO_REF`. Two consequences, both real and
+   both documented rather than papered over:
+     - pre-commit SKIPS ref lines whose local sha is all zeros, i.e. **branch
+       deletions never reach any hook** in that world;
+     - only the first pushable ref is exposed, so a multi-ref push
+       (`git push origin feat/x main`) is judged on `feat/x` alone.
+   Installing at the native hook path (see `install_pre_push_guard.py`, which
+   prefers it whenever the slot is free) has neither limitation.
+
+EXIT CODES
+----------
+  0  allow (also: not opted in, not a branch push, internal error)
+  1  refuse
+
+Internal errors fail OPEN with a loud stderr warning. A guard that wedges every
+push in the repo the moment it hits an unexpected input is worse than one that
+says so and steps aside — but it must SAY so, never fail open silently.
+
+Set QUTE_PRE_PUSH_GUARD_TRACE=1 to emit a `QUTE_PRE_PUSH_GUARD: …` marker line
+on stderr for every decision. `install_pre_push_guard.py --verify` uses that
+marker to prove the hook is genuinely reachable through git's own hook path
+rather than merely present on disk.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+MARKER = "QUTE_PRE_PUSH_GUARD"
+DEFAULT_PROTECTED = "main"
+DEFAULT_INTEGRATION = "dev"
+BRANCH_PREFIX = "refs/heads/"
+
+# A sha of all zeros is git's "this ref does not exist" sentinel — 40 chars for
+# sha1, 64 for sha256.
+_ALL_ZEROS = re.compile(r"\A0+\Z")
+
+
+def _is_zero(sha: str) -> bool:
+    return bool(_ALL_ZEROS.match(sha))
+
+
+def _trace(msg: str) -> None:
+    if os.environ.get("QUTE_PRE_PUSH_GUARD_TRACE"):
+        print(f"{MARKER}: {msg}", file=sys.stderr)
+
+
+def _git(cwd: Path, *args: str):
+    """Run a read-only git query; return stdout stripped, or None on failure."""
+    try:
+        out = subprocess.run(
+            ["git", *args], capture_output=True, text=True, cwd=str(cwd), timeout=10
+        )
+    except Exception:
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip()
+
+
+def _repo_root() -> Path | None:
+    top = _git(Path.cwd(), "rev-parse", "--show-toplevel")
+    return Path(top) if top else None
+
+
+def _remote_branch_exists(repo_root: Path, branch: str) -> bool:
+    return (
+        _git(
+            repo_root,
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"refs/remotes/origin/{branch}",
+        )
+        is not None
+    )
+
+
+def load_config(repo_root: Path):
+    """Resolved guard config, or None when the repo is not opted in.
+
+    Mirrors `hooks/git-workflow-guard.py::_load_config` exactly. Any divergence
+    here means the two layers guard different branches, which would be worse
+    than having only one layer.
+    """
+    cfg_path = repo_root / ".claude" / "git-guard.json"
+    if not cfg_path.is_file():
+        return None
+    try:
+        raw = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        # Malformed config is treated as "no config" — same as the agent-side
+        # guard. A typo in a JSON file must not become an unpushable repo.
+        print(
+            f"{MARKER}: {cfg_path} is unreadable or not valid JSON — "
+            "branch guard inactive for this push",
+            file=sys.stderr,
+        )
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    protected = raw.get("protected_branch") or DEFAULT_PROTECTED
+
+    if "integration_branch" in raw:
+        # Explicit null means "this repo genuinely has no integration branch" —
+        # the default must not resurrect one.
+        integration = raw["integration_branch"] or None
+    else:
+        integration = (
+            DEFAULT_INTEGRATION
+            if _remote_branch_exists(repo_root, DEFAULT_INTEGRATION)
+            else None
+        )
+    if integration == protected:
+        integration = None
+
+    return {
+        "protected": protected,
+        "integration": integration,
+        "release_tool": raw.get("release_tool"),
+    }
+
+
+def parse_ref_lines(text: str):
+    """Parse git's pre-push stdin into 4-tuples.
+
+    Each line is `<local ref> <local sha> <remote ref> <remote sha>`. Git ref
+    names cannot contain whitespace, and a deletion sends the literal
+    `(delete)` as the local ref — so a plain whitespace split is exact. Lines
+    that are not four fields are ignored rather than guessed at.
+    """
+    refs = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) != 4:
+            continue
+        refs.append(tuple(parts))
+    return refs
+
+
+def refs_from_pre_commit_env(env=None):
+    """Reconstruct a single ref line from the pre-commit framework's env vars.
+
+    Returns [] when this is not a pre-commit `pre-push` invocation.
+    """
+    env = os.environ if env is None else env
+    remote_ref = env.get("PRE_COMMIT_REMOTE_BRANCH")
+    if not remote_ref:
+        return []
+    local_ref = env.get("PRE_COMMIT_LOCAL_BRANCH") or "HEAD"
+    local_sha = env.get("PRE_COMMIT_TO_REF") or "0" * 40
+    remote_sha = env.get("PRE_COMMIT_FROM_REF") or "0" * 40
+    return [(local_ref, local_sha, remote_ref, remote_sha)]
+
+
+def collect_refs(stdin_text: str, env=None):
+    """The refs being pushed, from stdin when available, else pre-commit env."""
+    refs = parse_ref_lines(stdin_text)
+    if refs:
+        return refs, "stdin"
+    env_refs = refs_from_pre_commit_env(env)
+    if env_refs:
+        return env_refs, "pre-commit-env"
+    return [], "none"
+
+
+def evaluate(refs, guarded):
+    """First guarded destination in `refs`, as (branch, kind), else None.
+
+    `kind` is "delete" when the push would remove the branch on the remote,
+    "create" when it would create it, else "update".
+    """
+    for local_ref, local_sha, remote_ref, remote_sha in refs:
+        if not remote_ref.startswith(BRANCH_PREFIX):
+            # Tags, notes, refs/pull/* — not a branch, not our business.
+            continue
+        branch = remote_ref[len(BRANCH_PREFIX) :]
+        if branch not in guarded:
+            continue
+        if _is_zero(local_sha):
+            kind = "delete"
+        elif _is_zero(remote_sha):
+            kind = "create"
+        else:
+            kind = "update"
+        return branch, kind
+    return None
+
+
+def refusal_message(branch, kind, remote_name, cfg, source) -> str:
+    guarded = ", ".join(b for b in (cfg["protected"], cfg["integration"]) if b)
+    verb = {
+        "delete": f"delete '{branch}' on {remote_name}",
+        "create": f"create '{branch}' on {remote_name}",
+        "update": f"push directly to '{branch}' on {remote_name}",
+    }[kind]
+    lines = [
+        "",
+        f"pre-push: REFUSED — this push would {verb}.",
+        "",
+        f"  '{branch}' is a guarded branch in this repo. Guarded work reaches it",
+        "  through a pull request, because that is where review and CI run. A",
+        "  direct push runs neither.",
+        "",
+        "  Do this instead:",
+        "",
+        "    git switch -c <type>/<slug>        # feat/… fix/… docs/… chore/…",
+        "    git push -u origin <type>/<slug>",
+        "    gh pr create --base " + cfg["protected"],
+        "",
+        f"  Guarded branches ({guarded}) come from .claude/git-guard.json.",
+    ]
+    if cfg.get("release_tool"):
+        lines.append(f"  Releases in this repo go through: {cfg['release_tool']}.")
+    if kind == "delete":
+        lines += [
+            "",
+            "  Deleting a guarded branch is almost never what you meant. If it is,",
+            "  do it deliberately in the remote's UI where it is auditable.",
+        ]
+    lines += [
+        "",
+        "  This is a local hook, so it yields to intent. To override on purpose:",
+        "",
+        "    git push --no-verify …",
+        "",
+    ]
+    if source == "pre-commit-env":
+        lines += [
+            "  (running under the pre-commit framework — see"
+            " install_pre_push_guard.py",
+            "   for why the native hook path sees strictly more than this one does)",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def main(argv, stdin_text: str) -> int:
+    remote_name = argv[0] if argv else "origin"
+
+    repo_root = _repo_root()
+    if repo_root is None:
+        _trace("allow: not a git repo")
+        return 0
+
+    cfg = load_config(repo_root)
+    if cfg is None:
+        _trace("allow: repo not opted in (no .claude/git-guard.json)")
+        return 0
+
+    refs, source = collect_refs(stdin_text)
+    if not refs:
+        _trace(f"allow: no ref lines (source={source})")
+        return 0
+
+    guarded = {b for b in (cfg["protected"], cfg["integration"]) if b}
+    hit = evaluate(refs, guarded)
+    if hit is None:
+        _trace(f"allow: no guarded destination (source={source})")
+        return 0
+
+    branch, kind = hit
+    _trace(f"refuse {branch} kind={kind} source={source}")
+    print(refusal_message(branch, kind, remote_name, cfg, source), file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    try:
+        _stdin = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+    except Exception:
+        _stdin = ""
+    try:
+        sys.exit(main(sys.argv[1:], _stdin))
+    except SystemExit:
+        raise
+    except Exception as exc:  # fail open, but loudly — never silently
+        print(
+            f"{MARKER}: internal error ({exc!r}) — branch guard did NOT run for "
+            "this push. Please report this; the push is being allowed.",
+            file=sys.stderr,
+        )
+        sys.exit(0)

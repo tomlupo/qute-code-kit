@@ -140,6 +140,47 @@ effect immediately.
 | `worktree_create.py` | WorktreeCreate | Creates native worktrees with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); setup failures fail creation loudly |
 | `worktree_remove.py` | WorktreeRemove | Reaps the per-worktree venv (`$HOME/.venvs/<name>`) on worktree removal; refuses anything that isn't provably an unused venv strictly inside `~/.venvs` (logged to `~/.claude/qute-worktree-reap.log`) |
 
+## `pre-push` branch guard (a git hook, not a Claude hook)
+
+`templates/hooks/pre-push-branch-guard` refuses a push whose destination is a
+guarded branch. `/setup-qute-repo` stamps it into opted-in repos via
+`scripts/install_pre_push_guard.py`.
+
+It sits at the git layer on purpose. An agent-side `PreToolUse` guard reads a
+shell command string, so it never sees a human at a terminal or a script, and
+inferring a push destination from a command line has an unbounded tail of shapes
+(`git push origin HEAD`, `--repo=origin`, git aliases, `env VAR=x git push …` —
+all real bypasses found in review). Git runs `pre-push` after alias expansion,
+after `env`, after option parsing, and hands it the refs it is about to send.
+Nothing to parse, nothing to infer, and it fires for humans, scripts and agents
+alike.
+
+- **Opt-in and config are shared with the agent-side guard** —
+  `.claude/git-guard.json` in the repo root, same fields, same defaults, so the
+  two layers can never disagree about which branches are guarded. No file = both
+  are a no-op for that repo.
+- **Install:** `python3 scripts/install_pre_push_guard.py --repo . [--opt-in]
+  [--adopt-existing]`. It detects the world (a repo with `core.hooksPath` makes
+  git ignore `.git/hooks`, so the pre-commit framework's install is unusable
+  there), installs accordingly, never clobbers an existing `pre-push` — with
+  `--adopt-existing` it chains it from `pre-push.d/` instead — and then drives
+  the installed hook through git's own resolved path with synthetic ref lines to
+  prove it is reachable. `--check` verifies without installing.
+- **`git push --no-verify` bypasses it.** That is the contract of a client-side
+  hook and it is what makes it safe to install: it catches the accidental push
+  and yields to the deliberate one. It is **not** a substitute for server-side
+  branch protection — it exists because protection is unavailable on these
+  repos' plan.
+- **Known gap under the pre-commit framework:** pre-commit drops ref lines whose
+  local sha is all zeros before running any hook, so branch *deletions* never
+  reach the guard, and it exposes only the first pushable ref of a multi-ref
+  push. The native hook path (`core.hooksPath` or plain `.git/hooks`) has
+  neither limitation. The installer reports this per-repo rather than claiming
+  full coverage.
+- **Fails open, loudly.** An internal error prints a `QUTE_PRE_PUSH_GUARD:
+  internal error …` warning and allows the push — a guard bug must not wedge
+  every push in a repo, but it must never be silent about stepping aside.
+
 ## Notifications
 
 Push notifications via [ntfy.sh](https://ntfy.sh). Config in `config/ntfy.json` (`server` + `topic`).
