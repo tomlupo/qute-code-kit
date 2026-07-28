@@ -158,6 +158,35 @@ ones are left alone:
 Re-running `/ship` after the first call is safe — already-present artifacts
 are skipped with a one-line note.
 
+### `--dry-run` (Python mode)
+
+**A dry run writes nothing** — no files, no dependency install, no commit, no
+tag. It is safe on a repo you have not committed yet: `git status` after a dry
+run looks exactly as it did before.
+
+That includes first-time setup, which used to run for real even under
+`--dry-run`. It now *reports* each step it would take instead of taking it:
+
+```
+ship-setup: would add commitizen as a dev dependency (`uv add --dev commitizen`)
+ship-setup: would align pyproject [project] version 0.1.0 -> 0.5.0
+ship-setup: would add [tool.commitizen] block (version 0.5.0, 2 version file(s) tracked)
+ship-setup: would align src/demo/__init__.py __version__ 0.2.0 -> 0.5.0
+ship-setup: would create CHANGELOG.md from template
+```
+
+Everything read-only still runs, so the report is real: the forbidden-paths
+check, the git tag query, and the version reconciliation that picks the seed
+from `{[project] version, latest vX.Y.Z tag, stray __version__ literals}`.
+
+On a repo that is **already configured**, the dry run goes on to `cz bump
+--dry-run` and previews the next version and CHANGELOG entries. On a repo that
+is **not yet configured** it stops after the setup report — there is no
+`[tool.commitizen]` block for cz to bump against, and reaching for cz through
+`uv run` would materialize `.venv`/`uv.lock` in the tree the dry run promised
+to leave alone. Apply setup for real (`/ship` without `--dry-run`) to preview
+the bump itself.
+
 ### Plugin-mode invariants (enforced by `release-plugin.sh`)
 
 - Refuses to bump if `.claude-plugin/plugin.json::version` and

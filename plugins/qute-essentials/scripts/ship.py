@@ -186,14 +186,34 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     # 2. Clean-tree gate. Deliberately BEFORE setup: setup legitimately writes
     #    to pyproject.toml / CHANGELOG.md, so checking afterwards would trip on
     #    its own edits. Everything from here on is either a write or a commit.
+    #    Under --dry-run this reports the dirty paths instead of refusing —
+    #    nothing it produces can be contaminated, since it creates nothing.
     if rc := check_clean_worktree(root, dry_run=parsed.dry_run):
         return rc
 
-    # 3. First-time setup — idempotent; safe to call every time.
+    # 3. First-time setup — idempotent; safe to call every time. Under
+    #    --dry-run it stays read-only: it still reads, queries git and computes
+    #    the reconciled seed version, but reports every write instead of making
+    #    it, so a dry run leaves the working tree exactly as it found it.
     from ship_setup import setup_python
 
-    if rc := setup_python(root, pyproject):
+    if rc := setup_python(root, pyproject, dry_run=parsed.dry_run):
         return rc
+
+    # 3b. A dry run against an unconfigured repo stops here. Setup only
+    #     *reported* the `[tool.commitizen]` block it would create, so there is
+    #     no config for cz to bump against — and reaching for cz via `uv run`
+    #     would materialize `.venv`/`uv.lock`, i.e. write to the very tree the
+    #     dry run promised to leave alone.
+    if parsed.dry_run and "[tool.commitizen]" not in pyproject.read_text(
+        encoding="utf-8"
+    ):
+        info(
+            "dry run complete; setup has not been applied yet, so the bump "
+            "itself was not simulated. No files written, no commit or tag "
+            "created."
+        )
+        return 0
 
     # 4. Build the cz command.
     #
