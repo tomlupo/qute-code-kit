@@ -313,6 +313,15 @@ gate binds it on conclude.
     guard.** Nothing prevents that; only `--check` detects it. Say so in the
     onboarding report, because it is the kind of thing that quietly stops
     protecting a repo months after anyone remembers this step.
+  - **A malformed `.claude/git-guard.json` stops pushes, on purpose.** Both
+    branch fields must be strings (`integration_branch` may be an explicit
+    `null`); `{"protected_branch": ["main","dev"]}` or `123` is refused by name
+    rather than silently guarding nothing. If a user hits this, read them the
+    message — it names the field, the value, and the two-slot shape — and do NOT
+    "fix" it by deleting the config, which disarms the guard entirely.
+  - **The installer will not write outside the repo**, including through a
+    symlink checked into the repo. If it reports a symlinked destination, that
+    is worth understanding before overriding anything.
   - **`git push --no-verify` bypasses it**, as it does every client-side hook.
     That is the design, not a defect: this catches the accidental push and
     yields to the deliberate one. It is not a substitute for server-side branch

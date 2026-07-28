@@ -144,36 +144,161 @@ def _remote_branch_exists(repo_root: Path, branch: str) -> bool:
     )
 
 
+class ConfigError(Exception):
+    """`.claude/git-guard.json` exists but cannot be trusted.
+
+    Raised, never swallowed. The presence of that file is somebody stating they
+    want this repo protected — so when the file cannot be understood, the push
+    STOPS. Failing open here would leave a repo that looks guarded and is not,
+    which is strictly worse than no guard at all: nobody double-checks a
+    protection they believe is on.
+
+    (Contrast the internal-error handler at the bottom of this file, which
+    fails OPEN. The difference is who is wrong. A bug in this script must not
+    wedge a repo. A malformed config is a statement of intent that has not been
+    met, and the person who wrote it needs to hear about it.)
+    """
+
+
+_SCHEMA_HELP = """
+  .claude/git-guard.json takes exactly these fields — all optional, all strings:
+
+      {
+        "protected_branch":   "main",              // release branch
+        "integration_branch": "dev",               // or null if none
+        "release_tool":       "commitizen (/ship)" // guidance text
+      }
+
+  There are two branch slots, not a list. To guard two branches, name them:
+  `protected_branch` for the release branch and `integration_branch` for the
+  one feature PRs land on first. Those two are the whole model — the agent-side
+  guard reads the same file with the same two slots, and a third guarded branch
+  in one layer but not the other would be worse than either alone. If you need
+  a third, that is a change to both layers, not to this file.
+
+  `{}` gets the house defaults: protect `main`, and `dev` when `origin/dev`
+  exists. `"integration_branch": null` means this repo genuinely has none.
+"""
+
+
+def _describe(value) -> str:
+    """A value and its type, for a message someone has to act on."""
+    return f"{json.dumps(value) if value is not None else 'null'} ({type(value).__name__})"
+
+
+def _valid_branch_name(repo_root: Path, name: str) -> bool:
+    """Ask git whether `name` could be a branch at all.
+
+    A name git would never produce (`"main "`, `"feat//x"`) can never match a
+    pushed ref, so it is silently-unguarded by another route — the same failure
+    class as a wrong type, and worth catching in the same place. If
+    `check-ref-format` cannot be run at all we accept the name rather than
+    block the push on missing tooling; the type check above is the load-bearing
+    one.
+    """
+    out = _git(repo_root, "check-ref-format", f"refs/heads/{name}")
+    if out is None:
+        # Distinguish "git said no" from "git could not run": re-run and look.
+        try:
+            probe = subprocess.run(
+                ["git", "check-ref-format", "refs/heads/main"],
+                capture_output=True,
+                cwd=str(repo_root),
+                timeout=10,
+            )
+        except Exception:
+            return True  # no usable git — do not block on tooling
+        return probe.returncode != 0
+    return True
+
+
+def _branch_field(repo_root: Path, raw: dict, key: str, allow_null: bool):
+    """One branch field, validated. Returns the name, or None for null/absent."""
+    if key not in raw:
+        return None
+    value = raw[key]
+    if value is None:
+        if allow_null:
+            return None
+        raise ConfigError(
+            f'"{key}" is null. Remove the field to take the default, or name a '
+            f"branch.{_SCHEMA_HELP}"
+        )
+    if not isinstance(value, str) or isinstance(value, bool):
+        # `isinstance(True, int)` is True in Python, and `True` is a plausible
+        # typo for a branch name field, so bool is excluded explicitly.
+        kind = "a list" if isinstance(value, list) else "not a string"
+        raise ConfigError(
+            f'"{key}" is {kind}: {_describe(value)}. A branch name must be a '
+            f"string.{_SCHEMA_HELP}"
+        )
+    if not value.strip():
+        raise ConfigError(
+            f'"{key}" is empty. Name a branch, or remove the field to take the '
+            f"default.{_SCHEMA_HELP}"
+        )
+    if not _valid_branch_name(repo_root, value):
+        raise ConfigError(
+            f'"{key}" is not a valid git branch name: {_describe(value)}. It '
+            f"could never match a pushed ref, so it would guard nothing."
+            f"{_SCHEMA_HELP}"
+        )
+    return value
+
+
 def load_config(repo_root: Path):
     """Resolved guard config, or None when the repo is not opted in.
 
-    Mirrors `hooks/git-workflow-guard.py::_load_config` exactly. Any divergence
-    here means the two layers guard different branches, which would be worse
-    than having only one layer.
+    Opt-in is the PRESENCE of `.claude/git-guard.json`. Absent → None, a total
+    no-op. Present but malformed → ConfigError, which refuses the push.
+
+    Keeps the same fields and defaults as `hooks/git-workflow-guard.py`, which
+    reads this same file: any divergence in WHICH branches are guarded would be
+    worse than having only one layer. Validation is stricter here (that layer
+    is unvalidated as of writing — see this PR's report), but stricter can only
+    reject configs the other layer would have misread, never guard a different
+    branch.
     """
     cfg_path = repo_root / ".claude" / "git-guard.json"
     if not cfg_path.is_file():
         return None
     try:
-        raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        # Malformed config is treated as "no config" — same as the agent-side
-        # guard. A typo in a JSON file must not become an unpushable repo.
+        text = cfg_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"{cfg_path} exists but could not be read: {exc}") from exc
+    try:
+        raw = json.loads(text)
+    except ValueError as exc:
+        raise ConfigError(f"{cfg_path} is not valid JSON: {exc}{_SCHEMA_HELP}") from exc
+    if not isinstance(raw, dict):
+        raise ConfigError(
+            f"{cfg_path} must contain a JSON object, got {_describe(raw)}."
+            f"{_SCHEMA_HELP}"
+        )
+
+    unknown = sorted(
+        set(raw) - {"protected_branch", "integration_branch", "release_tool"}
+    )
+    if unknown:
+        # Warn, never refuse: the agent-side guard reads this same file and may
+        # grow a field first. Hard-failing on a key we do not know yet would
+        # let one layer's release break the other.
         print(
-            f"{MARKER}: {cfg_path} is unreadable or not valid JSON — "
-            "branch guard inactive for this push",
+            f"{MARKER}: {cfg_path} has unrecognised field(s) "
+            f"{', '.join(unknown)} — ignored",
             file=sys.stderr,
         )
-        return None
-    if not isinstance(raw, dict):
-        return None
 
-    protected = raw.get("protected_branch") or DEFAULT_PROTECTED
+    protected = _branch_field(repo_root, raw, "protected_branch", allow_null=False)
+    if protected is None:
+        protected = DEFAULT_PROTECTED
 
     if "integration_branch" in raw:
         # Explicit null means "this repo genuinely has no integration branch" —
         # the default must not resurrect one.
-        integration = raw["integration_branch"] or None
+        integration = _branch_field(
+            repo_root, raw, "integration_branch", allow_null=True
+        )
     else:
         integration = (
             DEFAULT_INTEGRATION
@@ -183,10 +308,17 @@ def load_config(repo_root: Path):
     if integration == protected:
         integration = None
 
+    release_tool = raw.get("release_tool")
+    if release_tool is not None and not isinstance(release_tool, str):
+        raise ConfigError(
+            f'"release_tool" must be a string, got {_describe(release_tool)}.'
+            f"{_SCHEMA_HELP}"
+        )
+
     return {
         "protected": protected,
         "integration": integration,
-        "release_tool": raw.get("release_tool"),
+        "release_tool": release_tool,
     }
 
 
@@ -312,7 +444,20 @@ def main(argv, stdin_text: str) -> int:
         _trace("allow: not a git repo")
         return 0
 
-    cfg = load_config(repo_root)
+    try:
+        cfg = load_config(repo_root)
+    except ConfigError as exc:
+        # Fail CLOSED. Someone committed this file to get protection; a config
+        # we cannot read is that intention unmet, not permission to proceed.
+        _trace("refuse: unusable config")
+        print(
+            f"\npre-push: REFUSED — this repo's branch-guard config is unusable, "
+            f"so the guard cannot tell which branches to protect.\n\n  {exc}\n"
+            "  Fix the file and push again. To override deliberately:\n\n"
+            "    git push --no-verify …\n",
+            file=sys.stderr,
+        )
+        return 1
     if cfg is None:
         _trace("allow: repo not opted in (no .claude/git-guard.json)")
         return 0

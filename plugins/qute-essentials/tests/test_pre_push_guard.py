@@ -208,9 +208,66 @@ class TestLoadConfig:
         )
         assert cfg["integration"] is None
 
-    def test_malformed_json_fails_open(self, tmp_path, capsys):
-        assert guard.load_config(self._repo(tmp_path, "{not json")) is None
-        assert "unreadable or not valid JSON" in capsys.readouterr().err
+    # --- malformed config must fail CLOSED -------------------------------
+    #
+    # The presence of this file is somebody stating they want the repo
+    # protected. A config that cannot be understood is that intent unmet, and a
+    # guard that silently is not guarding is worse than no guard at all: the
+    # repo LOOKS protected, so nobody re-checks.
+
+    def test_malformed_json_fails_closed(self, tmp_path):
+        with pytest.raises(guard.ConfigError, match="not valid JSON"):
+            guard.load_config(self._repo(tmp_path, "{not json"))
+
+    def test_json_that_is_not_an_object_fails_closed(self, tmp_path):
+        with pytest.raises(guard.ConfigError, match="must contain a JSON object"):
+            guard.load_config(self._repo(tmp_path, "[]"))
+
+    @pytest.mark.parametrize(
+        "value,was",
+        [
+            ("123", "silently matched no branch name — repo looked guarded"),
+            ("true", "silently matched no branch name"),
+            ('["main", "dev"]', "raised, then hit the fail-open handler"),
+            ('{"a": 1}', "an object"),
+            ('""', "empty string"),
+            ('"ma in"', "not a valid branch name, so could never match a ref"),
+        ],
+    )
+    def test_non_string_protected_branch_fails_closed(self, tmp_path, value, was):
+        with pytest.raises(guard.ConfigError):
+            guard.load_config(self._repo(tmp_path, f'{{"protected_branch": {value}}}'))
+
+    def test_non_string_integration_branch_fails_closed(self, tmp_path):
+        with pytest.raises(guard.ConfigError, match="integration_branch"):
+            guard.load_config(self._repo(tmp_path, '{"integration_branch": 5}'))
+
+    def test_non_string_release_tool_fails_closed(self, tmp_path):
+        with pytest.raises(guard.ConfigError, match="release_tool"):
+            guard.load_config(self._repo(tmp_path, '{"release_tool": 9}'))
+
+    def test_message_names_field_value_and_the_supported_shape(self, tmp_path):
+        """A refusal that does not say how to express the intent sends people
+        back to editing config blind."""
+        with pytest.raises(guard.ConfigError) as exc:
+            guard.load_config(
+                self._repo(tmp_path, '{"protected_branch": ["main","dev"]}')
+            )
+        msg = str(exc.value)
+        assert "protected_branch" in msg  # the field
+        assert '["main", "dev"]' in msg  # the value they wrote
+        assert "must be a string" in msg  # what was expected
+        assert "two branch slots, not a list" in msg  # how to say what they meant
+        assert "integration_branch" in msg  # ...naming the other slot
+
+    def test_unknown_keys_warn_but_do_not_refuse(self, tmp_path, capsys, monkeypatch):
+        """Forward compatibility: the sibling guard reads this same file and may
+        grow a field first. Hard-failing on a key we do not know yet would let
+        one layer's release break the other."""
+        monkeypatch.setattr(guard, "_remote_branch_exists", lambda *_: False)
+        cfg = guard.load_config(self._repo(tmp_path, '{"future_field": 1}'))
+        assert cfg["protected"] == "main"
+        assert "unrecognised field(s) future_field" in capsys.readouterr().err
 
 
 # ----------------------------------------------------------- integration
@@ -770,3 +827,153 @@ class TestFailsOpenLoudly:
         out = _push(sandbox, "origin", "main")
         assert out.returncode == 0
         assert "internal error" in out.stdout + out.stderr
+
+
+@pytestmark_git
+class TestInstallerNeverWritesOutsideTheRepo:
+    """Three doors led outside during review; one gate now closes all of them.
+
+    A `core.hooksPath` from global config, a repo-local one naming an outside
+    directory, and a destination the repo checked in as a SYMLINK are the same
+    bug wearing different clothes. `WriteGate` walks down from an approved root
+    with `O_NOFOLLOW` per component, so escaping is structurally unreachable
+    rather than something each call site has to remember to check.
+    """
+
+    def test_symlinked_guard_script_target_is_refused(self, sandbox, tmp_path):
+        victim = tmp_path / "victim.txt"
+        victim.write_text("PRECIOUS DATA")
+        hooks = sandbox["repo"] / ".claude" / "hooks"
+        hooks.mkdir(parents=True)
+        (hooks / "pre-push-branch-guard").symlink_to(victim)
+
+        out = _install(sandbox)
+        assert out.returncode != 0
+        assert "SYMLINK" in out.stdout
+        assert victim.read_text() == "PRECIOUS DATA"
+
+    def test_symlinked_config_target_is_refused(self, sandbox, tmp_path):
+        victim = tmp_path / "victim.json"
+        (sandbox["repo"] / ".claude" / "git-guard.json").unlink()
+        (sandbox["repo"] / ".claude" / "git-guard.json").symlink_to(victim)
+        out = _install(sandbox, "--opt-in")
+        assert out.returncode != 0
+        assert "SYMLINK" in out.stdout
+        assert not victim.exists()
+
+    def test_symlinked_directory_component_is_refused(self, sandbox, tmp_path):
+        outside = tmp_path / "outside-dir"
+        outside.mkdir()
+        (sandbox["repo"] / ".claude" / "hooks").symlink_to(outside)
+        out = _install(sandbox)
+        assert out.returncode != 0
+        assert "SYMLINK" in out.stdout
+        assert list(outside.iterdir()) == []
+
+    def test_symlinked_hook_slot_is_refused(self, sandbox, tmp_path):
+        victim = tmp_path / "hook-victim"
+        victim.write_text("original\n")
+        (sandbox["repo"] / ".githooks").mkdir()
+        (sandbox["repo"] / ".githooks" / "pre-push").symlink_to(victim)
+        _run(
+            ["git", "config", "--local", "core.hooksPath", ".githooks"],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        out = _install(sandbox, "--adopt-existing")
+        assert out.returncode != 0
+        assert "symlink" in out.stdout.lower()
+        assert victim.read_text() == "original\n"
+
+    def test_nothing_is_written_before_the_containment_rule_runs(
+        self, sandbox, tmp_path
+    ):
+        """The ordering bug: the rule is decorative if files land before it."""
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir()
+        (sandbox["repo"] / ".claude" / "git-guard.json").unlink()
+        (sandbox["repo"] / ".claude").rmdir()
+        _run(
+            ["git", "config", "--local", "core.hooksPath", str(shared)],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        out = _install(sandbox, "--opt-in")
+        assert out.returncode != 0
+        # neither the opt-in config nor the guard script may exist yet
+        assert not (sandbox["repo"] / ".claude").exists()
+        assert list(shared.iterdir()) == []
+
+    def test_approved_shared_dir_is_writable_but_nothing_else_is(
+        self, sandbox, tmp_path
+    ):
+        shared = tmp_path / "shared-hooks"
+        shared.mkdir()
+        _run(
+            ["git", "config", "--local", "core.hooksPath", str(shared)],
+            sandbox["repo"],
+            sandbox["env"],
+        )
+        out = _install(sandbox, "--allow-shared-hooks-path")
+        assert out.returncode == 0, out.stdout + out.stderr
+        assert (shared / "pre-push").exists()
+        # the repo's own files still went into the repo, not the shared dir
+        assert (
+            sandbox["repo"] / ".claude" / "hooks" / "pre-push-branch-guard"
+        ).is_file()
+
+    def test_gate_rejects_paths_outside_its_roots(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        gate = installer.WriteGate([root])
+        with pytest.raises(installer.WriteRefused):
+            gate.write(tmp_path / "elsewhere.txt", "x")
+        with pytest.raises(installer.WriteRefused):
+            gate.write(root / ".." / "escape.txt", "x")
+        assert gate.write(root / "a" / "b" / "ok.txt", "x") == "created"
+        assert (root / "a" / "b" / "ok.txt").read_text() == "x"
+
+
+@pytestmark_git
+class TestMalformedConfigRefusesRealPushes:
+    """End-to-end counterpart of the unit tests: a bad config stops a push."""
+
+    @pytest.mark.parametrize(
+        "cfg",
+        [
+            '{"protected_branch": 123}',
+            '{"protected_branch": ["main","dev"]}',
+            '{"protected_branch": true}',
+            "not json",
+        ],
+    )
+    def test_bad_config_refuses_even_a_feature_branch_push(self, sandbox, cfg):
+        _install(sandbox)
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text(cfg)
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        out = _push(sandbox, "origin", "feat/x")
+        combined = out.stdout + out.stderr
+        assert out.returncode != 0, "a config that guards nothing must not be silent"
+        assert "config is unusable" in combined
+
+    def test_bad_config_never_lets_a_push_to_main_through(self, sandbox):
+        _install(sandbox)
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text(
+            '{"protected_branch": 123}'
+        )
+        _commit(sandbox)
+        assert _push(sandbox, "origin", "main").returncode != 0
+
+    def test_valid_config_still_allows_a_feature_push(self, sandbox):
+        _install(sandbox)
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        assert _push(sandbox, "origin", "feat/x").returncode == 0
+
+    def test_no_verify_still_overrides_a_bad_config(self, sandbox):
+        _install(sandbox)
+        (sandbox["repo"] / ".claude" / "git-guard.json").write_text("not json")
+        _run(["git", "switch", "-qc", "feat/x"], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+        assert _push(sandbox, "--no-verify", "origin", "feat/x").returncode == 0

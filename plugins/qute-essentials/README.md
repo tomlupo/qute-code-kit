@@ -202,9 +202,29 @@ alike.
   and yields to the deliberate one. It is **not** a substitute for server-side
   branch protection — it exists because protection is unavailable on these
   repos' plan.
-- **Fails open, loudly.** An internal error prints a `QUTE_PRE_PUSH_GUARD:
-  internal error …` warning and allows the push — a guard bug must not wedge
-  every push in a repo, but it must never be silent about stepping aside.
+- **A malformed `git-guard.json` fails CLOSED.** Committing that file is
+  somebody stating they want the repo protected, so a config the guard cannot
+  understand stops the push instead of waving it through — a guard that
+  silently is not guarding is worse than no guard, because the repo looks
+  protected and nobody re-checks. Both branch fields must be strings (or an
+  explicit `null` for `integration_branch`); `{"protected_branch": 123}` or
+  `["main","dev"]` is refused by name, with the value, the expected type, and
+  the supported way to guard two branches (the two slots — there is no list
+  form, because the sibling guard reads the same two slots and a third guarded
+  branch in one layer only would be worse than either alone). Unknown keys warn
+  rather than refuse, so the other layer can grow a field first.
+- **An internal error fails OPEN, loudly.** A `QUTE_PRE_PUSH_GUARD: internal
+  error …` warning is printed and the push proceeds — a bug in the guard must
+  not wedge every push in a repo. Note the asymmetry with the previous bullet:
+  a malformed config is *your* statement of intent unmet, so it stops the push;
+  a crash is *our* fault, so it steps aside — but says so.
+- **The installer will not write outside the repo it was pointed at.** One
+  enforcement point covers all three escapes review found: a `core.hooksPath`
+  from global config, a repo-local one naming an outside directory, and a
+  destination the repo checked in as a symlink. Every write descends from an
+  approved root with `O_NOFOLLOW` on each path component, so a symlink cannot
+  be traversed and `..` cannot escape — and the approved roots are fixed before
+  the first byte is written, so the rule cannot be outrun by ordering.
 
 ## Notifications
 

@@ -23,7 +23,12 @@ everything that goes wrong here goes wrong SILENTLY:
      RESOLVED PATH, not on which config file set it: `git config --local
      core.hooksPath /home/me/.githooks` is exactly as shared as the global
      form. Scope tells you who wrote the setting; only the path tells you who
-     is affected. A path outside the repo is refused by default.
+     is affected. A path outside the repo is refused by default — and so is a
+     destination the repo checked in as a SYMLINK, which is the same escape
+     through a third door. All of it is enforced in ONE place (`WriteGate`),
+     structurally: every write walks down from an approved root with
+     `O_NOFOLLOW` per component, so leaving the approved area is unreachable
+     rather than merely checked for.
   4. **Reporting the command instead of the outcome.** "Ran the installer,
      done" is not evidence. A hook that silently is not installed is worse than
      no hook, because it manufactures confidence.
@@ -111,24 +116,188 @@ def git_out(repo: Path, *args: str):
     return out.stdout.strip() if out.returncode == 0 else None
 
 
-def make_executable(path: Path) -> None:
-    mode = path.stat().st_mode
-    path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+class WriteRefused(Exception):
+    """A write the gate would not perform. Carries the reason for the report."""
 
 
-def write_if_needed(dest: Path, content: str, executable: bool = False) -> str:
-    """Write `content` to `dest`; return created | updated | unchanged."""
-    if dest.exists() and dest.read_text(encoding="utf-8") == content:
-        if executable and not os.access(dest, os.X_OK):
-            make_executable(dest)
-            return "updated"
-        return "unchanged"
-    verb = "updated" if dest.exists() else "created"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(content, encoding="utf-8")
-    if executable:
-        make_executable(dest)
-    return verb
+class WriteGate:
+    """The ONE place this installer is allowed to modify the filesystem.
+
+    Review found three separate doors out of the repo: a `core.hooksPath`
+    inherited from global config, a repo-LOCAL `core.hooksPath` naming a
+    directory outside the tree, and a destination the repo itself had checked
+    in as a SYMLINK pointing anywhere. Three findings, one bug — "wrote outside
+    the repository it was pointed at" — so they get one enforcement point
+    rather than three checks that every future call site has to remember.
+
+    The rule is structural, not a comparison. Every write starts at an APPROVED
+    ROOT and walks down one path component at a time, opening each with
+    `O_NOFOLLOW`; `..` and empty components are rejected outright. A symlink
+    cannot be traversed and a parent cannot be escaped, so "ended up outside an
+    approved root" is not a mistake a caller can make — it is unreachable. That
+    also removes the check-then-write window a resolve-and-compare would leave:
+    the descriptor the content is written to IS the one that was validated.
+
+    Approved roots are the repo's own worktree / git dir / common dir, plus —
+    only when the operator passed --allow-shared-hooks-path — the out-of-tree
+    hooks directory they explicitly accepted. Nothing else is writable, and the
+    roots are fixed before the first byte is written.
+    """
+
+    def __init__(self, roots):
+        self.roots = []
+        for root in roots:
+            try:
+                self.roots.append(Path(root).resolve())
+            except OSError:
+                continue
+
+    def _rel_parts(self, dest: Path):
+        """(root, [components]) for `dest`, or refuse.
+
+        Prefix matching is LEXICAL (`normpath`, no `resolve`) on purpose: a
+        resolved comparison would follow the very symlinks this exists to stop,
+        and would call a symlinked path "inside the repo" because its target is.
+        """
+        dest = Path(os.path.normpath(str(Path(dest).absolute())))
+        for root in self.roots:
+            if dest == root or root in dest.parents:
+                parts = dest.relative_to(root).parts
+                if any(p in ("", os.pardir) for p in parts):
+                    raise WriteRefused(f"{dest} escapes {root}")
+                return root, list(parts)
+        roots = ", ".join(str(r) for r in self.roots) or "(none)"
+        raise WriteRefused(
+            f"refusing to write {dest}: it is outside every directory this "
+            f"install is allowed to touch ({roots})"
+        )
+
+    @staticmethod
+    def _describe_open_failure(name: str, dir_fd: int, exc: OSError) -> str:
+        try:
+            st = os.lstat(name, dir_fd=dir_fd)
+            if stat.S_ISLNK(st.st_mode):
+                try:
+                    target = os.readlink(name, dir_fd=dir_fd)
+                except OSError:
+                    target = "?"
+                return (
+                    f"{name!r} is a SYMLINK (-> {target}). Refusing to write "
+                    "through it — a repository must not be able to redirect "
+                    "this installer's writes to a path of its choosing."
+                )
+        except OSError:
+            pass
+        return f"{name!r} could not be opened safely: {exc}"
+
+    def _descend(self, dest: Path, create_dirs: bool):
+        """Open the parent directory of `dest`, refusing any symlinked step."""
+        root, parts = self._rel_parts(dest)
+        if not parts:
+            raise WriteRefused(f"refusing to write the root itself: {root}")
+        fd = os.open(str(root), os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in parts[:-1]:
+                while True:
+                    try:
+                        nxt = os.open(
+                            part,
+                            os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=fd,
+                        )
+                        break
+                    except FileNotFoundError:
+                        if not create_dirs:
+                            raise
+                        os.mkdir(part, 0o755, dir_fd=fd)
+                    except OSError as exc:
+                        raise WriteRefused(
+                            self._describe_open_failure(part, fd, exc)
+                        ) from exc
+                os.close(fd)
+                fd = nxt
+        except Exception:
+            os.close(fd)
+            raise
+        return fd, parts[-1]
+
+    def write(self, dest: Path, content: str, executable: bool = False) -> str:
+        """Write `content` to `dest`; return created | updated | unchanged."""
+        dir_fd, name = self._descend(dest, create_dirs=True)
+        try:
+            existing = None
+            try:
+                rfd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            except FileNotFoundError:
+                rfd = None
+            except OSError as exc:
+                raise WriteRefused(
+                    self._describe_open_failure(name, dir_fd, exc)
+                ) from exc
+            if rfd is not None:
+                with os.fdopen(rfd, "r", encoding="utf-8", errors="replace") as fh:
+                    existing = fh.read()
+
+            if existing == content:
+                if executable:
+                    st = os.stat(name, dir_fd=dir_fd)
+                    if not st.st_mode & stat.S_IXUSR:
+                        self._chmod_exec(dir_fd, name)
+                        return "updated"
+                return "unchanged"
+
+            verb = "updated" if existing is not None else "created"
+            try:
+                wfd = os.open(
+                    name,
+                    os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                    0o644,
+                    dir_fd=dir_fd,
+                )
+            except OSError as exc:
+                raise WriteRefused(
+                    self._describe_open_failure(name, dir_fd, exc)
+                ) from exc
+            with os.fdopen(wfd, "w", encoding="utf-8") as fh:
+                fh.write(content)
+            if executable:
+                self._chmod_exec(dir_fd, name)
+            return verb
+        finally:
+            os.close(dir_fd)
+
+    def _chmod_exec(self, dir_fd: int, name: str) -> None:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+        try:
+            mode = os.fstat(fd).st_mode
+            os.fchmod(fd, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        finally:
+            os.close(fd)
+
+    def make_executable(self, dest: Path) -> None:
+        dir_fd, name = self._descend(dest, create_dirs=False)
+        try:
+            self._chmod_exec(dir_fd, name)
+        finally:
+            os.close(dir_fd)
+
+    def rename(self, src: Path, dst: Path) -> None:
+        """Move a hook within the approved roots, refusing symlinked ends."""
+        src_fd, src_name = self._descend(src, create_dirs=False)
+        try:
+            st = os.lstat(src_name, dir_fd=src_fd)
+            if stat.S_ISLNK(st.st_mode):
+                raise WriteRefused(
+                    f"{src} is a symlink; refusing to adopt it into the hook "
+                    "chain. Replace it with a real file first."
+                )
+            dst_fd, dst_name = self._descend(dst, create_dirs=True)
+            try:
+                os.rename(src_name, dst_name, src_dir_fd=src_fd, dst_dir_fd=dst_fd)
+            finally:
+                os.close(dst_fd)
+        finally:
+            os.close(src_fd)
 
 
 # ---------------------------------------------------------------- detection
@@ -344,15 +513,16 @@ def _shared_hook_refusal(repo: Path, world: dict) -> str:
 
 
 def install_native(
-    repo: Path, world: dict, adopt: bool, allow_shared: bool, actions: list
+    repo: Path, world: dict, adopt: bool, gate: WriteGate, actions: list
 ) -> bool:
-    """Put the dispatcher at the path git will actually invoke."""
-    if world["hook_path_location"] == "outside-repo" and not allow_shared:
-        actions.append(_shared_hook_refusal(repo, world))
-        return False
+    """Put the dispatcher at the path git will actually invoke.
 
+    The containment decision has already been made by `main()` — it is encoded
+    in `gate`'s approved roots, before anything was written. There is no
+    "is this allowed" check here on purpose: a rule re-stated at each call site
+    is a rule that will be forgotten at the next one.
+    """
     hook_file = Path(world["hook_file"])
-    hook_file.parent.mkdir(parents=True, exist_ok=True)
 
     if world["slot_owner"] == "pre-commit" and world["legacy_is_qute"]:
         # pre-commit reclaimed the slot after a previous install. The guard
@@ -362,7 +532,7 @@ def install_native(
         actions.append(
             f"pre-commit holds the slot and chains the guard from {legacy.name} "
             f"(raw stdin, exit code honoured) — dispatcher "
-            f"{write_if_needed(legacy, DISPATCHER_SRC.read_text(), True)}"
+            f"{gate.write(legacy, DISPATCHER_SRC.read_text(), True)}"
         )
         actions.append(
             "NOTE: `pre-commit install -f --hook-type pre-push` DELETES that "
@@ -394,18 +564,16 @@ def install_native(
             dest_name = "00-legacy-pre-push"
             note = "adopted the repo's existing pre-push hook"
 
-        legacy_dir = hook_file.parent / "pre-push.d"
-        legacy_dir.mkdir(parents=True, exist_ok=True)
-        legacy = legacy_dir / dest_name
+        legacy = hook_file.parent / "pre-push.d" / dest_name
         if legacy.exists():
             actions.append(f"BLOCKED: {legacy} already exists; refusing to overwrite")
             return False
-        hook_file.rename(legacy)
-        make_executable(legacy)
+        gate.rename(hook_file, legacy)
+        gate.make_executable(legacy)
         actions.append(f"{note} -> {legacy}")
 
     actions.append(
-        f"dispatcher {write_if_needed(hook_file, DISPATCHER_SRC.read_text(), True)}: {hook_file}"
+        f"dispatcher {gate.write(hook_file, DISPATCHER_SRC.read_text(), True)}: {hook_file}"
     )
     if world["pre_commit_config"]:
         actions.append(
@@ -417,7 +585,7 @@ def install_native(
     return True
 
 
-def install_pre_commit(repo: Path, world: dict, actions: list) -> bool:
+def install_pre_commit(repo: Path, world: dict, gate: WriteGate, actions: list) -> bool:
     cfg = repo / PC_CONFIG
     if not cfg.is_file():
         actions.append(f"BLOCKED: no {PC_CONFIG} in {repo}")
@@ -443,11 +611,11 @@ def install_pre_commit(repo: Path, world: dict, actions: list) -> bool:
         # that isn't there.
         was_valid = _validate().returncode == 0
         backup = text
-        cfg.write_text(text.rstrip("\n") + "\n" + PC_BLOCK, encoding="utf-8")
+        gate.write(cfg, text.rstrip("\n") + "\n" + PC_BLOCK)
         check = _validate()
         if check.returncode != 0:
             if was_valid:
-                cfg.write_text(backup, encoding="utf-8")
+                gate.write(cfg, backup)
                 actions.append(
                     f"BLOCKED: appending the guard entry made {PC_CONFIG} "
                     f"invalid ({check.stdout.strip() or check.stderr.strip()}); "
@@ -665,8 +833,8 @@ def main() -> int:
     ap.add_argument(
         "--allow-shared-hooks-path",
         action="store_true",
-        help="permit writing to a core.hooksPath inherited from global/system "
-        "config, i.e. a hook shared by every repo of this user",
+        help="permit writing to a hook path that resolves OUTSIDE this "
+        "repository, i.e. a file shared by every repo pointed at it",
     )
     ap.add_argument("--opt-in", action="store_true")
     ap.add_argument("--check", action="store_true")
@@ -686,34 +854,59 @@ def main() -> int:
     installed = True
 
     if not args.check:
-        if args.opt_in:
-            cfg_path = repo / ".claude" / "git-guard.json"
-            if not cfg_path.is_file():
-                cfg_path.parent.mkdir(parents=True, exist_ok=True)
-                cfg_path.write_text("{}\n", encoding="utf-8")
-                actions.append("created .claude/git-guard.json ({} — house defaults)")
+        # ------------------------------------------------------------------
+        # Decide WHERE we may write before writing anything at all. The first
+        # version wrote the guard script and the opt-in config before reaching
+        # the containment rule, which made the rule decorative: by the time it
+        # refused the hook path, two files were already on disk. The approved
+        # roots are settled here, once, and handed to the gate.
+        # ------------------------------------------------------------------
+        roots = _repo_boundaries(repo)
+        if world["hook_path_location"] == "outside-repo":
+            if not args.allow_shared_hooks_path:
+                actions.append(_shared_hook_refusal(repo, world))
+                installed = False
+            else:
+                approved = Path(world["hook_file"]).parent
+                roots.append(approved)
+                actions.append(
+                    f"--allow-shared-hooks-path: {approved} approved as a write "
+                    "target even though it is outside this repo"
+                )
+        gate = WriteGate(roots)
 
-        dest = repo / GUARD_DEST
-        actions.append(
-            f"guard script {write_if_needed(dest, GUARD_SRC.read_text(), True)}: {GUARD_DEST}"
-        )
+        if installed:
+            try:
+                if args.opt_in:
+                    cfg_path = repo / ".claude" / "git-guard.json"
+                    if not cfg_path.is_file():
+                        gate.write(cfg_path, "{}\n")
+                        actions.append(
+                            "created .claude/git-guard.json ({} — house defaults)"
+                        )
 
-        if mechanism == "pre-commit":
-            actions.append(
-                "WARNING: --mechanism pre-commit was requested. That path "
-                "cannot see branch deletions or the tail of a multi-ref push; "
-                "verification below will FAIL on that missing coverage rather "
-                "than warn about it."
-            )
-            installed = install_pre_commit(repo, world, actions)
-        else:
-            installed = install_native(
-                repo,
-                world,
-                args.adopt_existing,
-                args.allow_shared_hooks_path,
-                actions,
-            )
+                dest = repo / GUARD_DEST
+                actions.append(
+                    f"guard script {gate.write(dest, GUARD_SRC.read_text(), True)}: "
+                    f"{GUARD_DEST}"
+                )
+
+                if mechanism == "pre-commit":
+                    actions.append(
+                        "WARNING: --mechanism pre-commit was requested. That path "
+                        "cannot see branch deletions or the tail of a multi-ref "
+                        "push; verification below will FAIL on that missing "
+                        "coverage rather than warn about it."
+                    )
+                    installed = install_pre_commit(repo, world, gate, actions)
+                else:
+                    installed = install_native(
+                        repo, world, args.adopt_existing, gate, actions
+                    )
+            except WriteRefused as exc:
+                actions.append(f"BLOCKED: {exc}")
+                installed = False
+
         # core.hooksPath may have been created; re-resolve before verifying.
         world = detect_world(repo)
 
