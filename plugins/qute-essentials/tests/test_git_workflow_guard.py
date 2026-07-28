@@ -739,6 +739,47 @@ def test_repo_option_names_the_remote_for_the_config_lookup(spelling, tmp_path, 
     assert "main" in hso["permissionDecisionReason"], spelling
 
 
+def test_repo_option_ambiguity_checks_both_candidate_remotes(tmp_path, home):
+    """Defect 21. With `--repo=origin upstream` git IGNORES `--repo` and treats
+    `upstream` as the repository — so the config lookup has to cover that
+    reading too, exactly as the positional-vs-refspec union already does. A
+    `remote.upstream.push` aimed at the protected branch was slipping through
+    because only `remote.origin.push` was consulted."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.upstream.push", "refs/heads/feat/x:refs/heads/main")
+    decision, hso = _run("git push --repo=origin upstream", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_repo_option_ambiguity_also_checks_the_option_remote(tmp_path, home):
+    """The mirror reading: the guarded refspec hangs off the `--repo` remote."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.origin.push", "refs/heads/feat/x:refs/heads/main")
+    decision, hso = _run("git push --repo=origin upstream", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_repo_option_ambiguity_allows_when_neither_remote_is_guarded(tmp_path, home):
+    """The union must not become a blanket denial — with no guarded push
+    refspec on either candidate, a feature branch stays allowed."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.origin.push", "refs/heads/feat/x:refs/heads/feat/a")
+    _git(repo, "config", "remote.upstream.push", "refs/heads/feat/x:refs/heads/feat/b")
+    decision, _ = _run("git push --repo=origin upstream", repo, home)
+    assert decision == "allow"
+
+
+def test_two_positionals_settle_the_repo_ambiguity_for_config_too(tmp_path, home):
+    """With a second positional git definitively reads the first as the remote,
+    so only that one's config applies."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    _git(repo, "config", "remote.origin.push", "refs/heads/feat/x:refs/heads/main")
+    decision, _ = _run("git push --repo=origin upstream feat/y", repo, home)
+    assert decision == "allow"
+
+
 @pytest.mark.parametrize("spelling", ["--repo other", "--repo=other"])
 def test_repo_option_remote_without_a_push_refspec_is_unaffected(
     spelling, tmp_path, home

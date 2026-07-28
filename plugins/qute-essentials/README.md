@@ -117,7 +117,7 @@ The segment scan is quote-aware, so a `)` or a `;` inside `git commit -m "done)"
 
 **Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.
 
-The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positional is treated as a refspec rather than one being swallowed as the remote.
+The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positional is treated as a refspec rather than one being swallowed as the remote. Git actually *ignores* `--repo` once a positional repository is also given, and the two readings can't be told apart without knowing the repo's remotes — so with a single positional both are honoured: every positional is checked as a refspec, the current-branch fallback stays alive, and the no-refspec config lookup runs against **both** candidate remotes.
 
 **Git is matched on the normalised name of the executable, and wrappers are peeled first.** The name is the basename, lowercased, with a Windows `.exe` suffix stripped — so `/usr/bin/git`, `git.exe` and `/mingw64/bin/git.exe` all count. `command git push`, `builtin`/`exec`, and `env GIT_AUTHOR_NAME=x git commit` (including `/usr/bin/env`, `-i`, `-u NAME`, and `-C dir`, which scopes the target repo exactly like git's own `-C`) all resolve to the git command underneath. A wrapper whose command can't be pinned down — `env -S`/`--split-string`, or any wrapper option the parser doesn't know, since a new option could swallow the token we'd read as `git` — is **denied**, not allowed. Lookalikes (`gitk`, `git-secret`) are correctly excluded.
 
@@ -155,7 +155,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19 and 20 are parsing; 10–13, 16, 17 and 18 are the environment axis, and are why that axis is written down at all:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15 and 19–21 are parsing; 10–13, 16, 17 and 18 are the environment axis, and are why that axis is written down at all:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -179,6 +179,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 18 | environment | pipelines and `&` | bash runs each pipeline element, and any command ended by `&`, in its own process — so `cd other \| git commit` commits in the original repo, but `\|` was treated like `;` and the `cd` leaked |
 | 19 | parsing | `--repo <r>` as two tokens | the value was skipped rather than captured, so the no-refspec fallback read the default remote's `push` refspec instead of `<r>`'s |
 | 20 | parsing | `--all` / `--mirror` | they push every *local* branch and override `push.default`, so `git push --all origin` from a feature branch writes the protected branch with nothing on the command line naming it |
+| 21 | parsing | the `--repo` ambiguity, half-handled | the positionals were read under both meanings, but the *config* lookup still used the `--repo` value — so `git push --repo=origin upstream` consulted `remote.origin.push` while git pushed to `upstream` |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 

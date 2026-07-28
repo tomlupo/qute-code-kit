@@ -125,7 +125,7 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9, 14, 15, 19 and 20 are parsing;
+not as a checklist that is now complete. 1-9, 14, 15 and 19-21 are parsing;
 10-13, 16, 17 and 18 are the environment axis, and are the reason that axis is
 written down at all:
 
@@ -182,7 +182,11 @@ written down at all:
       instead of `<r>`'s;
   20. `--all` / `--mirror` — they push every LOCAL branch and override
       `push.default`, so `git push --all origin` from a feature branch writes
-      the protected branch with nothing on the command line naming it.
+      the protected branch with nothing on the command line naming it;
+  21. the `--repo` ambiguity, half-handled — the positionals were read under
+      both meanings, but the CONFIG lookup still used the `--repo` value, so
+      `git push --repo=origin upstream` consulted `remote.origin.push` while
+      git pushed to `upstream`.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -988,12 +992,13 @@ def _push_targets(args, current_branch):
     """
     Destination branch names for a `git push` invocation.
 
-    Returns (targets, had_explicit_refspec, unresolvable, remote, push_all) —
+    Returns (targets, had_explicit_refspec, unresolvable, remotes, push_all) —
     `targets` are the branch names the push would land on, `unresolvable` holds
-    the raw refspecs whose destination could not be pinned down, `remote` is the
-    remote named on the command line (or None), which the no-refspec fallback
-    needs in order to read `remote.<name>.push`, and `push_all` marks
-    `--all`/`--mirror`, whose destinations are every LOCAL branch.
+    the raw refspecs whose destination could not be pinned down, `remotes` are
+    the remotes this push might go to (more than one only for the ambiguous
+    `--repo` shape), which the no-refspec fallback needs in order to read
+    `remote.<name>.push`, and `push_all` marks `--all`/`--mirror`, whose
+    destinations are every LOCAL branch.
     """
     positionals = []
     remote_from_opt = None
@@ -1033,12 +1038,21 @@ def _push_targets(args, current_branch):
         # unless a second positional proves the first one was the remote.
         refspecs = positionals
         had_refspec = len(positionals) > 1
-        remote = remote_from_opt or (positionals[0] if positionals else None)
+        if len(positionals) == 1:
+            # The ambiguous shape. The union has to cover the REMOTE reading
+            # too, or `git push --repo=origin upstream` consults
+            # `remote.origin.push` while git is pushing to `upstream` — and a
+            # `remote.upstream.push` aimed at the protected branch slips by.
+            remotes = [remote_from_opt, positionals[0]]
+        elif positionals:
+            remotes = [positionals[0]]  # git ignores --repo once a repo is given
+        else:
+            remotes = [remote_from_opt]
     else:
         # First positional is the remote; the rest are refspecs.
         refspecs = positionals[1:]
         had_refspec = len(refspecs) > 0
-        remote = positionals[0] if positionals else None
+        remotes = [positionals[0] if positionals else None]
     targets = []
     unresolvable = []
     for ref in refspecs:
@@ -1047,7 +1061,7 @@ def _push_targets(args, current_branch):
             unresolvable.append(ref)
         else:
             targets.append(dst)
-    return targets, had_refspec, unresolvable, remote, push_all
+    return targets, had_refspec, unresolvable, remotes, push_all
 
 
 def _local_branches(target_dir: Path):
@@ -1483,7 +1497,7 @@ def main():
                 )
 
         elif sub == "push":
-            targets, had_refspec, unresolvable, remote, push_all = _push_targets(
+            targets, had_refspec, unresolvable, remotes, push_all = _push_targets(
                 args, branch
             )
             implicit_targets = []
@@ -1520,22 +1534,28 @@ def main():
             elif not had_refspec:
                 # "No refspec" does NOT mean "the current branch": git reads
                 # `remote.<name>.push` and `push.default`, and either can send
-                # the push to a different branch entirely.
+                # the push to a different branch entirely. `remotes` holds more
+                # than one candidate only for the ambiguous `--repo` shape, and
+                # then every candidate is checked — the same fail-closed union
+                # already applied to that shape's positionals.
                 key = str(target_dir)
                 if key not in cfgmap_cache:
                     cfgmap_cache[key] = _config_map(target_dir)
                 cmap = cfgmap_cache[key]
-                remote_name = _push_remote(cmap, remote, branch)
-                implicit, unresolvable_modes = _implicit_push_refspecs(
-                    cmap, remote_name, branch
-                )
-                unresolvable = unresolvable + unresolvable_modes
-                for ref in implicit:
-                    dst = _resolve_push_dst(ref, branch)
-                    if dst is None:
-                        unresolvable.append(ref)
-                    else:
-                        implicit_targets.append(dst)
+                for candidate in remotes:
+                    name = _push_remote(cmap, candidate, branch)
+                    if remote_name is None:
+                        remote_name = name
+                    implicit, unresolvable_modes = _implicit_push_refspecs(
+                        cmap, name, branch
+                    )
+                    unresolvable = unresolvable + unresolvable_modes
+                    for ref in implicit:
+                        dst = _resolve_push_dst(ref, branch)
+                        if dst is None:
+                            unresolvable.append(ref)
+                        else:
+                            implicit_targets.append(dst)
 
             if protected in targets:
                 _deny(
