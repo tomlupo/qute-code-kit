@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Cut a release for the current project. One entry point, two modes — Plugin (marketplace.json present → delegates to scripts/release-plugin.sh) and Python (pyproject.toml → bumps via commitizen). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked. First-time setup (commitizen + CHANGELOG + workflow) runs automatically and idempotently for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
+description: Cut a release for the current project. One entry point, two modes — Plugin (marketplace.json present → delegates to scripts/release-plugin.sh) and Python (pyproject.toml → bumps via commitizen). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked or if tracked files have uncommitted changes. First-time setup (commitizen + CHANGELOG + workflow) runs automatically and idempotently for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
 argument-hint: "[plugin-name] [patch|minor|major|X.Y.Z] [--dry-run]"
 ---
 
@@ -11,6 +11,14 @@ annotated `vX.Y.Z` git tag based on Conventional Commits since the last
 release.
 
 `vX.Y.Z` on `main` is the only release-tag namespace.
+
+In Python mode the tag *name* is asked of commitizen itself
+(`cz version --project --tag`) rather than re-rendered here, so a custom
+`[tool.commitizen] tag_format` — including variables like `$prerelease` /
+`$devrelease` that a partial renderer would leave as literals — produces
+exactly the tag cz used when it computed the version and changelog. If cz
+cannot be asked, /ship falls back to local rendering and says so in its
+output.
 
 ## Mode dispatch (handled by `ship.py`)
 
@@ -88,10 +96,11 @@ release — closes the loop on "shipped → installed".
 
 ## What `ship.py` enforces
 
-### Forbidden paths (Python mode)
+### Forbidden paths (both modes)
 
-Refuses to bump if any tracked file lives under one of these universal
-paths (skill-generated artifacts that should not reach main):
+Refuses to release if any tracked file lives under one of these universal
+paths (skill-generated artifacts that should not reach main). The gate runs
+before mode dispatch, so plugin mode is covered too:
 
 - `docs/superpowers/`
 - `docs/specs/`
@@ -100,6 +109,24 @@ paths (skill-generated artifacts that should not reach main):
 
 Projects may add extras in `.claude/forbidden-paths.txt` (one path per
 line; blank lines and `# comments` allowed).
+
+### Clean working tree (Python mode)
+
+Refuses to bump if **any tracked file** has uncommitted changes — the same
+gate `release-plugin.sh` has always applied in plugin mode. The bump commit
+stages whole files, so an unrelated local edit would land inside the release
+commit and inside the annotated tag that points at it. The error names every
+dirty path; commit or stash them and re-run.
+
+**Untracked files never block.** A lockfile, scratch output or a stray build
+artifact is routine and is ignored (`git status --untracked-files=no`). Only
+*modifications to tracked files* are refused.
+
+The check runs **before** first-time setup, because setup legitimately writes
+to `pyproject.toml` / `CHANGELOG.md`; those writes still land in the bump
+commit as before. With `--dry-run` the dirty paths are **reported, not
+refused** — a dry run creates no commit and no tag, so nothing can be
+contaminated.
 
 ### TASKS.md::Completed wipe (Python mode, auto)
 
@@ -131,6 +158,35 @@ ones are left alone:
 
 Re-running `/ship` after the first call is safe — already-present artifacts
 are skipped with a one-line note.
+
+### `--dry-run` (Python mode)
+
+**A dry run writes nothing** — no files, no dependency install, no commit, no
+tag. It is safe on a repo you have not committed yet: `git status` after a dry
+run looks exactly as it did before.
+
+That includes first-time setup, which used to run for real even under
+`--dry-run`. It now *reports* each step it would take instead of taking it:
+
+```
+ship-setup: would add commitizen as a dev dependency (`uv add --dev commitizen`)
+ship-setup: would align pyproject [project] version 0.1.0 -> 0.5.0
+ship-setup: would add [tool.commitizen] block (version 0.5.0, 2 version file(s) tracked)
+ship-setup: would align src/demo/__init__.py __version__ 0.2.0 -> 0.5.0
+ship-setup: would create CHANGELOG.md from template
+```
+
+Everything read-only still runs, so the report is real: the forbidden-paths
+check, the git tag query, and the version reconciliation that picks the seed
+from `{[project] version, latest vX.Y.Z tag, stray __version__ literals}`.
+
+On a repo that is **already configured**, the dry run goes on to `cz bump
+--dry-run` and previews the next version and CHANGELOG entries. On a repo that
+is **not yet configured** it stops after the setup report — there is no
+`[tool.commitizen]` block for cz to bump against, and reaching for cz through
+`uv run` would materialize `.venv`/`uv.lock` in the tree the dry run promised
+to leave alone. Apply setup for real (`/ship` without `--dry-run`) to preview
+the bump itself.
 
 ### Plugin-mode invariants (enforced by `release-plugin.sh`)
 
@@ -174,8 +230,11 @@ the stable way to neuter it.
   instead of via `/ship` — `cz bump` can compute unexpected versions. Don't
   hand-tag; verify with `git tag --list 'v*' | sort -V | tail -5` if a bump
   looks off.
-- **Untracked or uncommitted files** don't affect the bump but appear in
-  git noise — commit or stash first for a clean release.
+- **Uncommitted changes to tracked files** → the bump is **refused**, with
+  every dirty path named. Commit or stash them first; a release is cut from a
+  clean tree. `--dry-run` reports them instead of refusing.
+- **Untracked files** → harmless, never block. Lockfiles, scratch output and
+  build artifacts are routinely untracked, so they are ignored outright.
 
 ## Related
 
