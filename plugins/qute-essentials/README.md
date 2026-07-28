@@ -226,12 +226,18 @@ alike.
   a malformed config is *your* statement of intent unmet, so it stops the push;
   a crash is *our* fault, so it steps aside — but says so.
 - **The installer will not write outside the repo it was pointed at.** One
-  enforcement point covers all three escapes review found: a `core.hooksPath`
+  enforcement point covers every escape review found: a `core.hooksPath`
   from global config, a repo-local one naming an outside directory, and a
   destination the repo checked in as a symlink. Every write descends from an
   approved root with `O_NOFOLLOW` on each path component, so a symlink cannot
   be traversed and `..` cannot escape — and the approved roots are fixed before
-  the first byte is written, so the rule cannot be outrun by ordering.
+  the first byte is written, so the rule cannot be outrun by ordering. Every
+  path comparison is **lexical**: the hook slot is never `resolve()`d, because
+  resolving collapsed a repo-controlled `.githooks/pre-push -> /elsewhere` into
+  its target and the installer then treated the target's parent as "the hooks
+  directory". A symlinked hook slot is refused outright, and
+  `--allow-shared-hooks-path` does **not** override that — the flag accepts a
+  directory the operator was shown, not a destination the repository picked.
 
 ## Notifications
 

@@ -717,7 +717,7 @@ class TestSharedHookPathIsNotAPerRepoInstall:
         )
         assert out.returncode != 0
         # and the refusal must point at the hook that is already there
-        assert "already" in out.stdout.lower()
+        assert "a pre-push hook is ALREADY there" in out.stdout
 
     # --- the legitimate in-tree case must NOT need the flag ---------------
 
@@ -870,7 +870,7 @@ class TestInstallerNeverWritesOutsideTheRepo:
         assert "SYMLINK" in out.stdout
         assert list(outside.iterdir()) == []
 
-    def test_symlinked_hook_slot_is_refused(self, sandbox, tmp_path):
+    def _symlinked_slot(self, sandbox, tmp_path):
         victim = tmp_path / "hook-victim"
         victim.write_text("original\n")
         (sandbox["repo"] / ".githooks").mkdir()
@@ -880,10 +880,47 @@ class TestInstallerNeverWritesOutsideTheRepo:
             sandbox["repo"],
             sandbox["env"],
         )
+        return victim
+
+    # NOTE on the assertions below: they match "is a SYMLINK", not "symlink".
+    # The first version of this test asserted `"symlink" in out.stdout.lower()`
+    # and passed for a shameful reason — pytest names its tmp dir after the test
+    # function, so "symlinked" appeared in the REPO PATH printed in the report,
+    # and the test would have passed with the installer saying anything at all.
+    # Assert on something the CODE says, not on something a path can contain.
+
+    def test_symlinked_hook_slot_is_refused(self, sandbox, tmp_path):
+        victim = self._symlinked_slot(sandbox, tmp_path)
         out = _install(sandbox, "--adopt-existing")
         assert out.returncode != 0
-        assert "symlink" in out.stdout.lower()
+        assert "is a SYMLINK" in out.stdout, out.stdout
         assert victim.read_text() == "original\n"
+
+    def test_symlinked_slot_is_not_covered_by_allow_shared_hooks_path(
+        self, sandbox, tmp_path
+    ):
+        """The flag accepts a directory the operator was shown — not a redirect
+        the repository chose. Resolving the path first hid the difference: the
+        installer reported the symlink's target parent as "the hooks directory"
+        and, with the flag, wrote to it."""
+        victim = self._symlinked_slot(sandbox, tmp_path)
+        out = _install(sandbox, "--adopt-existing", "--allow-shared-hooks-path")
+        assert out.returncode != 0, out.stdout
+        assert "is a SYMLINK" in out.stdout, out.stdout
+        assert victim.read_text() == "original\n"
+        assert not (tmp_path / "pre-push.d").exists()
+
+    def test_report_names_the_slot_as_a_symlink(self, sandbox, tmp_path):
+        self._symlinked_slot(sandbox, tmp_path)
+        report = json.loads(_install(sandbox, "--json").stdout)
+        assert report["slot_owner"] == "symlink"
+        assert report["ok"] is False
+
+    def test_hook_path_is_reported_unresolved(self, sandbox, tmp_path):
+        """git runs the path as written; the report must say the same thing."""
+        self._symlinked_slot(sandbox, tmp_path)
+        report = json.loads(_install(sandbox, "--json").stdout)
+        assert report["hook_file"] == str(sandbox["repo"] / ".githooks" / "pre-push")
 
     def test_nothing_is_written_before_the_containment_rule_runs(
         self, sandbox, tmp_path
