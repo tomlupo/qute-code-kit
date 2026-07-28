@@ -25,8 +25,9 @@ attached to the code. An issue becomes work only when a Linear task references i
 ## Specs and plans
 
 Specs, PRDs and ticket breakdowns live **in Linear**, not in the repo tree. Nothing
-under `docs/specs/` is committed — see `.claude/rules/shipping.md`. `/ship`'s
-forbidden-path list remains as a backstop, not as the primary mechanism.
+under `docs/specs/` is committed. `/ship` refuses to bump while such paths are
+tracked, but that list is a backstop — the rule is that the artefacts are never
+written into the tree in the first place, so the backstop should never fire.
 
 ## Ideas
 
