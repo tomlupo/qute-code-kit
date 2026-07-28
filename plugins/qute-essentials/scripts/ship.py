@@ -250,12 +250,24 @@ def ship_python(root: Path, pyproject: Path, args: list[str]) -> int:
     #    machine; making it annotated here removes the dependency on a config
     #    key (`annotated_tag`) being set correctly in every consuming repo.
     tag = render_tag(cz_config, new_version)
-    # Message rule mirrors commitizen's: `annotated_tag_message` if configured,
-    # else the tag name itself.
-    configured_msg = cz_config.get("annotated_tag_message")
-    tag_message = configured_msg if isinstance(configured_msg, str) else tag
+    tag_message = build_tag_message(root, cz_config, tag, new_version)
     try:
-        run(["git", "-C", str(root), "tag", "-a", tag, "-m", tag_message])
+        # `--cleanup=whitespace` because the default (`strip`) treats lines
+        # beginning with `#` as comments and deletes them — which silently eats
+        # the `### Feat` / `### Fix` headings out of a markdown changelog body.
+        run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "tag",
+                "-a",
+                "--cleanup=whitespace",
+                tag,
+                "-m",
+                tag_message,
+            ]
+        )
     except subprocess.CalledProcessError as exc:
         return fail(f"`git tag -a {tag}` failed with exit code {exc.returncode}")
     info(f"created annotated tag {tag}")
@@ -328,6 +340,63 @@ def bumped_files(
             continue
         seen.setdefault(rel, None)
     return list(seen)
+
+
+def build_tag_message(
+    root: Path, cz_config: dict[str, object], tag: str, version: str
+) -> str:
+    """Message for the annotated release tag.
+
+    An annotated tag carries a message, so it should say what shipped rather
+    than restate its own name — `git show <tag>` and `git tag -n99` then
+    display the release notes without anyone opening the changelog.
+
+    Precedence: an explicit `annotated_tag_message` wins (the repo asked for a
+    fixed message); otherwise `Release <tag>` plus this version's changelog
+    section when it can be located; otherwise `Release <tag>` alone. Extraction
+    is best-effort — a tag with a thin message beats a failed release.
+    """
+    configured = cz_config.get("annotated_tag_message")
+    if isinstance(configured, str) and configured.strip():
+        return configured
+
+    subject = f"Release {tag}"
+    body = changelog_section(root, cz_config, version)
+    return f"{subject}\n\n{body}" if body else subject
+
+
+def changelog_section(
+    root: Path, cz_config: dict[str, object], version: str
+) -> str | None:
+    """The changelog body for `version`, or None if it can't be located.
+
+    Matches the first `## ` heading mentioning the version and returns the
+    lines up to the next `## `. Tolerant of the heading styles commitizen
+    emits (`## v1.2.0 (2026-07-28)`, `## 1.2.0`).
+    """
+    name = cz_config.get("changelog_file")
+    changelog = root / (name if isinstance(name, str) and name else "CHANGELOG.md")
+    try:
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+
+    start = None
+    for i, line in enumerate(lines):
+        if line.startswith("## ") and version in line:
+            start = i + 1
+            break
+    if start is None:
+        return None
+
+    end = len(lines)
+    for i in range(start, len(lines)):
+        if lines[i].startswith("## "):
+            end = i
+            break
+
+    body = "\n".join(lines[start:end]).strip()
+    return body or None
 
 
 def render_tag(cz_config: dict[str, object], version: str) -> str:
