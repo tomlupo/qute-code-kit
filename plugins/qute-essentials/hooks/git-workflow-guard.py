@@ -113,7 +113,7 @@ this file:
     an unguarded refspec from a guarded branch.
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
-not as a checklist that is now complete. 1-9 are parsing; 10-12 are the
+not as a checklist that is now complete. 1-9 are parsing; 10-13 are the
 environment axis, and are the reason that axis is written down at all:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -139,7 +139,11 @@ environment axis, and are the reason that axis is written down at all:
       `.git`, but the guard treated the work tree as the repo;
   12. subshell grouping — `(cd ../other && git commit)` was evaluated against
       the ORIGINAL repo, because the segment splitter dropped `(` and `)`
-      instead of scoping the working directory to them.
+      instead of scoping the working directory to them;
+  13. `-C` + `--git-dir` — `-C` was treated as overriding `--git-dir`, but git
+      applies `-C` to the cwd and STILL lets `--git-dir` pick the repo, so
+      `git -C ../feature --git-dir=/repo-on-main/.git commit` was evaluated
+      against `../feature`.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -696,11 +700,21 @@ def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
     """The directory to evaluate this git command against — i.e. one that
     belongs to the repo git will actually act on.
 
-    `-C` paths are cumulative and resolved relative to the running dir (git's
-    documented behaviour). Otherwise `--git-dir` names the repo.
+    The two options compose, in git's documented order — `-C` FIRST, whatever
+    order they appear in on the command line:
 
-    `--work-tree` deliberately does NOT: git identifies a repo by its GIT DIR,
-    and with `--work-tree` alone it still discovers `.git` upward from the
+      `-C` moves the process's working directory. Paths are cumulative and each
+      relative one resolves against the previous.
+      `--git-dir` then names the REPO, and a relative one resolves against the
+      directory `-C` produced.
+
+    Treating `-C` as overriding `--git-dir` was wrong in exactly the way that
+    matters: `git -C ../feature --git-dir=/repo-on-main/.git commit` was
+    evaluated against `../feature` while git committed to `/repo-on-main`
+    (environment-axis defect, round 7).
+
+    `--work-tree` deliberately names neither: git identifies a repo by its GIT
+    DIR, and with `--work-tree` alone it still discovers `.git` upward from the
     current directory. So `git --work-tree ../scratch commit` commits to the
     repo you are standing in, using `../scratch`'s files — the branch and the
     guard config both still come from HERE. Reading the work tree as the repo
@@ -711,14 +725,14 @@ def _resolve_git_target_dir(base: Path, opts: dict) -> Path:
     for p in opts.get("C") or []:
         pp = Path(p)
         d = pp if pp.is_absolute() else (d / pp)
-    if not opts.get("C"):
-        git_dir = opts.get("git_dir")
-        if git_dir:
-            ap = Path(git_dir)
-            # A --git-dir of `<repo>/.git` -> the repo root is its parent.
-            if ap.name == ".git":
-                ap = ap.parent
-            d = ap if ap.is_absolute() else (base / ap)
+    git_dir = opts.get("git_dir")
+    if git_dir:
+        ap = Path(git_dir)
+        # A --git-dir of `<repo>/.git` -> the repo root is its parent.
+        if ap.name == ".git":
+            ap = ap.parent
+        # Relative git dirs resolve against the post-`-C` directory.
+        d = ap if ap.is_absolute() else (d / ap)
     return d
 
 

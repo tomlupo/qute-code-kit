@@ -1494,11 +1494,79 @@ def test_git_dir_with_work_tree_targets_the_git_dirs_repo(tmp_path, home):
     assert decision == "allow"
 
 
-def test_dash_c_still_wins_over_git_dir(tmp_path, home):
-    """`-C` is applied first and is unchanged by this fix."""
+def test_dash_c_alone_selects_the_repo(tmp_path, home):
     session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
     other = _make_repo(tmp_path / "other", "main", STD_CFG)
     decision, _ = _run(f"git -C {other} commit -m x", session, home)
+    assert decision == "deny"
+
+
+# ─── `-C` and `--git-dir` compose ─────────────────────────────
+#
+# Defect 13, environment axis. `-C` was treated as OVERRIDING `--git-dir`, but
+# git applies `-C` to the process cwd and still lets `--git-dir` choose the
+# repository — so `git -C ../feature --git-dir=<on-main>/.git commit` was
+# evaluated against `../feature` while git committed to the repo on `main`.
+
+
+@pytest.mark.parametrize("order", ["-C {c} --git-dir={g}", "--git-dir={g} -C {c}"])
+def test_git_dir_wins_over_dash_c_for_repo_identity(order, tmp_path, home):
+    """Git applies `-C` first whatever the order on the command line, then
+    `--git-dir` names the repo."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    feature = _make_repo(tmp_path / "feature", "feat/x", STD_CFG)
+    on_main = _make_repo(tmp_path / "onmain", "main", STD_CFG)
+    cmd = "git " + order.format(c=feature, g=f"{on_main}/.git") + " commit -m x"
+    decision, hso = _run(cmd, session, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+def test_git_dir_wins_over_dash_c_in_the_safe_direction_too(tmp_path, home):
+    """The mirror: `-C` points at a repo on `main`, but `--git-dir` names an
+    unguarded one — git commits there, so this must be allowed."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    on_main = _make_repo(tmp_path / "onmain", "main", STD_CFG)
+    feature = _make_repo(tmp_path / "feature", "feat/x", STD_CFG)
+    decision, _ = _run(
+        f"git -C {on_main} --git-dir={feature}/.git commit -m x", session, home
+    )
+    assert decision == "allow"
+
+
+def test_relative_git_dir_resolves_against_the_dash_c_directory(tmp_path, home):
+    """A relative `--git-dir` is interpreted relative to the directory `-C`
+    produced, not to the session's cwd."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    outer = _make_repo(tmp_path / "outer", "feat/x", STD_CFG)
+    _make_repo(tmp_path / "outer" / "nested", "main", STD_CFG)
+    decision, hso = _run(
+        f"git -C {outer} --git-dir=nested/.git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_cumulative_dash_c_then_relative_git_dir(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    _make_repo(tmp_path / "a", "feat/a", STD_CFG)
+    _make_repo(tmp_path / "a" / "b", "feat/b", STD_CFG)
+    _make_repo(tmp_path / "a" / "b" / "c", "main", STD_CFG)
+    decision, _ = _run(
+        f"git -C {tmp_path / 'a'} -C b --git-dir=c/.git commit -m x", session, home
+    )
+    assert decision == "deny"
+
+
+def test_dash_c_with_work_tree_only_still_uses_the_dash_c_repo(tmp_path, home):
+    """`--work-tree` names no repo, so with `-C` present the `-C` directory is
+    still what git discovers `.git` from."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    on_main = _make_repo(tmp_path / "onmain", "main", STD_CFG)
+    scratch = _make_repo(tmp_path / "scratch", "feat/x", STD_CFG)
+    decision, _ = _run(
+        f"git -C {on_main} --work-tree={scratch} commit -m x", session, home
+    )
     assert decision == "deny"
 
 
