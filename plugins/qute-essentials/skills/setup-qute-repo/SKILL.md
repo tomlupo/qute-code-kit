@@ -108,6 +108,31 @@ moment a new `repo`-group child label is created on the Linear team. Create
 Linear UI. Never mint any other label; the catalogue is closed (statuses carry
 state, parents carry structure, groups carry routing facets).
 
+**The catalogue spans TWO axes — don't collapse them.** Both already exist on
+team `TOM`; neither is mintable here.
+
+- **Dispatch** — `lane` (`autonomous`/`interactive`/`human`), `agent`, `machine`,
+  `tier`. Who executes it, where, supervised or not. jimek routes ownership off
+  the `agent:<name>` label.
+- **Intake** — `intake` (`needs-triage`, `needs-info`, `ready-for-agent`,
+  `ready-for-human`, `wontfix`) and `kind` (`bug`, `enhancement`). Is this request
+  real, specified, and ready for whom. Driven by the `triage` skill
+  (mattpocock/skills), whose five canonical roles are kept verbatim as label
+  strings. Both are Linear label **groups**, so "exactly one state role" is
+  enforced server-side.
+
+The two pairs that look redundant and are not: `ready-for-agent` means a brief
+exists that an agent can act on cold, while `lane:autonomous` means it may run
+unsupervised — an issue can be `ready-for-agent` + `lane:interactive` because it
+touches production. And `ready-for-human` is an intake verdict, while
+`needs-human` is the conductor's hand-off flag. Separately, the standalone
+`triage` label is *provenance* (auto-recorded alarm finding, one deduped card per
+fingerprint), not "a human should evaluate this" — that is `needs-triage`.
+
+If a repo adopts the mattpocock engineering skills, `/setup-matt-pocock-skills`
+writes `docs/agents/triage-labels.md` recording the mapping; onboarding should
+leave that file alone rather than restating the vocabulary.
+
 ## Step 4 — Jimek management (conductor.yml)
 
 If the repo type says Jimek-managed (and the user agrees), onboard it to jimek
