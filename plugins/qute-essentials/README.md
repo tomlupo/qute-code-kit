@@ -195,8 +195,12 @@ alike.
   exactly as shared as a global one: every repo pointed at that directory gets
   the same file, and the second repo "installed" silently inherits the first
   one's hook. `--allow-shared-hooks-path` accepts that deliberately; the refusal
-  names the resolved path, the repo it is not inside, the config file that set
-  it, and anything already sitting in that directory.
+  names the path, the repo it is not inside, the config file that set it, and
+  anything already sitting in that directory. `--check` applies the same rule:
+  a shared hook file does not get a clean bill of health until someone
+  acknowledges it — and the row that says so states plainly that the guard *is*
+  working, because the point is that another repo's install can change that
+  file under you, not that you are unprotected.
 - **`git push --no-verify` bypasses it.** That is the contract of a client-side
   hook and it is what makes it safe to install: it catches the accidental push
   and yields to the deliberate one. It is **not** a substitute for server-side
