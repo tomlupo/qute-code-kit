@@ -1352,3 +1352,74 @@ class TestSymlinkedHooksDirectoryComponent:
             ]
             == "in-repo"
         )
+
+
+@pytestmark_git
+class TestDispatcherFailsClosedWhenTheGuardIsGone:
+    """The dispatcher used to skip a missing guard silently.
+
+    Not hypothetical: the dispatcher lives in the hooks dir, which git does not
+    track, while the guard script lives in `.claude/`, which it does. Check out
+    a branch from before the guard was added — or lose the exec bit to a `cp`
+    without -p — and the dispatcher keeps running with the guard gone. The repo
+    still carries `git-guard.json`, so it reads as protected while allowing
+    every push.
+    """
+
+    def _guard_path(self, sandbox):
+        return sandbox["repo"] / ".claude" / "hooks" / "pre-push-branch-guard"
+
+    def _feature_commit(self, sandbox, name="feat/x"):
+        _run(["git", "switch", "-qc", name], sandbox["repo"], sandbox["env"])
+        _commit(sandbox)
+
+    def test_baseline_feature_push_is_allowed(self, sandbox):
+        _install(sandbox)
+        self._feature_commit(sandbox)
+        assert _push(sandbox, "origin", "feat/x").returncode == 0
+
+    def test_missing_guard_refuses_and_says_so(self, sandbox):
+        _install(sandbox)
+        self._guard_path(sandbox).unlink()
+        self._feature_commit(sandbox)
+        out = _push(sandbox, "origin", "feat/x")
+        combined = out.stdout + out.stderr
+        assert out.returncode != 0, combined
+        assert "REFUSED" in combined
+        assert "is missing" in combined
+        assert "install_pre_push_guard.py" in combined
+
+    def test_non_executable_guard_refuses_and_says_how_to_fix(self, sandbox):
+        _install(sandbox)
+        self._guard_path(sandbox).chmod(0o644)
+        self._feature_commit(sandbox)
+        out = _push(sandbox, "origin", "feat/x")
+        combined = out.stdout + out.stderr
+        assert out.returncode != 0, combined
+        assert "not executable" in combined
+        assert "chmod +x" in combined
+
+    def test_not_opted_in_stays_a_silent_no_op(self, sandbox):
+        """No config = the repo never asked for this. Missing guard is fine."""
+        _install(sandbox)
+        self._guard_path(sandbox).unlink()
+        (sandbox["repo"] / ".claude" / "git-guard.json").unlink()
+        self._feature_commit(sandbox)
+        out = _push(sandbox, "origin", "feat/x")
+        assert out.returncode == 0, out.stdout + out.stderr
+
+    def test_broken_symlink_config_still_counts_as_opted_in(self, sandbox):
+        _install(sandbox)
+        self._guard_path(sandbox).unlink()
+        cfg = sandbox["repo"] / ".claude" / "git-guard.json"
+        cfg.unlink()
+        cfg.symlink_to(sandbox["repo"] / "gone.json")
+        self._feature_commit(sandbox)
+        assert _push(sandbox, "origin", "feat/x").returncode != 0
+
+    def test_no_verify_still_overrides(self, sandbox):
+        _install(sandbox)
+        self._guard_path(sandbox).unlink()
+        self._feature_commit(sandbox)
+        out = _push(sandbox, "--no-verify", "origin", "feat/x")
+        assert out.returncode == 0, out.stdout + out.stderr

@@ -202,6 +202,13 @@ alike.
   and yields to the deliberate one. It is **not** a substitute for server-side
   branch protection — it exists because protection is unavailable on these
   repos' plan.
+- **A missing guard fails CLOSED too.** The dispatcher lives in the hooks dir
+  (untracked); the guard script lives in `.claude/` (tracked). Check out a
+  branch from before the guard was added, or lose the exec bit, and the
+  dispatcher would keep running with nothing behind it. If the repo is opted in
+  and the guard is absent or not executable, the push is refused with the fix
+  spelled out — a broken install is not permission to proceed. A repo with no
+  config stays a silent no-op, as always.
 - **A malformed `git-guard.json` fails CLOSED.** Committing that file is
   somebody stating they want the repo protected, so a config the guard cannot
   understand stops the push instead of waving it through — a guard that

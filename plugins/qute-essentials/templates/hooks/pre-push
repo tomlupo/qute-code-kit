@@ -30,8 +30,46 @@ refs="$(cat)"
 emit() { [ -n "$refs" ] && printf '%s\n' "$refs"; return 0; }
 
 guard="${repo_root:-.}/.claude/hooks/pre-push-branch-guard"
+config="${repo_root:-.}/.claude/git-guard.json"
+
 if [ -x "$guard" ]; then
   emit | "$guard" "$@" || exit $?
+elif [ -e "$config" ] || [ -L "$config" ]; then
+  # The repo is opted in — that config file is somebody stating they want this
+  # branch-guarded — but the guard script is missing or not executable. Skipping
+  # it silently would be the exact failure this whole hook exists to prevent: a
+  # repo that looks protected and is not.
+  #
+  # This is not hypothetical. The dispatcher lives in the hooks dir, which git
+  # does not track; the guard script lives in `.claude/`, which it does. Check
+  # out a branch from before the guard was added, or lose the exec bit to a
+  # `cp` without -p, and the dispatcher keeps running while the guard is gone.
+  if [ -e "$guard" ]; then
+    reason="exists but is not executable"
+    fix="chmod +x \"\$(git rev-parse --show-toplevel)/.claude/hooks/pre-push-branch-guard\""
+  else
+    reason="is missing"
+    fix="re-run: python3 <qute-essentials>/scripts/install_pre_push_guard.py --repo ."
+  fi
+  cat >&2 <<EOF
+
+pre-push: REFUSED — this repo is opted in to the branch guard, but the guard
+itself ${reason}:
+
+    ${guard}
+
+Refusing rather than letting the push through unchecked: ${config} says these
+branches are meant to be protected, so an absent guard is a broken install, not
+permission to proceed.
+
+  ${fix}
+
+To override deliberately:
+
+    git push --no-verify …
+
+EOF
+  exit 1
 fi
 
 status=0
