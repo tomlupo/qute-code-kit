@@ -100,11 +100,20 @@ What it does for each `venv_setup` value (for reference):
 ### 5. Native path convergence
 
 When this plugin is installed, native worktree creation (`claude --worktree`,
-subagent `isolation: "worktree"`) runs the exact same setup automatically via
-the `WorktreeCreate` hook in `hooks/hooks.json` — no skill invocation needed.
-The skill remains the interactive/config-aware path (custom `base_path`,
-`branch_pattern`, base-branch choice); both call `worktree_create.py` for
-setup.
+`/worktree`, subagent `isolation: "worktree"`) runs the exact same setup
+automatically via the `WorktreeCreate` hook in `hooks/hooks.json` — no skill
+invocation needed. The skill remains the interactive/config-aware path (custom
+`base_path`, `branch_pattern`, base-branch choice); both call
+`worktree_create.py` for setup.
+
+On the native path the hook does the *creating* too: Claude Code sends only a
+suggested `name` (plus the session envelope) and expects the hook to print the
+absolute path of the worktree it made. The hook resolves the main checkout
+from the session's `cwd`, applies this repo's `base_path` / `branch_pattern`
+when `.claude/worktree.json` exists, and otherwise falls back to Claude Code's
+own convention — `<repo>/.claude/worktrees/<name>` on branch
+`worktree-<name>`. Re-invoking for an existing worktree is a resume: setup
+re-runs, nothing is clobbered.
 
 ### 6. Work in Isolation
 

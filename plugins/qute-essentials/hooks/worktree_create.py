@@ -3,12 +3,29 @@
 
 Two entry points, one implementation:
 
-1. Hook mode (no args): Claude Code's native WorktreeCreate hook. Reads
-   {worktree_path, branch_name, base_path} JSON on stdin, creates the git
-   worktree itself (the hook contract replaces built-in creation), runs the
-   .claude/worktree.json setup, prints the final worktree path to stdout and
-   exits 0. Any failure exits non-zero, which makes Claude Code fail the
+1. Hook mode (no args): Claude Code's native WorktreeCreate hook. The hook
+   contract replaces built-in creation — the hook creates the worktree, runs
+   the .claude/worktree.json setup, and prints the final worktree path to
+   stdout. Any failure exits non-zero, which makes Claude Code fail the
    worktree creation — setup problems are never silent.
+
+   Two stdin payload shapes are accepted:
+
+   a. `{name}` (+ the standard session_id/cwd/transcript_path envelope) —
+      what Claude Code itself sends, for `claude --worktree`, `/worktree` and
+      subagent `isolation: "worktree"` alike. `name` is a *suggested slug*
+      only; the hook picks the path and branch (from `.claude/worktree.json`
+      when present, else `<repo>/.claude/worktrees/<slug>` on branch
+      `worktree-<slug>`, matching Claude Code's own built-in convention) and
+      resolves the main checkout from `cwd`. Re-running with an existing
+      worktree is a resume: setup re-runs, the path is printed, no error.
+
+   b. `{worktree_path, branch_name, base_path}` — an explicit instruction to
+      create exactly that worktree. Not emitted by Claude Code (verified
+      against the 2.1.x CLI: `base_path` appears nowhere in it), kept for
+      callers that drive the hook directly.
+
+   An unrecognised payload logs and exits 0 rather than erroring.
 
 2. `--setup <worktree_path> --base <main_checkout>`: run ONLY the setup steps
    on an already-created worktree. This is what the worktrees skill invokes
@@ -35,6 +52,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -201,56 +219,181 @@ def setup_worktree(worktree: Path, base: Path) -> list[str]:
     return actions
 
 
+SLUG_RE = re.compile(r"^[A-Za-z0-9_+][A-Za-z0-9._+-]*$")
+
+
+def slug_from_name(name: object) -> str:
+    """Normalise Claude Code's suggested worktree `name` into a safe slug.
+
+    `/` becomes `+` (Claude Code's own spelling for a slash in a worktree
+    name). Anything that could escape a directory, be read as a git option, or
+    confuse a shell is refused outright rather than sanitised into something
+    the caller did not ask for.
+    """
+    if not isinstance(name, str):
+        raise SetupError(f"name: expected a string, got {name!r}")
+    slug = name.strip().replace("/", "+")
+    if not SLUG_RE.match(slug):
+        raise SetupError(
+            f"name: {name!r} is not a usable worktree slug "
+            "(allowed: letters, digits, . _ + -; must not start with '-' or '.')"
+        )
+    return slug
+
+
+def resolve_repo_root(cwd: str) -> Path:
+    """Main checkout for a `name`-only payload: the git root containing cwd."""
+    if not cwd:
+        raise SetupError("cwd missing from payload — cannot locate the repository")
+    proc = subprocess.run(
+        ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise SetupError(
+            f"cwd {cwd} is not inside a git repository "
+            f"({proc.stderr.strip() or 'no toplevel'})"
+        )
+    return Path(proc.stdout.strip())
+
+
+def plan_from_slug(base: Path, slug: str) -> tuple[Path, str]:
+    """(worktree_path, branch) for a slug, honouring .claude/worktree.json.
+
+    Defaults mirror Claude Code's built-in convention — `<repo>/.claude/
+    worktrees/<slug>` on branch `worktree-<slug>` — so a repo without config
+    gets the same layout whether or not this hook is installed.
+    """
+    cfg = load_config(base)
+
+    template = cfg.get("base_path")
+    if isinstance(template, str) and template.strip():
+        expanded = template.replace("{project}", base.name).replace("{slug}", slug)
+        expanded = os.path.expandvars(os.path.expanduser(expanded))
+        worktree = Path(os.path.normpath(expanded))
+        if not worktree.is_absolute():
+            worktree = Path(os.path.normpath(base / worktree))
+    else:
+        worktree = base / ".claude" / "worktrees" / slug
+
+    pattern = cfg.get("branch_pattern")
+    if isinstance(pattern, str) and pattern.strip():
+        wt_type = cfg.get("default_type") or "feat"
+        branch = pattern.replace("{type}", str(wt_type)).replace("{slug}", slug)
+    else:
+        branch = f"worktree-{slug}"
+    if not branch.strip() or branch.startswith("-"):
+        raise SetupError(f"branch_pattern produced an unusable branch name {branch!r}")
+    return worktree, branch
+
+
+def is_registered_worktree(base: Path, worktree: Path) -> bool:
+    """True if `worktree` is already a worktree of the repo at `base`."""
+    proc = subprocess.run(
+        ["git", "-C", str(base), "worktree", "list", "--porcelain"],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return False
+    # git records the realpath, so compare realpaths — otherwise a symlinked
+    # parent (e.g. /tmp on macOS) makes a resume look like a fresh create.
+    target = os.path.realpath(worktree)
+    for line in proc.stdout.splitlines():
+        if line.startswith("worktree ") and (
+            os.path.realpath(line[len("worktree ") :]) == target
+        ):
+            return True
+    return False
+
+
+def git_worktree_add(base: Path, worktree: Path, branch: str) -> None:
+    """Create the worktree: new branch first, else check out the existing one."""
+    new = subprocess.run(
+        ["git", "-C", str(base), "worktree", "add", str(worktree), "-b", branch],
+        capture_output=True,
+        text=True,
+    )
+    if new.returncode == 0:
+        return
+    existing = subprocess.run(
+        ["git", "-C", str(base), "worktree", "add", str(worktree), branch],
+        capture_output=True,
+        text=True,
+    )
+    if existing.returncode != 0:
+        raise SetupError(
+            "git worktree add failed.\n"
+            f"-b attempt: {new.stderr.strip()}\n"
+            f"existing-branch attempt: {existing.stderr.strip()}"
+        )
+
+
 def hook_main() -> int:
     try:
         payload = json.load(sys.stdin)
     except json.JSONDecodeError as exc:
         print(f"WorktreeCreate hook: invalid JSON input: {exc}", file=sys.stderr)
         return 1
+    if not isinstance(payload, dict):
+        print(
+            f"WorktreeCreate hook: expected a JSON object, got {type(payload).__name__}"
+            " — nothing to do, exiting 0",
+            file=sys.stderr,
+        )
+        return 0
 
     worktree_path = payload.get("worktree_path", "")
     branch_name = payload.get("branch_name", "")
     base_path = payload.get("base_path", "")
-    if not worktree_path or not branch_name or not base_path:
+    name = payload.get("name", "")
+
+    if worktree_path and branch_name and base_path:
+        # Explicit shape: caller dictates path, branch and main checkout.
+        base = Path(base_path)
+        worktree = Path(worktree_path)
+        resume = False
+    elif name:
+        # Claude Code's own shape (`--worktree`, `/worktree`, agent isolation):
+        # a suggested slug plus the session envelope. We choose path + branch
+        # and locate the repository from cwd.
+        try:
+            slug = slug_from_name(name)
+            base = resolve_repo_root(payload.get("cwd", ""))
+            worktree, branch_name = plan_from_slug(base, slug)
+        except SetupError as exc:
+            print(f"WorktreeCreate hook: cannot plan worktree: {exc}", file=sys.stderr)
+            return 1
+        resume = is_registered_worktree(base, worktree)
+        print(
+            f"WorktreeCreate hook: name={name!r} -> "
+            f"{'resuming' if resume else 'creating'} {worktree} "
+            f"(branch {branch_name}, base {base})",
+            file=sys.stderr,
+        )
+    elif worktree_path or branch_name or base_path:
+        # A partial explicit payload is a caller bug, not an unknown shape:
+        # say exactly what is missing instead of pretending we handled it.
         print(
             "WorktreeCreate hook: missing worktree_path/branch_name/base_path "
             f"in input: {json.dumps(payload)[:500]}",
             file=sys.stderr,
         )
         return 1
-
-    base = Path(base_path)
-    worktree = Path(worktree_path)
-    try:
-        # New branch first; fall back to checking out an existing branch.
-        new = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(base),
-                "worktree",
-                "add",
-                str(worktree),
-                "-b",
-                branch_name,
-            ],
-            capture_output=True,
-            text=True,
+    else:
+        # Neither shape. Never fail the worktree over a payload we don't know.
+        print(
+            "WorktreeCreate hook: unrecognised payload (no name, no "
+            "worktree_path/branch_name/base_path) — skipping setup: "
+            f"{json.dumps(payload)[:500]}",
+            file=sys.stderr,
         )
-        if new.returncode != 0:
-            existing = subprocess.run(
-                ["git", "-C", str(base), "worktree", "add", str(worktree), branch_name],
-                capture_output=True,
-                text=True,
-            )
-            if existing.returncode != 0:
-                print(
-                    "WorktreeCreate hook: git worktree add failed.\n"
-                    f"-b attempt: {new.stderr.strip()}\n"
-                    f"existing-branch attempt: {existing.stderr.strip()}",
-                    file=sys.stderr,
-                )
-                return 1
+        return 0
+
+    try:
+        if not resume:
+            git_worktree_add(base, worktree, branch_name)
         actions = setup_worktree(worktree, base)
     except SetupError as exc:
         print(f"WorktreeCreate hook: setup FAILED: {exc}", file=sys.stderr)

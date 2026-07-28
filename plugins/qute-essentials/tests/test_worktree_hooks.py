@@ -344,10 +344,9 @@ def test_setup_post_worktree_failure_is_error(tmp_path):
     assert "post-worktree.sh" in proc.stderr and "exited 7" in proc.stderr
 
 
-def test_hook_mode_creates_worktree_and_prints_path(tmp_path):
-    """End-to-end WorktreeCreate contract against a throwaway git repo."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
+def _mk_repo(tmp_path: Path, name: str = "repo") -> Path:
+    repo = tmp_path / name
+    repo.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(
         [
@@ -365,6 +364,32 @@ def test_hook_mode_creates_worktree_and_prints_path(tmp_path):
         cwd=repo,
         check=True,
     )
+    return repo
+
+
+def _hook(home: Path, payload: dict, path_dir: Path | None = None):
+    return subprocess.run(
+        [sys.executable, str(CREATE)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=_env(home, path_dir),
+    )
+
+
+def _branch_of(worktree: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.strip()
+
+
+def test_hook_mode_creates_worktree_and_prints_path(tmp_path):
+    """End-to-end WorktreeCreate contract against a throwaway git repo."""
+    repo = _mk_repo(tmp_path)
     wt_path = tmp_path / "wts" / "repo-feat-y"
     payload = json.dumps(
         {
@@ -395,3 +420,141 @@ def test_hook_mode_missing_fields_fail_creation(tmp_path):
     )
     assert proc.returncode == 1
     assert "missing worktree_path/branch_name/base_path" in proc.stderr
+
+
+# ── worktree_create: the `name`-only payload Claude Code actually sends ──────
+#
+# `claude --worktree`, `/worktree` and subagent `isolation: "worktree"` all
+# send {name} plus the session envelope — never worktree_path/branch_name/
+# base_path. This shape used to hard-fail, which made agent worktree
+# isolation unusable for anyone with the plugin installed (TOM-358).
+
+AGENT_PAYLOAD = {
+    "session_id": "3f0d0a2e-0000-4000-8000-000000000000",
+    "transcript_path": "/home/u/.claude/projects/x/3f0d0a2e.jsonl",
+    "prompt_id": "9c1b0000-0000-4000-8000-000000000000",
+    "hook_event_name": "WorktreeCreate",
+    "name": "agent-a42dcd130afe9cce5",
+}
+
+
+def _agent_payload(cwd: Path, **over) -> dict:
+    return {**AGENT_PAYLOAD, "cwd": str(cwd), **over}
+
+
+def test_agent_payload_creates_worktree_and_prints_path(tmp_path):
+    """The exact captured payload from the failing agent launches."""
+    repo = _mk_repo(tmp_path)
+    proc = _hook(tmp_path, _agent_payload(repo))
+    assert proc.returncode == 0, proc.stderr
+    expected = repo / ".claude" / "worktrees" / "agent-a42dcd130afe9cce5"
+    assert proc.stdout.strip() == str(expected)
+    assert expected.is_dir() and (expected / ".git").exists()
+    assert _branch_of(expected) == "worktree-agent-a42dcd130afe9cce5"
+
+
+def test_agent_payload_resolves_repo_root_from_subdir(tmp_path):
+    repo = _mk_repo(tmp_path)
+    sub = repo / "pkg" / "deep"
+    sub.mkdir(parents=True)
+    proc = _hook(tmp_path, _agent_payload(sub))
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == str(
+        repo / ".claude" / "worktrees" / "agent-a42dcd130afe9cce5"
+    )
+
+
+def test_agent_payload_applies_worktree_json_setup(tmp_path):
+    """An agent worktree gets the same shared_dirs/copy_files/venv treatment
+    as a human one, at the configured path and branch."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(
+        json.dumps(
+            {
+                "base_path": "$HOME/wts/{project}-{slug}",
+                "branch_pattern": "{type}/{slug}",
+                "default_type": "agent",
+                "shared_dirs": ["data"],
+                "copy_files": ["local.toml"],
+                "venv_setup": "uv",
+            }
+        )
+    )
+    (repo / "data").mkdir()
+    (repo / "data" / "big.bin").write_text("x")
+    (repo / "local.toml").write_text("[cfg]")
+
+    proc = _hook(tmp_path, _agent_payload(repo), _stub_uv(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    wt = tmp_path / "wts" / "repo-agent-a42dcd130afe9cce5"
+    assert proc.stdout.strip() == str(wt)
+    assert _branch_of(wt) == "agent/agent-a42dcd130afe9cce5"
+    assert (wt / "data").is_symlink()
+    assert (wt / "data" / "big.bin").read_text() == "x"
+    assert (wt / "local.toml").read_text() == "[cfg]"
+    marker = tmp_path / ".venvs" / wt.name / ".qute-worktree.json"
+    assert json.loads(marker.read_text())["worktree_path"] == str(wt)
+
+
+def test_agent_payload_second_call_resumes(tmp_path):
+    """Re-running for an existing worktree re-applies setup and exits 0 —
+    `git worktree add` would fail on the existing directory."""
+    repo = _mk_repo(tmp_path)
+    first = _hook(tmp_path, _agent_payload(repo))
+    assert first.returncode == 0, first.stderr
+    wt = Path(first.stdout.strip())
+    (wt / "scratch.txt").write_text("work in progress")
+
+    second = _hook(tmp_path, _agent_payload(repo))
+    assert second.returncode == 0, second.stderr
+    assert second.stdout.strip() == str(wt)
+    assert "resuming" in second.stderr
+    assert (wt / "scratch.txt").read_text() == "work in progress"
+
+
+def test_agent_payload_rejects_unsafe_names(tmp_path):
+    repo = _mk_repo(tmp_path)
+    for bad in ("../evil", "-b", ".hidden", "a b", "x;rm -rf /", 17):
+        proc = _hook(tmp_path, _agent_payload(repo, name=bad))
+        assert proc.returncode == 1, bad
+        assert "cannot plan worktree" in proc.stderr, proc.stderr
+    # an empty name carries no shape at all — soft skip, not a failure
+    empty = _hook(tmp_path, _agent_payload(repo, name=""))
+    assert empty.returncode == 0
+    assert "unrecognised payload" in empty.stderr
+    assert not (repo / ".claude" / "worktrees").exists()
+
+
+def test_agent_payload_outside_a_repo_fails_loudly(tmp_path):
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+    proc = _hook(tmp_path, _agent_payload(not_a_repo))
+    assert proc.returncode == 1
+    assert "not inside a git repository" in proc.stderr
+
+
+def test_unrecognised_payload_exits_zero(tmp_path):
+    """No name, no explicit trio: log and get out of the way."""
+    proc = _hook(
+        tmp_path,
+        {
+            "session_id": "s",
+            "cwd": str(tmp_path),
+            "hook_event_name": "WorktreeCreate",
+        },
+    )
+    assert proc.returncode == 0
+    assert "unrecognised payload" in proc.stderr
+
+
+def test_remove_hook_payload_without_worktree_path_is_soft_skip(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(REMOVE)],
+        input=json.dumps({"session_id": "s", "hook_event_name": "WorktreeRemove"}),
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+    )
+    assert proc.returncode == 0
+    assert "skip: no worktree_path" in _log(tmp_path)
