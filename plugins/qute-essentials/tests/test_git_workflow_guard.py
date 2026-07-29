@@ -871,6 +871,52 @@ def test_a_function_body_cd_applies_at_the_call(tmp_path, home):
     assert decision == "deny"
 
 
+def test_a_subshell_redefinition_does_not_escape(tmp_path, home):
+    """Defect 60. A definition inside `( … )` dies with the subshell —
+    verified, `f(){ echo OUTER; }; (f(){ echo INNER; }); f` prints OUTER — so
+    the committing outer body is what the later call runs."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(
+        "gc(){ git commit -m x; }; (gc(){ git status; }); gc", repo, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_conditional_redefinition_keeps_both_bodies(tmp_path, home):
+    """`if false; then gc(){ … }; fi` may not redefine at all — verified the
+    same way — so both bodies stay possible and both are checked."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(
+        "gc(){ git commit -m x; }; if false; then gc(){ git status; }; fi; gc",
+        repo,
+        home,
+    )
+    assert decision == "deny"
+
+    # …and the other order, where the conditional body is the committing one.
+    decision, _ = _run(
+        "gc(){ git status; }; if x; then gc(){ git commit -m x; }; fi; gc",
+        repo,
+        home,
+    )
+    assert decision == "deny"
+
+
+def test_an_unconditional_redefinition_really_replaces(tmp_path, home):
+    """The control: outside a subshell or a conditional it definitely happened,
+    so the old body is gone and no spurious denial appears."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("gc(){ git commit -m x; }; gc(){ git status; }; gc", repo, home)
+    assert decision == "allow"
+
+
+def test_a_definition_only_inside_a_subshell_is_never_called_outside(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("gc(){ git status; }; (gc(){ git commit -m x; })", repo, home)
+    assert decision == "allow"
+
+
 def test_a_recursive_function_terminates(tmp_path, home):
     """`f() { f; }; f` must not expand forever."""
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)

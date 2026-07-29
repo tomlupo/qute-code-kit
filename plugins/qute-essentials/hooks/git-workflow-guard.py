@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58 and 59 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50 and 54-57 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58 and 59 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -324,7 +324,11 @@ the same footing — a guard that cries wolf gets turned off:
       `--no-follow-tags` were equally ignored;
   59. `time -p git …` — `time` is the one leading word that takes an option,
       and peeling only the bare word left `-p` in front of the command, which
-      then did not look like git at all.
+      then did not look like git at all;
+  60. the FUNCTION TABLE was global — a definition inside `( … )` dies with
+      the subshell, and one in an `if` body may never happen, but either could
+      overwrite a real outer function in the model and hide what the later
+      call really runs.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -2235,8 +2239,11 @@ def main():
     # which is the part that may not run. See `_CONSTRUCT_OPEN_WORDS`.
     construct_stack: list = []
 
-    # Shell functions: name -> body. Defining one runs nothing, so the body is
-    # parked here and spliced into the event stream at the CALL instead.
+    # Shell functions: name -> list of possible bodies. Defining one runs
+    # nothing, so the body is parked here and spliced in at the CALL instead.
+    # The table is saved and restored around a subshell, because a definition
+    # inside `( … )` dies with it — verified, `f(){ echo OUTER; }; (f(){ echo
+    # INNER; }); f` prints OUTER (defect 60).
     functions: dict = {}
     expansions = 0
 
@@ -2248,7 +2255,14 @@ def main():
         if kind == "func":
             name, body = seg
             if not skip_depth:
-                functions[name] = body
+                # A redefinition bash MIGHT not reach leaves both bodies
+                # possible, so both are checked at the call — the same
+                # fail-closed union the candidate directories use.
+                if run_uncertain or any(construct_stack):
+                    bodies = list(dict.fromkeys(functions.get(name, []) + [body]))
+                    functions[name] = bodies[:max_states]
+                else:
+                    functions[name] = [body]
             continue
         if skip_depth:
             # Inside a subshell bash never entered.
@@ -2262,7 +2276,7 @@ def main():
             # element's process — so roll the shell back to where that element
             # started. `;`, `&&`, `||` and newlines keep the same shell.
             if state_before is not None and (seg in _SUBSHELL_SEPARATORS or after_pipe):
-                states, prev_dir, shell_git_dir = state_before
+                states, prev_dir, shell_git_dir, functions = state_before
             after_pipe = seg == "|"
             if seg == "&&":
                 run_next = last_status is not False
@@ -2278,7 +2292,7 @@ def main():
             if not run_next:
                 skip_depth = 1
                 continue
-            dir_stack.append((list(states), prev_dir, shell_git_dir))
+            dir_stack.append((list(states), prev_dir, shell_git_dir, dict(functions)))
             continue
         if kind == "close":
             # A subshell's status is its own; we cannot compute it.
@@ -2286,7 +2300,7 @@ def main():
             # A subshell's `cd` dies with the subshell. An unmatched `)` (a
             # `case` arm, say) has nothing to restore and is ignored.
             if dir_stack:
-                states, prev_dir, shell_git_dir = dir_stack.pop()
+                states, prev_dir, shell_git_dir, functions = dir_stack.pop()
             continue
 
         if not run_next:
@@ -2295,7 +2309,7 @@ def main():
             # keeps `a && b && c` and `a && b || c` both correct.
             continue
 
-        state_before = (list(states), prev_dir, shell_git_dir)
+        state_before = (list(states), prev_dir, shell_git_dir, dict(functions))
 
         tokens = _tokens(seg)
         # Redirections can sit anywhere, including before the command word.
@@ -2346,8 +2360,21 @@ def main():
             # The call's arguments are the body's positional parameters, so a
             # wrapper like `g() { git "$@"; }` is expanded with them — without
             # this, `g commit -m x` left a subcommand of `$@` (defect 40).
-            body = _expand_positionals(functions[call[0]], call[1:])
-            events[event_index:event_index] = _segments(body)
+            bodies = functions[call[0]]
+            spliced = []
+            for body in bodies:
+                inner = _segments(_expand_positionals(body, call[1:]))
+                # With ONE definition the body runs in this shell, so its `cd`
+                # applies at the call. With several — only possible when a
+                # redefinition was conditional — each is isolated instead, so
+                # every possibility is checked without one candidate's `cd`
+                # bleeding into another's.
+                spliced.extend(
+                    inner
+                    if len(bodies) == 1
+                    else [("open", None), *inner, ("close", None)]
+                )
+            events[event_index:event_index] = spliced
             continue
 
         # Track `export GIT_DIR=…`, which persists to every LATER command in
