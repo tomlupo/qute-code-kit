@@ -26,7 +26,8 @@ CLI flag  >  env  >  built-in default
 ```
 
 (ADR-0005 removed the `.github/qute-pr.yml` policy layer — merge/PR governance is
-the rigor tier in `conductor.yml`, or `.claude/rules` + CI for standalone repos.)
+the rigor tier in `conductor.yml`, or the repo's `CLAUDE.md` behavioral contract
++ CI for standalone repos.)
 
 Reference verbs:
 

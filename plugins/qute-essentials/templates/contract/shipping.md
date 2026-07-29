@@ -1,4 +1,4 @@
-<!-- prose source: shipping v1 — /setup-qute-repo writes this as a CLAUDE.md section; it is NOT stamped as a .claude/rules file (TOM-386) -->
+<!-- prose source: shipping v1 — /setup-qute-repo step 5 writes this as a section of the repo's CLAUDE.md. It is prose, not a file to copy: nothing stamps it into .claude/rules (ADR-0005 §5 as amended 2026-07-28). -->
 # Shipping
 
 - `/ship` is the **only** version writer: it bumps the version, regenerates

@@ -2,8 +2,9 @@
 #
 # OPTIONAL, install-on-request. This is NOT auto-added to any repo. Installing
 # this file IS the opt-in — there is no separate policy file (ADR-0005 deleted
-# `.github/qute-pr.yml`; merge/PR governance is `.claude/rules` for standalone
-# repos, or the rigor tier in `conductor.yml` for jimek-managed repos).
+# `.github/qute-pr.yml`; merge/PR governance is the repo's `CLAUDE.md`
+# behavioral contract for standalone repos, or the rigor tier in
+# `conductor.yml` for jimek-managed repos).
 #
 # TIER-AWARE (ADR-0005 §4): the gate reads the PR's `jimek-tier:*` label,
 # stamped by the jimek conductor (a trusted writer — labels are not PR-head

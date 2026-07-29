@@ -2,12 +2,17 @@
 
 **Status:** Accepted
 **Date:** 2026-07-21
+**Amended:** 2026-07-28 (TOM-386) — the behavioral core lives in **`CLAUDE.md`**, not
+`.claude/rules`. The reasoning is the amendment block in §5. Sites that merely *named* the old
+home (§1, §2, §3, §6) are corrected in place and tagged `[amended 2026-07-28]`; **§5's body is
+left verbatim** because the amendment quotes and rebuts it, so that text is the record of what
+was wrong. Nothing else about this ADR changed.
 
 ## Supersedes
 
 [docs/architecture/jimek-migration.md](../architecture/jimek-migration.md) — the relocation
 plan. That doc had `.github/qute-pr.yml` *moving* to jimek; this ADR **deletes** it, and adds
-the with/without-jimek axis and the `.claude/rules` behavioral core it didn't have. Builds on
+the with/without-jimek axis and the behavioral core it didn't have. Builds on
 [ADR-0001](0001-matt-planning-spine-qute-runtime.md) (Matt spine / qute runtime),
 [ADR-0003](0003-task-tracking-tiers-linear-jimek.md) and
 [ADR-0004](0004-linear-task-source-github-issues-record.md) (Linear task source).
@@ -36,35 +41,41 @@ without jimek?**
 Every repo picks one mode when `setup-qute-repo` runs:
 
 - **Standalone (without jimek).** The qute-essentials baseline on Matt's spine. Governance =
-  `.claude/rules` + CI. A human (or a skill) drives PRs; the review-gate CI runs; a review is
-  posted by a human or a skill; a **human merges**. No conductor, no tiers, no fleet.
+  the repo's `CLAUDE.md` behavioral contract *[amended 2026-07-28]* + CI. A human (or a skill)
+  drives PRs; the review-gate CI runs; a review is posted by a human or a skill; a **human
+  merges**. No conductor, no tiers, no fleet.
 - **Jimek-managed (with jimek).** Adds `conductor.yml` (rigor tiers) and the autonomous
   conductor drives the whole PR lifecycle. A pure opt-in overlay on top of the standalone base.
 
-Onboarding is the fork: **no jimek** → stamp `.claude/rules` + review-gate CI, no
-`conductor.yml`; **jimek** → additionally stamp `conductor.yml` + tier wiring.
+Onboarding is the fork: **no jimek** → write the behavioral contract into `CLAUDE.md`
+*[amended 2026-07-28]* + review-gate CI, no `conductor.yml`; **jimek** → additionally stamp
+`conductor.yml` + tier wiring.
 
 ### 2. Responsibility split
 
 | Component | Home | Role |
 |---|---|---|
-| **qute-essentials** | the standalone base | Matt spine + runtime skills (`/ship`, `/decision`, `/test`, `/audit`, `/task`, guards) + CI templates + `.claude/rules` onboarding. Works alone; where a repo *starts*. |
+| **qute-essentials** | the standalone base | Matt spine + runtime skills (`/ship`, `/decision`, `/test`, `/audit`, `/task`, guards) + CI templates + `CLAUDE.md` behavioral-contract onboarding *[amended 2026-07-28]*. Works alone; where a repo *starts*. |
 | **jimek** | opt-in overlay | the conductor + `conductor.yml` (rigor tiers) + the GitHub **transport verbs**. Only present with jimek. |
 | **`qute-coder` / `qute-reviewer` / `jimek-onboard`** | → **jimek** | they post AS the bot identities — meaningless without the conductor. Standalone repos use human/`gh` + a reviewer. |
 | **`qute-review` (skill)** | stays in qute-essentials, **repositioned as the quant-domain reviewer** | Matt's skills already give *general* repos review tooling; `qute-review` is the deep **quant** reviewer, invoked by a human (or, for quant repos, by jimek). Not "the reviewer." |
 | **review-gate CI** | qute-essentials (ships the template) | works both modes; see §4. |
-| **`.github/qute-pr.yml`** | **DELETED** | merge/PR governance is `.claude/rules` (standalone) or the rigor **tier** in `conductor.yml` (jimek). §3. |
+| **`.github/qute-pr.yml`** | **DELETED** | merge/PR governance is the `CLAUDE.md` behavioral contract *[amended 2026-07-28]* (standalone) or the rigor **tier** in `conductor.yml` (jimek). §3. |
 
-The two GitHub Apps — **qute-coder[bot]** (authors agent PRs) and **qute-review[bot]** (posts
-independent verdicts) — are jimek's transport identities. Their only job is to make
+The two GitHub Apps — **qute-coder** (login `qute-coding[bot]`; authors agent PRs) and
+**qute-review** (login `qute-review[bot]`; posts independent verdicts) — are jimek's transport
+identities. The gate compares **logins**, so the coder App's login is the one that matters:
+the App is *named* qute-coder (app id 4172326) but posts as `qute-coding[bot]` (user id
+297830028); `qute-coder[bot]` is not a GitHub account and 404s. Their only job is to make
 `author ≠ reviewer` true by construction so the review gate passes.
 
 ### 3. The rigor tier is the single merge authority (qute-pr.yml is gone)
 
 For jimek-managed repos, `conductor.yml`'s tier decides review + merge + board status
 (trivial = auto-merge / standard = on-ship self-merge / complex = human merge). There is no
-second policy file. For standalone repos, the human decides the merge; `.claude/rules` states
-the expectation and the CI gate enforces "get a review."
+second policy file. For standalone repos, the human decides the merge; the `CLAUDE.md`
+behavioral contract *[amended 2026-07-28]* states the expectation and the CI gate enforces
+"get a review."
 
 ### 4. The review-gate CI is tier-aware and degrades gracefully
 
@@ -78,7 +89,11 @@ The gate reads the PR's `jimek-tier:*` label (stamped by the conductor, a truste
 One template serves both modes: with jimek the label makes it tier-aware; without, it is the
 "require a review" gate. It no longer reads `qute-pr.yml`.
 
-### 5. `.claude/rules` is the shared behavioral contract; tiers are the enforcement layer
+### 5. The shared behavioral contract; tiers are the enforcement layer
+
+> **Read the amendment at the end of this section first** *[amended 2026-07-28]* — the contract
+> below still holds, but its home is `CLAUDE.md`. Everything between here and that amendment is
+> the 2026-07-21 text, kept as the record of what was decided and what was wrong with it.
 
 `setup-qute-repo` stamps the repo's core behavioral rules into **`.claude/rules/`** (auto-loaded
 every session, modular, regenerable per-concern — the same additive/never-clobber pattern as the
@@ -111,6 +126,8 @@ the *automation/enforcement* layer for the autonomous case; they do not restate 
 > sections instead. `paths:`-scoped rules keep the one capability `CLAUDE.md` lacks — not loading
 > until an accessed file matches — and are **discovered during work, never stamped at onboarding**,
 > which is why the `<!-- qute-rule: … -->` marker existed in five templates and zero real files.
+> Those five now live at `plugins/qute-essentials/templates/contract/` as prose sources for the
+> `CLAUDE.md` sections, headed `<!-- prose source: … -->`; the `qute-rule` marker is retired.
 > Two traps if you write one: the matcher resolves the project root as
 > `dirname(dirname(rulesDir))` and silently never fires for globs pointing outside it, and an
 > invariant moved out of `CLAUDE.md` into a scoped rule stops holding with nothing reporting it.
@@ -120,11 +137,11 @@ the *automation/enforcement* layer for the autonomous case; they do not restate 
 `conductor.yml` governs **machines, not you**. When a human drives an interactive session in a
 jimek-managed repo: the conductor stays out of the lane (it only claims `agent:conductor` +
 `autonomous`-lane Todos), the rigor tiers are **inert** (they gate autonomous workers only), and
-the session is governed by `.claude/rules` + the review-gate CI — i.e. standalone behavior.
-Interactive sessions are **not** tier-aware by design: the human is the authority, and the
-behaviors tiers encode (get a review, don't self-merge risky changes) already live in
-`.claude/rules` as plain guidance. The lane labels (`human`/`interactive`/`autonomous`) do the
-routing.
+the session is governed by the repo's `CLAUDE.md` *[amended 2026-07-28]* + the review-gate CI —
+i.e. standalone behavior. Interactive sessions are **not** tier-aware by design: the human is
+the authority, and the behaviors tiers encode (get a review, don't self-merge risky changes)
+already live in `CLAUDE.md` *[amended 2026-07-28]* as plain guidance. The lane labels
+(`human`/`interactive`/`autonomous`) do the routing.
 
 ### 7. Board writes are conductor-owned (already implemented)
 
@@ -183,9 +200,13 @@ is proven (the migration doc's Order §4 discipline is retained).
    Resolved: jimek ships them under `skills/<name>/` (SKILL.md + helper scripts) and
    auto-installs them globally as whole-dir symlinks on bot start (`managed_skills`). They are the conductor's
    transport verbs. qute-essentials stops shipping them in a minor-major bump; README drops them.
-5. *(done 2026-07-21)* **Stand up `.claude/rules` onboarding in `setup-qute-repo`.** Stamp the common core +
-   jimek-conditional note; make it idempotent per-concern-file. Move the review-gate CI template
+5. *(done 2026-07-21; **retargeted 2026-07-28** — see the §5 amendment)* **Stand up
+   behavioral-contract onboarding in `setup-qute-repo`.** Stamp the common core +
+   jimek-conditional note; make it idempotent per concern. Move the review-gate CI template
    ownership here (or to jimek — one unit with the gate; decide with step 4).
+   *What shipped 2026-07-21 wrote `.claude/rules/*.md`; TOM-386 retargeted the same core to
+   `CLAUDE.md` sections and removed the stamping step — the concerns and the never-clobber
+   discipline are unchanged, only the destination is.*
 6. *(done 2026-07-21)* **Reposition `qute-review` as the quant reviewer.** Update its description/triggers to quant
    scope; document that general repos use Matt's review tooling.
 7. *(done 2026-07-21)* **Collapse the two review runners**
