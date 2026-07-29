@@ -73,6 +73,43 @@ Blocks dangerous commands before they execute. Context-aware: won't block `grep 
 | System | `sudo rm -rf`, `chmod -R 777`, `crontab -r`, `pkill -9 -u` |
 | Custom | Obsidian vault paths, production quantlab, trading crons |
 
+**Writing a destructive command is not running one.** Patterns match the
+*execution surface* — regions the shell hands to a program as data are excluded,
+so a fixture string inside a heredoc no longer trips the guard:
+
+```bash
+cat > patch.sh <<'EOF'          # allowed — the body is data
+git push --force-with-lease
+EOF
+git push --force-with-lease     # still blocked — this one runs
+```
+
+Only two region kinds are exempt: heredoc bodies into `cat`/`tee`, and
+`python -c` / `python - <<EOF` payloads whose parsed AST provably cannot reach a
+shell (no imports; every call an allowlisted builtin or method). Three conditions
+gate them — no pipe or substitution in the segment, python must be reading that
+region as its own source, and **nothing anywhere in the same call may be able to
+run a program**, since writing a file and executing it fit in one Bash call:
+
+```bash
+cat > /tmp/x <<'EOF'      # still blocked: `bash /tmp/x` below
+rm -rf /srv/data
+EOF
+bash /tmp/x
+```
+
+Everything else keeps its text scanned — `bash <<EOF`, `psql <<EOF`, `sudo tee`,
+`perl -e`, `node -e`, `cat <<EOF | bash`, `python3 runner.py <<EOF`. The inert
+list is strict about exec escapes, so `git` (`-c alias.x='!…'`), `sort`
+(`--compress-program`) and `rg` (`--pre`) are deliberately **not** on it. Every
+list involved is an allowlist, so an unrecognised program or an unparseable
+payload resolves toward blocking; the route for a genuinely-blocked write is the
+Write tool (never screened) or `/guard destructive off`.
+
+This is a text matcher over one tool call — it stops the accident, not the
+adversary (`X="rm -rf"; $X /` defeats it, and always did). Use `pre-push` +
+`.claude/git-guard.json` for branch protection that git itself enforces.
+
 Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert on every block.
 
 ### Provenance Guard (PreToolUse)
