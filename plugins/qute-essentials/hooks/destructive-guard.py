@@ -93,14 +93,16 @@ def is_enabled() -> bool:
 #       original command.
 #
 #   (2) REJECTED — downgrade `git push --force*` from "block" to "warn".
-#       Two reasons. First, it does not work: read `main()` — "warn" and
-#       "block" both emit permissionDecision "deny" with a "🛑 BLOCKED"
-#       reason, and severity only decides whether an ntfy alert fires. A
-#       downgrade would have changed nothing that the incident was about.
-#       (That warn/block conflation is pre-existing and deliberately left
-#       alone here; it is not this ticket.) Second, even a working downgrade
-#       is aimed at one pattern, and the bug is not about force-push — a
-#       heredoc containing `rm -rf /` or `DROP TABLE` was equally stuck.
+#       Two reasons. First, it did not work: at the time "warn" and "block"
+#       both emitted permissionDecision "deny" with a "🛑 BLOCKED" reason, and
+#       severity only decided whether an ntfy alert fired. A downgrade would
+#       have changed nothing that the incident was about. (TOM-395 has since
+#       fixed that conflation — "warn" now means "ask" — so the argument no
+#       longer holds and is preserved only as the record of what was decided
+#       when. See "WHAT THE TWO LEVELS DO" under Pattern definitions.) Second,
+#       even a working downgrade is aimed at one pattern, and the bug is not
+#       about force-push — a heredoc containing `rm -rf /` or `DROP TABLE` was
+#       equally stuck.
 #
 #       The half of option 2 that IS true: since `pre-push` landed (e6e3b15),
 #       force-pushes to a protected branch are caught by git's own resolved
@@ -121,8 +123,42 @@ def is_enabled() -> bool:
 # when the threat model has an actor in it.
 
 # ─── Pattern definitions ──────────────────────────────────────
-# Each pattern: (compiled regex, description, severity)
-# Severity: "block" = hard deny, "warn" = deny with explanation
+#
+# Each pattern: (compiled regex, description, severity).
+#
+# WHAT THE TWO LEVELS DO (TOM-395). They used to do the same thing: `warn` and
+# `block` both emitted permissionDecision "deny" with a "🛑 BLOCKED" reason, and
+# severity decided only whether an ntfy alert fired. So the table promised a
+# middle rung it did not have — and it cost a real decision, not just clarity:
+# downgrading `git push --force*` to `warn` was considered as the fix for
+# TOM-379 and rejected partly BECAUSE it would have changed nothing.
+#
+#   block → permissionDecision "deny". The command does not run, and a
+#           high-priority ntfy alert fires.
+#   warn  → permissionDecision "ask". The command is NOT denied; the human is
+#           shown the reason and decides. No alert — somebody is already
+#           looking at it.
+#
+# `warn` is "ask", not "allow with a message", deliberately. A hook that
+# returns "allow" AUTO-APPROVES: it overrides the permission rules that would
+# otherwise have prompted, so a warn-level pattern would make a command LESS
+# supervised than one this file has never heard of. "ask" is the only spelling
+# of "flag but do not block" that cannot weaken the surrounding permission
+# system. In a headless run with no human to ask, "ask" resolves the way the
+# harness resolves any other prompt — which is at worst today's behaviour.
+#
+# Both levels are appended to the audit log with the severity and the resulting
+# decision recorded.
+#
+# Two patterns were re-levelled when `warn` stopped denying, because leaving
+# them at `warn` would have turned a hard block into a prompt for something
+# with no undo: `DELETE FROM x;` (no WHERE — the sibling of `TRUNCATE TABLE`,
+# which blocks) and `docker volume prune` (deletes volume DATA — the sibling of
+# `docker system prune -a`, which blocks). What stayed at `warn` stayed on
+# purpose: `git branch -D` is reflog-recoverable, `killall`/`Stop-Process`/
+# `net stop` destroy no data, and `find -delete`/`find -exec rm` are the
+# guard's most routine false positive (`find . -name '*.pyc' -delete`) — a
+# prompt is exactly the right rung for those.
 
 GIT_PATTERNS = [
     (
@@ -209,7 +245,24 @@ FILESYSTEM_PATTERNS = [
         "find -exec rm removes matched files",
         "warn",
     ),
-    (re.compile(r"\b>\s*/etc/"), "overwriting system config file", "block"),
+    # TOM-400. This was `\b>\s*/etc/`, and `\b` before `>` demands a WORD
+    # CHARACTER immediately to its left — so it matched `foo>/etc/passwd`, the
+    # spelling nobody writes, and missed `> /etc/passwd` and `echo x > /etc/passwd`,
+    # the ones everybody does. It had a test; the test used the unspaced form,
+    # which is how it survived. A redirection operator needs no left-hand
+    # boundary at all: `>` is punctuation, and the shell accepts it glued to the
+    # previous word or standing alone.
+    #
+    # And no `>>` alternative: an append redirect ENDS in the same `>` this
+    # matches, so `>> /etc/hosts` and `&>>/etc/hosts` are covered by the single
+    # operator. Mutation testing says so outright — `>>?` here changed no test.
+    # A dead alternative inside a pattern is how the next reader mislearns what
+    # the pattern needs, which is the whole subject of this ticket.
+    (
+        re.compile(r">\s*/etc/"),
+        "writing to a system config file in /etc",
+        "block",
+    ),
     (re.compile(r"\bmkfs\b"), "mkfs formats a filesystem", "block"),
     (re.compile(r"\bdd\s+.*of=/dev/"), "dd writing to device", "block"),
     # Windows
@@ -247,7 +300,7 @@ DATABASE_PATTERNS = [
     (
         re.compile(r"\bDELETE\s+FROM\s+\w+\s*;", re.I),
         "DELETE without WHERE clause deletes all rows",
-        "warn",
+        "block",  # TOM-395: was "warn" when "warn" still denied
     ),
     (re.compile(r"\bdropdb\b"), "dropdb removes entire database", "block"),
     (re.compile(r"\bdropuser\b"), "dropuser removes database user", "block"),
@@ -262,7 +315,7 @@ DOCKER_PATTERNS = [
     (
         re.compile(r"\bdocker\s+volume\s+prune\b"),
         "docker volume prune deletes all unused volumes",
-        "warn",
+        "block",  # TOM-395: was "warn" when "warn" still denied
     ),
     (
         re.compile(r"\bdocker\s+rm\s+-f\s+\$\(docker\s+ps"),
@@ -307,8 +360,14 @@ SYSTEM_PATTERNS = [
         "sc delete removes a Windows service",
         "block",
     ),
+    # TOM-400, found by the audit the anchor bug triggered: this asked for TWO
+    # consecutive backslashes (`\\\\` in a raw string is the regex for a literal
+    # `\\`), so it matched `reg delete HKLM\\Software\\X /f` — a registry path
+    # as it appears inside an escaped string literal — and never the spelling a
+    # person types at a shell, `reg delete HKLM\Software\X /f`. Same class as
+    # the `\b>` bug: written to fit an imagined text rather than the threat.
     (
-        re.compile(r"\breg\s+delete\s+.*\\\\.*\s+/f", re.I),
+        re.compile(r"\breg\s+delete\s+.*\\.*\s+/f", re.I),
         "reg delete /f force-deletes registry keys",
         "block",
     ),
@@ -1007,6 +1066,69 @@ def _blank_python_c_payloads(command: str, chars: list, segments) -> None:
         _blank(chars, seg_start + span[0], seg_start + span[1])
 
 
+# ─── Quote removal ────────────────────────────────────────────
+#
+# TOM-395. Every pattern above spells its operands unquoted — `\s+/srv/obsidian`,
+# `\s+/(?!tmp)` — so `rm -rf "/srv/data"` slipped past a guard that caught
+# `rm -rf /srv/data`. Quoting a path is ordinary hygiene, more likely in a
+# careful script than a careless one, which inverted the protection: the more
+# carefully a command was written, the less of it was guarded.
+#
+# The fix belongs HERE and not in the table. Adding `['\"]?` around every
+# operand would multiply forty patterns by the places a quote can sit, and the
+# next pattern somebody adds would forget. The shell performs QUOTE REMOVAL
+# before a program ever sees its arguments, so the execution surface — the
+# string that is meant to be "what the shell will run" — should have the
+# quoting removed too.
+#
+# Only the quote DELIMITERS are overwritten (with a space, so offsets and
+# length survive), never the quoted text. That is one-directional by
+# construction: no pattern in this file contains a `'` or a `"`, so a quote
+# character can only ever be matched by a wildcard (`.*`, `[^|]*`) — which
+# matches a space just as happily. Blanking a quote can therefore ADD a match
+# and can never remove one, and the added ones are exactly the quoted spellings
+# of things this file already blocks unquoted.
+#
+# What it does NOT do is defeat quoting used as obfuscation: `rm -rf /srv/"ob"sidian`
+# becomes `rm -rf /srv/ ob sidian`, which still matches nothing. That is the
+# adversary again, and the note at the top of this file applies unchanged — the
+# text was not contiguous before quote removal either, so nothing regressed.
+
+
+def _blank_quote_delimiters(command: str, chars: list) -> None:
+    """Overwrite shell quote delimiters with spaces (quote removal).
+
+    Walks the command tracking quote state exactly as `_has_unquoted` does: a
+    backslash escapes the next character outside quotes and inside double
+    quotes, and is a literal inside single quotes.
+
+    A mis-tracked state (an unbalanced quote inside a heredoc body, say) can
+    only ever blank the wrong QUOTE character — no other character is touched
+    — so the worst case stays on the one-directional side described above.
+    """
+    i, n, quote = 0, len(command), None
+    while i < n:
+        c = command[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 2
+                continue
+            if c == quote:
+                chars[i] = " "
+                quote = None
+            i += 1
+            continue
+        if c in "'\"":
+            chars[i] = " "
+            quote = c
+            i += 1
+            continue
+        if c == "\\":
+            i += 2
+            continue
+        i += 1
+
+
 def execution_surface(command: str) -> str:
     """The part of `command` the shell will run, with data regions blanked.
 
@@ -1014,6 +1136,12 @@ def execution_surface(command: str) -> str:
     `$`-anchored ones) keeps its exact meaning. Any failure returns the
     command untouched: falling back to scanning everything reproduces the
     old behaviour, which errs toward blocking.
+
+    Two kinds of edit: data regions become spaces (so their text is not
+    matched at all), and quote delimiters become spaces (so what the shell
+    unquotes IS matched — see "Quote removal"). Every decision about which
+    regions are data is taken against the ORIGINAL command, so quote removal
+    cannot change any of them.
     """
     try:
         # `_scan_layout` reads PHYSICAL lines, but bash joins a line ending in
@@ -1038,6 +1166,10 @@ def execution_surface(command: str) -> str:
         # Arguments of a data-only stage (`grep …`, `echo …`). Gated per
         # stage rather than per call — see "Data-only stages" below.
         _blank_data_only_stages(command, chars, segments, bodies)
+        # Last, because it reads the ORIGINAL command and only ever overwrites
+        # quote characters: what is already blank stays blank, and no earlier
+        # decision can be affected by it.
+        _blank_quote_delimiters(command, chars)
         return "".join(chars)
     except Exception:
         return command
@@ -1073,13 +1205,15 @@ def execution_surface(command: str) -> str:
 # on the surface: `printf 'x' > /etc/passwd` keeps its `> /etc/passwd`, where
 # the old `^(echo|printf)` prefix rule exempted the whole line.
 #
-#   (It is still not BLOCKED, for an unrelated reason: the pattern is
-#   `\b>\s*/etc/`, and `\b` before `>` demands a word character immediately
-#   to its left — so it matches `foo>/etc/passwd` and misses every ordinary
-#   spelling, `> /etc/passwd` included. That is a defect in the pattern, not
-#   in this exemption; it predates TOM-394 and is reported separately rather
-#   than fixed here. The surface behaviour above is asserted directly, by
-#   `TestDataOnlyStagesOnTheSurface`, so it holds whatever the pattern does.)
+#   (And it is now BLOCKED. It was not, until TOM-400: the pattern read
+#   `\b>\s*/etc/`, and `\b` before `>` demanded a word character immediately to
+#   its left, so it matched `foo>/etc/passwd` and missed every ordinary
+#   spelling. Keeping the redirection on the surface was what made fixing the
+#   pattern worth anything — before TOM-394 the text a corrected pattern needed
+#   was blanked away by the `^(echo|printf)` prefix rule, so the fix would have
+#   changed nothing. The surface behaviour is asserted directly, by
+#   `TestDataOnlyStagesOnTheSurface`, and the two halves are asserted together
+#   by `TestTheEtcRedirectAnchor`.)
 #
 # WHAT STILL EXEMPTS A COMMAND, and why:
 #
@@ -1581,6 +1715,55 @@ def is_safe_context(command: str) -> bool:
 # ─── Main hook ────────────────────────────────────────────────
 
 
+def _log(severity: str, decision: str, description: str, command: str) -> None:
+    """Append the verdict to the permission audit log. Both severities are
+    logged — a prompt the user approved is exactly as worth having a record of
+    as a denial."""
+    import time
+
+    log_dir = Path.home() / ".claude" / "permission-audit"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "type": "destructive_guard",
+        "severity": severity,
+        "decision": decision,
+        "description": description,
+        "command": command[:500],
+    }
+    with open(log_dir / "destructive-blocks.jsonl", "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def _alert(description: str, command: str) -> None:
+    """High-priority push alert. Blocks only — a "warn" is already in front of
+    a human, and paging for it is how a guard trains people to ignore it."""
+    try:
+        from urllib.request import Request, urlopen
+
+        ntfy_req = Request(
+            _ntfy_url(),
+            data=f"🛑 Destructive command blocked\n{description}\n{command[:100]}".encode(),
+            headers={
+                "Title": "Destructive Command Blocked",
+                "Priority": "high",
+                "Tags": "octagonal_sign,warning",
+            },
+            method="POST",
+        )
+        urlopen(ntfy_req, timeout=3)
+    except Exception:
+        pass
+
+
+def _first_match(surface: str, severity: str):
+    """The first pattern of `severity` that matches, or None."""
+    for pattern, description, pattern_severity in ALL_PATTERNS:
+        if pattern_severity == severity and pattern.search(surface):
+            return description
+    return None
+
+
 def main():
     if not is_enabled():
         print("{}")
@@ -1614,60 +1797,40 @@ def main():
     # merely contains — see "Why these patterns run against a *surface*".
     surface = execution_surface(command)
 
-    # Check all patterns
-    for pattern, description, severity in ALL_PATTERNS:
-        if pattern.search(surface):
-            reason = f"🛑 BLOCKED: {description}\nCommand: {command[:200]}"
-
-            # Log the block
-            log_dir = Path.home() / ".claude" / "permission-audit"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            import time
-
-            entry = {
-                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "type": "destructive_guard",
-                "severity": severity,
-                "description": description,
-                "command": command[:500],
-            }
-            with open(log_dir / "destructive-blocks.jsonl", "a") as f:
-                f.write(json.dumps(entry) + "\n")
-
-            # Send ntfy alert for blocks
-            if severity == "block":
-                try:
-                    from urllib.request import Request, urlopen
-
-                    ntfy_req = Request(
-                        _ntfy_url(),
-                        data=f"🛑 Destructive command blocked\n{description}\n{command[:100]}".encode(),
-                        headers={
-                            "Title": "Destructive Command Blocked",
-                            "Priority": "high",
-                            "Tags": "octagonal_sign,warning",
-                        },
-                        method="POST",
-                    )
-                    urlopen(ntfy_req, timeout=3)
-                except Exception:
-                    pass
-
-            print(
-                json.dumps(
-                    {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": reason,
-                        }
-                    }
-                )
-            )
+    # Check all patterns. Severity decides the verdict, so a "block" anywhere
+    # in the table outranks a "warn" earlier in it — first-match-wins was
+    # correct only while both levels denied. Without this, `git branch -D x &&
+    # rm -rf /srv/data` would be a prompt: `git branch -D` is a warn and sits
+    # in GIT_PATTERNS, ahead of every filesystem block.
+    description = _first_match(surface, "block")
+    if description is not None:
+        reason = f"🛑 BLOCKED: {description}\nCommand: {command[:200]}"
+        _log("block", "deny", description, command)
+        _alert(description, command)
+        decision = "deny"
+    else:
+        description = _first_match(surface, "warn")
+        if description is None:
+            print("{}")  # no match — allow
             return
+        reason = (
+            f"⚠️ WARNING: {description}\nCommand: {command[:200]}\n"
+            "Not blocked — approve it if you meant it."
+        )
+        _log("warn", "ask", description, command)
+        decision = "ask"
 
-    # No match — allow
-    print("{}")
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": decision,
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

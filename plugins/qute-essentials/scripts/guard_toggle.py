@@ -37,9 +37,15 @@ GUARDS
                   sync / lock, pip install). Reports CVEs against the
                   OSV database. Informational, non-blocking.
 
-    destructive   Block dangerous shell commands (rm -rf, git reset
-                  --hard, DROP TABLE, kubectl delete, force-push, etc).
-                  May false-positive on legitimate cleanup commands
+    destructive   Screen shell commands against a pattern table with two
+                  severities. 'block' (rm -rf /, git reset --hard, DROP
+                  TABLE, force-push, ...) denies the call and sends a
+                  high-priority ntfy alert. 'warn' (git branch -D,
+                  killall, find -delete, net stop, ...) does NOT deny —
+                  it asks, showing the reason, and you decide. Both are
+                  recorded in ~/.claude/permission-audit/. Quoted paths
+                  count: 'rm -rf "/srv/data"' is caught like the bare
+                  spelling. May false-positive on legitimate cleanup
                   like 'rm -rf dist/' or 'git reset --hard' on a clean
                   feature branch — disable temporarily, then re-enable.
 
