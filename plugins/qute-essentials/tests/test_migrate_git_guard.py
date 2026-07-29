@@ -418,6 +418,33 @@ def test_branch_arguments_the_enforcement_layer_would_refuse_are_not_stamped(
         pmod._branch_field(repo, {key: value}, key, allow_null=False)
 
 
+def test_a_rejected_config_argument_leaves_the_legacy_wiring_intact(tmp_path):
+    """A refusal must cost nothing. Everything after the plan DELETES.
+
+    Discovering the bad argument after the hook and its wiring were gone left a
+    repo with no agent-side guard, no legacy guard and no config — strictly less
+    protected than before it was "migrated", by the step whose job is the
+    opposite.
+    """
+    repo = make_repo(tmp_path, "abort")
+    (repo / ".claude" / "hooks").mkdir()
+    hook = repo / ".claude" / "hooks" / "git-workflow-guard.py"
+    hook.write_text(LEGACY_HOOK_BODY)
+    settings = repo / ".claude" / "settings.json"
+    settings.write_text(SETTINGS_WITH_SIBLINGS)
+
+    out = run_script(repo, "--integration-branch", "bad..name")
+    assert out.returncode == 1
+    # Nothing was touched: not the hook, not the wiring, and no config appeared.
+    assert hook.read_text() == LEGACY_HOOK_BODY
+    assert settings.read_text() == SETTINGS_WITH_SIBLINGS
+    assert not (repo / ".claude" / "git-guard.json").exists()
+
+    # …and the same repo migrates cleanly once the argument is right.
+    assert run_script(repo).returncode == 0
+    assert not hook.exists()
+
+
 def test_qualified_branch_argument_is_normalised_not_stamped_verbatim(tmp_path):
     """`refs/heads/dev` is legal but must be written as `dev`.
 

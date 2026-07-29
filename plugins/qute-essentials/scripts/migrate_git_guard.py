@@ -437,6 +437,85 @@ def _inside(repo: Path, path: Path) -> bool:
         return False
 
 
+def _plan_config(
+    repo: Path,
+    result: dict,
+    notes: list,
+    problems: list,
+    *,
+    stamp: bool,
+    protected: str | None,
+    integration: str | None,
+    integration_mode: str,
+    release_tool: str | None,
+):
+    """Decide the config outcome WITHOUT writing. Returns `(path, text)` or None.
+
+    Separated from `migrate` so the whole decision — is the existing file usable,
+    is the path contained, are the branch arguments ones the reader accepts — is
+    made before anything is deleted. Every failure here is a refusal, and a
+    refusal has to cost nothing.
+    """
+    cfg_path = repo / CONFIG
+    # Order matters. `_config_file_kind` uses `lstat` and follows nothing, so it
+    # is the specific diagnosis; containment (which RESOLVES, and so follows a
+    # symlink to wherever it goes) would otherwise answer "outside the repo" for
+    # a config symlink and hide the real problem behind a vaguer one.
+    cfg_kind = _config_file_kind(cfg_path)
+    if cfg_kind not in (None, "regular"):
+        # Present but not a regular file. `pre-push` reads this path with
+        # `lstat` and raises `ConfigError` on exactly this case — it refuses the
+        # push rather than quietly guarding nothing — so a migrator that used
+        # `is_file()` (which FOLLOWS symlinks, and answers False for a broken
+        # one) would report a repo migrated while every push in it fails. The
+        # two layers read one file; they have to agree on what "present" means.
+        problems.append(
+            f"{CONFIG} is {cfg_kind}, not a regular file — `pre-push` refuses every push in this "
+            "state. Replace it with a real file (or delete it to opt the repo out) and re-run; "
+            "not overwriting it here, because whatever it points at was somebody's decision"
+        )
+        return None
+    if not _inside(repo, cfg_path):
+        # The stamp is the one write that CREATES a path rather than editing one
+        # that exists, and therefore the one that needs the containment check
+        # most: with `.claude` symlinked out of the tree, `mkdir(parents=True)` +
+        # `write_text` would follow it and stamp a config into some other repo,
+        # which then looks opted in to a guard nobody armed there. Checked
+        # against the RESOLVED path, so it holds whether the symlink is
+        # `.claude` itself or an ancestor of it.
+        problems.append(
+            f"{CONFIG} resolves outside {repo} (a symlinked .claude?); refusing to stamp it"
+        )
+        return None
+    if cfg_kind == "regular":
+        result["config_existing"] = cfg_path.read_text(encoding="utf-8")
+        notes.append(f"{CONFIG} already present — left as the repo wrote it")
+        return None
+    if not stamp:
+        # `--no-stamp` and no config: the repo is NOT opted in, and saying
+        # nothing here let the summary claim "config already in place" — the one
+        # sentence that would make a reader stop looking for the reason both
+        # guard layers are inert in that repo.
+        notes.append(
+            f"{CONFIG} absent and --no-stamp given — this repo is NOT opted in; both guard layers are a no-op here"
+        )
+        return None
+    try:
+        cfg = desired_config(
+            repo, protected, integration, integration_mode, release_tool
+        )
+    except BranchRejected as exc:
+        # Refusing beats stamping: a config `pre-push` rejects makes EVERY push
+        # in the repo fail, and it would have been written by the step whose
+        # report says the repo is now migrated.
+        problems.append(f"nothing stamped — {exc}")
+        return None
+    rendered = json.dumps(cfg, indent=2) + "\n"
+    result["config_stamped"] = rendered
+    result["actions"].append(f"stamp {CONFIG} = {json.dumps(cfg)}")
+    return cfg_path, rendered
+
+
 def migrate(
     repo: Path,
     *,
@@ -461,6 +540,28 @@ def migrate(
         "problems": problems,
         "changed": False,
     }
+
+    # ---- config: PLAN FIRST, write last.
+    #
+    # Everything below this block deletes something. A config argument the
+    # enforcement layer refuses used to be discovered AFTER the legacy hook and
+    # its wiring were already gone — exit 1, and a repo with no agent-side guard,
+    # no legacy guard, and no config: strictly less protected than before it was
+    # "migrated", by the step whose job is the opposite. So the config is decided
+    # before anything is removed, and a refusal aborts having touched nothing.
+    pending_stamp = _plan_config(
+        repo,
+        result,
+        notes,
+        problems,
+        stamp=stamp,
+        protected=protected,
+        integration=integration,
+        integration_mode=integration_mode,
+        release_tool=release_tool,
+    )
+    if problems:
+        return result
 
     # ---- legacy hook file
     hook = repo / LEGACY_HOOK
@@ -521,64 +622,11 @@ def migrate(
                 "if it is an invocation, that entry now points at a deleted file"
             )
 
-    # ---- config stamp
-    cfg_path = repo / CONFIG
-    # Order matters. `_config_file_kind` uses `lstat` and follows nothing, so it
-    # is the specific diagnosis; containment (which RESOLVES, and so follows a
-    # symlink to wherever it goes) would otherwise answer "outside the repo" for
-    # a config symlink and hide the real problem behind a vaguer one.
-    cfg_kind = _config_file_kind(cfg_path)
-    if cfg_kind not in (None, "regular"):
-        # Present but not a regular file. `pre-push` reads this path with
-        # `lstat` and raises `ConfigError` on exactly this case — it refuses the
-        # push rather than quietly guarding nothing — so a migrator that used
-        # `is_file()` (which FOLLOWS symlinks, and answers False for a broken
-        # one) would report a repo migrated while every push in it fails. The
-        # two layers read one file; they have to agree on what "present" means.
-        problems.append(
-            f"{CONFIG} is {cfg_kind}, not a regular file — `pre-push` refuses every push in this "
-            "state. Replace it with a real file (or delete it to opt the repo out) and re-run; "
-            "not overwriting it here, because whatever it points at was somebody's decision"
-        )
-    elif not _inside(repo, cfg_path):
-        # The stamp is the one write that CREATES a path rather than editing one
-        # that exists, and therefore the one that needs the containment check
-        # most: with `.claude` symlinked out of the tree, `mkdir(parents=True)` +
-        # `write_text` would follow it and stamp a config into some other repo,
-        # which then looks opted in to a guard nobody armed there. Checked
-        # against the RESOLVED path, so it holds whether the symlink is
-        # `.claude` itself or an ancestor of it.
-        problems.append(
-            f"{CONFIG} resolves outside {repo} (a symlinked .claude?); refusing to stamp it"
-        )
-    elif cfg_kind == "regular":
-        result["config_existing"] = cfg_path.read_text(encoding="utf-8")
-        notes.append(f"{CONFIG} already present — left as the repo wrote it")
-    elif stamp:
-        try:
-            cfg = desired_config(
-                repo, protected, integration, integration_mode, release_tool
-            )
-        except BranchRejected as exc:
-            # Refusing beats stamping: a config `pre-push` rejects makes EVERY
-            # push in the repo fail, and it would have been written by the step
-            # whose report says the repo is now migrated.
-            problems.append(f"nothing stamped — {exc}")
-        else:
-            rendered = json.dumps(cfg, indent=2) + "\n"
-            result["config_stamped"] = rendered
-            actions.append(f"stamp {CONFIG} = {json.dumps(cfg)}")
-            if not check:
-                cfg_path.parent.mkdir(parents=True, exist_ok=True)
-                cfg_path.write_text(rendered, encoding="utf-8")
-    else:
-        # `--no-stamp` and no config: the repo is NOT opted in, and saying
-        # nothing here let the summary claim "config already in place" — the one
-        # sentence that would make a reader stop looking for the reason both
-        # guard layers are inert in that repo.
-        notes.append(
-            f"{CONFIG} absent and --no-stamp given — this repo is NOT opted in; both guard layers are a no-op here"
-        )
+    # ---- config: the write planned above, performed last
+    if pending_stamp and not check:
+        cfg_path, rendered = pending_stamp
+        cfg_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg_path.write_text(rendered, encoding="utf-8")
 
     result["changed"] = bool(
         result["legacy_hook_removed"]
