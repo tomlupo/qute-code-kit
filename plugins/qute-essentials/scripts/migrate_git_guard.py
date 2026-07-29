@@ -200,27 +200,37 @@ def _names_legacy_script(command: str) -> bool:
     is checked as well. Both are conservative in the same direction: a token
     still has to END in exactly this basename.
 
-    And the token has to be in COMMAND POSITION — first, or right after an
-    interpreter/wrapper. `python3 other.py --target git-workflow-guard.py` and
-    `echo git-workflow-guard.py` name the file as DATA; unwiring those would
-    delete a live hook that merely mentions the legacy one. Erring toward "not
-    it" is the right direction here only because the file-removal half of this
-    step is separate: the stale script still gets deleted either way, and a
-    missed wiring entry is a dangling command someone sees, not silent damage.
+    And the token has to be in COMMAND POSITION, resolved by scanning FORWARD:
+    consume leading wrappers/interpreters and their option flags, and the first
+    remaining token is what runs. That reads `python3 -u <script>`,
+    `uv run <script>` and `bash -lc <script>` as invocations — the reviewer's
+    misses, which would have left an entry pointing at a file this step deletes
+    — while `python3 other.py --target git-workflow-guard.py` and
+    `echo git-workflow-guard.py` stop at `other.py` / `echo` and name the file
+    as DATA. Scanning forward is what separates the two; scanning backward over
+    flags cannot, because `--target <value>` looks exactly like `-u <script>`.
+
+    An option that takes a SEPARATE value (`uv run --with pytest <script>`) can
+    still fool it into stopping at the value. That residue is a miss, never a
+    wrong deletion, and `migrate()` reports leftover mentions so a human sees it.
     """
 
     def _named_in_command_position(tokens: list[str]) -> bool:
-        for index, token in enumerate(tokens):
-            token = token.strip("\"'")
-            if PurePosixPath(token.replace("\\", "/")).name != LEGACY_BASENAME:
+        def basename(token: str) -> str:
+            return PurePosixPath(token.strip("\"'").replace("\\", "/")).name
+
+        index = 0
+        while index < len(tokens):
+            name = basename(tokens[index])
+            if name == LEGACY_BASENAME:
+                return True
+            if tokens[index].startswith("-"):
+                index += 1  # an option to the wrapper we already consumed
                 continue
-            if index == 0:
-                return True
-            previous = PurePosixPath(
-                tokens[index - 1].strip("\"'").replace("\\", "/")
-            ).name
-            if previous in _WRAPPERS or previous.startswith("python"):
-                return True
+            if name in _WRAPPERS or name.startswith("python"):
+                index += 1  # a wrapper: whatever follows may still be the script
+                continue
+            return False  # a real command that is not the legacy script
         return False
 
     splits: list[list[str]] = []
@@ -499,6 +509,17 @@ def migrate(
             )
             if not check:
                 path.write_text(dump_like(data, original), encoding="utf-8")
+        if LEGACY_BASENAME in json.dumps(data):
+            # The matcher is deliberately conservative — it will not delete an
+            # entry that merely MENTIONS the script — so anything still naming it
+            # after the pass is either a legitimate mention or an invocation
+            # shape the matcher did not recognise. Either way the file it names
+            # is about to be gone, so say so instead of leaving it to be found by
+            # a hook that stops working.
+            notes.append(
+                f".claude/{name} still mentions {LEGACY_BASENAME} after unwiring — check it by hand; "
+                "if it is an invocation, that entry now points at a deleted file"
+            )
 
     # ---- config stamp
     cfg_path = repo / CONFIG

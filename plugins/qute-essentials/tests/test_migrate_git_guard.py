@@ -231,6 +231,13 @@ def test_a_name_merely_containing_the_basename_is_not_the_legacy_hook(tmp_path):
         "python3 ./.claude/hooks/git-workflow-guard.py",
         "uv run /abs/path/.claude/hooks/git-workflow-guard.py",
         r"python3 .claude\hooks\git-workflow-guard.py",
+        # Wrapper/interpreter FLAGS in front of the script are transparent —
+        # missing these leaves an entry pointing at a file this step deletes.
+        "python3 -u .claude/hooks/git-workflow-guard.py",
+        "uv run .claude/hooks/git-workflow-guard.py",
+        "bash -lc .claude/hooks/git-workflow-guard.py",
+        "/usr/bin/env python3 .claude/hooks/git-workflow-guard.py",
+        ".claude/hooks/git-workflow-guard.py",
     ):
         assert mig._names_legacy_script(command) is True, command
 
@@ -243,6 +250,29 @@ def test_a_name_merely_containing_the_basename_is_not_the_legacy_hook(tmp_path):
     settings.write_text(body)
     assert run_script(repo).returncode == 0
     assert settings.read_text() == body  # byte-for-byte
+
+
+def test_a_surviving_mention_is_reported_not_left_silent(tmp_path):
+    """The conservative matcher's residue must be visible.
+
+    Anything still naming the script after the pass is either a legitimate
+    mention or an invocation shape the matcher did not recognise — and the file
+    it names is about to be deleted either way. Saying nothing is how an entry
+    quietly stops working.
+    """
+    repo = make_repo(tmp_path, "mention")
+    settings = repo / ".claude" / "settings.json"
+    settings.write_text(
+        SETTINGS_ONLY_LEGACY.replace(
+            'python3 \\"$CLAUDE_PROJECT_DIR/.claude/hooks/git-workflow-guard.py\\"',
+            "echo git-workflow-guard.py",
+        )
+    )
+    out = run_script(repo, "--json")
+    assert out.returncode == 0
+    payload = json.loads(out.stdout)
+    assert payload["wiring_removed"] == []  # nothing deleted — it is a mention
+    assert any("still mentions" in note for note in payload["notes"])
 
 
 def test_leaves_unrelated_settings_file_untouched(tmp_path):
