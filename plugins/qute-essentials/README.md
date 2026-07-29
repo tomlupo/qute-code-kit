@@ -313,7 +313,12 @@ mkdir -p .github/workflows && cp "${CLAUDE_PLUGIN_ROOT}/templates/review-gate.ym
 
 `${CLAUDE_PLUGIN_ROOT}` is set inside a Claude Code session running this plugin.
 From a plain shell it is unset — copy the file from the plugin's installed
-`templates/` directory instead (`claude plugin list` shows where the plugin lives).
+`templates/` directory instead, at
+`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` — here,
+`~/.claude/plugins/cache/qute-marketplace/qute-essentials/<version>/`. **No
+`claude plugin` subcommand prints that path**: `list` gives
+name/Version/Scope/Status and `details` gives a marketplace ref, so read the
+version from `claude plugin details qute-essentials` and build the path.
 
 The same workflow carries a second job, **`audit-sensitive-paths`** — on a PR that
 touches security-sensitive files (`pyproject.toml`, `uv.lock`, `requirements*.txt`,
@@ -373,8 +378,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_sweep.py" \
 ```
 
 (`${CLAUDE_PLUGIN_ROOT}` resolves inside a session running this plugin; from a
-cron entry or plain shell, substitute the plugin's installed path — `claude
-plugin list` shows it.)
+cron entry or plain shell, substitute the plugin's installed path,
+`~/.claude/plugins/cache/qute-marketplace/qute-essentials/<version>/`. No
+`claude plugin` subcommand prints it — see above.)
 
 ## Setup
 
