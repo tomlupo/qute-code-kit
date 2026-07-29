@@ -40,12 +40,23 @@ This skill exists because of a concrete failure (2026-06-28): a session ran code
 
 1. **Get the diff.** `gh pr diff <#> --repo <owner/repo>` (or `git diff <base>...<branch>` — use the
    PR's actual base; check `gh pr view <#> --json baseRefName`). Write it to a temp file.
+1b. **Get a CHECKOUT at the PR head and review from inside it (TOM-403).** A diff shows CHANGES,
+   not CONTENTS — reviewing one alone is how this reviewer produced five false blockers on
+   2026-07-28/29, three of them claiming a call was missing when it was already on the base branch.
+   ```
+   git fetch origin pull/<#>/head && git worktree add --detach <scratch>/wt FETCH_HEAD
+   ```
+   Remove it afterwards (`git worktree remove --force <scratch>/wt`). If you genuinely cannot get
+   one, say so in the verdict and treat every existence/runtime claim as non-blocking.
 2. **Run the cross-model review (codex by default).** Feed the diff + the canonical core prompt
    (`review-core.md` in this skill's directory, prefixed with one line of context: repo + PR + diff
    location):
    ```
-   cat <difffile> | codex exec --skip-git-repo-check "$(cat <skill-dir>/review-core.md)" > <scratch>/codex-review.log 2>&1
+   cat <difffile> | codex exec -C <scratch>/wt --sandbox workspace-write "$(cat <skill-dir>/review-core.md)" > <scratch>/codex-review.log 2>&1
    ```
+   `-C` puts the reviewer in the checkout so it can read whole files and run the suite;
+   `--sandbox workspace-write` is what lets it run them. With no checkout, fall back to
+   `--skip-git-repo-check` and the degraded claim rules above.
    `codex` lives at `~/.local/bin/codex` (and `~/.npm-global/bin/codex`). Use a generous timeout (~320s).
 
    **STDIN IS MANDATORY, NOT DECORATIVE.** In an agent shell stdin is a pipe, and `codex exec`
@@ -108,8 +119,10 @@ This skill exists because of a concrete failure (2026-06-28): a session ran code
 - **The platform reviewer** is the autonomous entry point: `agent-kit/bin/qute_reviewer_post.sh`
   (in qute-platform, installed to `~/bin/`) loads this same `review-core.md` for its codex/claude
   runners. It resolves the core via `QUTE_REVIEW_CORE` (**env > qute-code-kit checkout > embedded
-  fallback**); if it keeps an embedded fallback, a CI drift-check on the `qute-review-core vN`
-  version marker keeps the two copies honest. Change the review policy HERE, once.
+  fallback**). Its embedded fallback is held byte-identical to this core by
+  `agent-kit/tests/test_review_core_sync.sh` in qute-platform — bump one, bump both, or that test
+  goes red. It also runs its reviewer inside a checkout at the PR head (TOM-403). Change the review
+  policy HERE, once.
 
 ## Caveats
 
