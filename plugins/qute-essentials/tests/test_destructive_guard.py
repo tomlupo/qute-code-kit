@@ -827,6 +827,12 @@ class TestAToolThatCanRunItsOwnOptionValue:
     def test_a_real_dry_run_is_bare_words_end_to_end(self, command):
         assert_allowed(command)
 
+
+class TestWhereADataOnlyStagesOutputEndsUp:
+    """Route 3 in detail: the stage's output reaching a FILE that something in
+    the same call can then run. Where the write happens, and how it is spelled,
+    is not the stage's business — so neither is it this check's."""
+
     @pytest.mark.parametrize(
         "writer",
         [
@@ -834,6 +840,8 @@ class TestAToolThatCanRunItsOwnOptionValue:
             "cat > /tmp/x",  # the redirection belongs to a LATER stage
             "cat >> /tmp/x",
             "cp /dev/stdin /tmp/x",
+            "cp /proc/self/fd/0 /tmp/x",
+            "mv /dev/stdin /tmp/x",
         ],
     )
     def test_the_file_can_be_written_by_a_later_stage_of_the_pipeline(self, writer):
@@ -846,6 +854,13 @@ class TestAToolThatCanRunItsOwnOptionValue:
     def test_writing_it_is_still_fine_when_nothing_runs_it(self):
         assert_allowed("echo 'rm -rf /srv/data' | cat > /tmp/x")
         assert_allowed("echo 'rm -rf /srv/data' | tee /tmp/x")
+
+    @pytest.mark.parametrize("consumer", ["cp a b", "mv a b", "wc -l", "grep x"])
+    def test_a_consumer_that_does_not_write_its_stdin_is_not_route_3(self, consumer):
+        """Review finding on #91 round 5: `cp` and `mv` write their STDIN only
+        when handed a path that is stdin. Treating every `cp` as a stdin writer
+        blocked a pipeline whose text goes nowhere near a file."""
+        assert_allowed(f"echo 'rm -rf /srv/data' | {consumer} ; bash /tmp/x")
 
     @pytest.mark.parametrize("redirection", [">", ">>", ">|", "1>", "&>", ">&", "2>"])
     def test_every_spelling_of_a_write_counts_as_one(self, redirection):

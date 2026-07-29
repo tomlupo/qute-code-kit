@@ -1055,9 +1055,9 @@ def execution_surface(command: str) -> str:
 #      be able to execute anything. `echo 'rm -rf /srv/data' | bash` is caught
 #      here; `rg 'rm -rf /srv' . | wc -l` is not, because `wc` cannot run it.
 #   3. a FILE — if the stage, or anything downstream of it in the pipeline,
-#      redirects the output or writes it with `tee`/`cp` — and then something
-#      else in the call could run that file. So THAT case, and only that case,
-#      takes the call-wide gate:
+#      redirects the output or writes it with `tee` (or `cp`/`mv` handed
+#      `/dev/stdin`) — and then something else in the call could run that
+#      file. So THAT case, and only that case, takes the call-wide gate:
 #
 #          echo 'rm -rf /srv/data' > /tmp/x ; bash /tmp/x
 #
@@ -1144,10 +1144,15 @@ _ASSIGNMENT = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 # pipeline ending in one lands the piped text on disk with no `>` in sight.
 # Only members of INERT_PROGRAMS need naming here — anything off that allowlist
 # already counts as an executor and gates the call by itself, which is why
-# `dd of=…` and `sponge` are absent. `tee` does it by design; `cp`/`mv` do it
-# when handed `/dev/stdin`. A miss here costs a blanked stage whose text was
-# written to disk, so the list errs long rather than short.
-FILE_WRITERS = frozenset({"tee", "cp", "mv"})
+# `dd of=…` and `sponge` are absent.
+#
+# `tee` does it by definition. `cp` and `mv` do it only when handed a path that
+# IS stdin, so they are checked for one rather than assumed: reading every
+# `cp` as a stdin writer blocked `echo … | cp a b ; bash /tmp/x`, where the
+# text goes nowhere near a file (review on #91, round 5).
+STDIN_WRITERS = frozenset({"tee"})
+STDIN_PATH_WRITERS = frozenset({"cp", "mv"})
+_STDIN_PATHS = frozenset({"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"})
 
 # `2>&1`, `>&2`, `>&-` duplicate or close a descriptor; they do not open a file.
 _FD_DUP = re.compile(r"\A(?:\d*|&)>&(?:\d+|-)\Z")
@@ -1315,6 +1320,16 @@ def _stage_writes_a_file(stage: str) -> bool:
     return False
 
 
+def _stage_writes_stdin_to_a_file(stage: str) -> bool:
+    """Whether the stage puts what it reads on stdin into a named file."""
+    program, args = _split_command(stage)
+    if program in STDIN_WRITERS:
+        return True
+    if program in STDIN_PATH_WRITERS:
+        return any(arg.strip("'\"") in _STDIN_PATHS for arg in args)
+    return False
+
+
 def _stage_can_execute(command: str, stage_range, bodies: dict) -> bool:
     """Whether one pipeline stage could run a program or a file.
 
@@ -1356,7 +1371,7 @@ def _blank_data_only_stages(command: str, chars: list, segments, bodies: dict) -
             # so route 2 lets it through. (Review finding on #91, round 2.)
             onward = [stage] + [command[s[0] : s[1]] for s in downstream]
             if call_can_execute and any(
-                _stage_writes_a_file(text) or _command_word(text) in FILE_WRITERS
+                _stage_writes_a_file(text) or _stage_writes_stdin_to_a_file(text)
                 for text in onward
             ):
                 continue  # route 3: written to disk, and something here runs
