@@ -2739,6 +2739,78 @@ def test_git_dir_with_work_tree_targets_the_git_dirs_repo(tmp_path, home):
     assert decision == "allow"
 
 
+# Defect 44: `GIT_DIR` selects the repo exactly as `--git-dir` does — verified,
+# `GIT_DIR=../other/.git git rev-parse --abbrev-ref HEAD` reports the OTHER
+# repo's branch — but assignment prefixes were dropped, so the guard evaluated
+# the session's repo.
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "GIT_DIR={g}",
+        "GIT_DIR={g} GIT_WORK_TREE={w}",
+        "env GIT_DIR={g}",
+        "env GIT_DIR={g} GIT_WORK_TREE={w}",
+        "FOO=1 GIT_DIR={g}",
+    ],
+)
+def test_git_dir_from_the_environment_selects_the_repo(prefix, tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    cmd = prefix.format(g=f"{other}/.git", w=str(other)) + " git commit -m x"
+    decision, hso = _run(cmd, session, home)
+    assert decision == "deny", prefix
+    assert "main" in hso["permissionDecisionReason"], prefix
+
+
+@pytest.mark.parametrize("prefix", ["GIT_DIR={g}", "env GIT_DIR={g}"])
+def test_git_dir_from_the_environment_also_points_away(prefix, tmp_path, home):
+    """The mirror: it moves the target off a guarded repo too, so a commit
+    that really lands on a feature branch must be allowed."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    cmd = prefix.format(g=f"{other}/.git") + " git commit -m x"
+    decision, _ = _run(cmd, session, home)
+    assert decision == "allow", prefix
+
+
+def test_a_command_line_git_dir_overrides_the_environment(tmp_path, home):
+    """Verified against git: `--git-dir` wins."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    guarded = _make_repo(tmp_path / "guarded", "main", STD_CFG)
+    unguarded = _make_repo(tmp_path / "unguarded", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"GIT_DIR={guarded}/.git git --git-dir={unguarded}/.git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "allow"
+    decision, _ = _run(
+        f"GIT_DIR={unguarded}/.git git --git-dir={guarded}/.git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "deny"
+
+
+def test_git_work_tree_in_the_environment_selects_nothing(tmp_path, home):
+    """Same as `--work-tree`: git still discovers `.git` from the cwd —
+    verified — so the commit lands HERE."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(f"GIT_WORK_TREE={other} git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_an_unexpanded_git_dir_fails_closed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run('GIT_DIR="$D" git commit -m x', repo, home)
+    assert decision == "deny"
+    assert "cannot determine which repo" in hso["permissionDecisionReason"]
+
+
 def test_dash_c_alone_selects_the_repo(tmp_path, home):
     session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
     other = _make_repo(tmp_path / "other", "main", STD_CFG)

@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42 and 43 are the environment axis, and
+34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -268,7 +268,11 @@ the same footing — a guard that cries wolf gets turned off:
   43. …and counting the CONSTRUCT instead over-denied the CONDITION. `if cd
       ../other; then :; fi` really moves the shell, because a condition runs
       unconditionally. The two are now separated: a construct's condition is
-      certain, its body is not.
+      certain, its body is not;
+  44. `GIT_DIR` in the environment — it selects the repo exactly as
+      `--git-dir` does, but assignment prefixes were dropped, so
+      `GIT_DIR=/repo-on-main/.git git commit` was evaluated against the
+      session's repo.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1136,6 +1140,7 @@ def _git_subcommand(tokens):
         return empty
     original = list(tokens)
     env_chdirs = []
+    env_git_dir = None
     # Peel inline env-var assignments and run-wrappers, in any order and any
     # number: `FOO=1 git push`, `env FOO=1 git push`, `command git push`,
     # `FOO=1 env BAR=2 exec git push`. Note an inline
@@ -1143,6 +1148,15 @@ def _git_subcommand(tokens):
     # hook runs as a separate process and only sees exported env.
     while tokens:
         while tokens and _ASSIGN_RE.fullmatch(tokens[0]):
+            # `GIT_DIR` selects the repo exactly as `--git-dir` does — verified,
+            # `GIT_DIR=../other/.git git rev-parse --abbrev-ref HEAD` reports
+            # the OTHER repo's branch. Dropping these assignments evaluated the
+            # session's repo instead (defect 44). `GIT_WORK_TREE` is captured
+            # for symmetry but selects nothing, the same way `--work-tree`
+            # does not (defect 11) — verified alongside it.
+            name, _, value = tokens[0].partition("=")
+            if name == "GIT_DIR":
+                env_git_dir = value
             tokens = tokens[1:]
         if not tokens:
             break
@@ -1206,7 +1220,8 @@ def _git_subcommand(tokens):
     # chain in the cumulative resolution.
     opts = {
         "C": env_chdirs + c_paths,
-        "git_dir": git_dir,
+        # A command-line `--git-dir` overrides the environment — verified.
+        "git_dir": git_dir or env_git_dir,
         "work_tree": work_tree,
         "aliases": cli_aliases,
         "unknown_global": unknown_global,
