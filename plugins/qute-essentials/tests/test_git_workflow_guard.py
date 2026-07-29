@@ -1097,6 +1097,43 @@ def test_a_quoted_heredoc_delimiter_still_protects_its_body(delim, tmp_path, hom
     assert decision == "allow", delim
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "$(git commit -m x)",
+        "$(git push origin main)",
+        "`git commit -m x`",
+        "prefix $(git commit -m x) suffix",
+    ],
+)
+def test_an_unquoted_heredoc_body_still_substitutes(body, tmp_path, home):
+    """Defect 62. An UNQUOTED delimiter leaves the body subject to expansion,
+    so a `$( … )` inside it RUNS — verified, `cat <<EOF` with
+    `$(echo SUBSTITUTION-RAN)` prints it. The body is data, but its
+    substitutions are commands."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"cat <<EOF\n{body}\nEOF", repo, home)
+    assert decision == "deny", body
+    assert "main" in hso["permissionDecisionReason"], body
+
+
+@pytest.mark.parametrize("delim", ["'EOF'", '"EOF"', "\\EOF"])
+def test_a_quoted_heredoc_delimiter_suppresses_substitution(delim, tmp_path, home):
+    """The control, and the reason this is not a blanket scan: any quoting in
+    the word disables expansion — verified, `cat <<'EOF'` prints
+    `$(echo SHOULD-NOT-RUN)` literally."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(f"cat <<{delim}\n$(git commit -m x)\nEOF", repo, home)
+    assert decision == "allow", delim
+
+
+def test_a_plain_heredoc_line_is_still_data(tmp_path, home):
+    """Without a substitution the body is inert, quoted or not."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("cat <<EOF\ngit commit -m x\nEOF", repo, home)
+    assert decision == "allow"
+
+
 def test_a_here_string_is_not_a_heredoc(tmp_path, home):
     """`<<<` is a here-STRING — one word, no body — so the command carrying it
     is still a real command."""

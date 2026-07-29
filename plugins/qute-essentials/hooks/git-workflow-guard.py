@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58, 59 and 61 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58, 59, 61 and 62 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42, 43 and 61 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -332,7 +332,10 @@ the same footing — a guard that cries wolf gets turned off:
   61. shell COMMENTS — bash ignores everything after an unquoted `#` that
       starts a word, but the scanner split at a `;` inside one, so
       `echo ok # ; git commit -m x` was blocked over a commit that does not
-      exist.
+      exist;
+  62. an UNQUOTED here-doc body still EXPANDS — defect 30 made bodies inert,
+      but only a quoted delimiter makes them literal, so
+      `cat <<EOF` … `$(git push origin main)` … `EOF` really pushes.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -727,9 +730,30 @@ def _segments(command: str, _depth: int = 0):
         events.extend(_segments(body, _depth + 1))
         events.append(("close", None))
 
+    def emit_body_substitutions(body):
+        """A here-doc body with an UNQUOTED delimiter still expands, so a
+        `$(git push origin main)` inside it RUNS — verified. Only the
+        substitutions are commands; the rest of the body is data."""
+        k, m = 0, len(body)
+        while k < m:
+            if body[k] == "$" and body[k + 1 : k + 2] == "(":
+                end = _skip_group(body, k + 1, "(", ")")
+                end = m if end is None else end
+                if body[k + 2 : k + 3] != "(":
+                    emit_substitution(body[k + 2 : end - 1])
+                k = end
+            elif body[k] == "`":
+                end = body.find("`", k + 1)
+                end = m if end < 0 else end + 1
+                emit_substitution(body[k + 1 : max(end - 1, k + 1)])
+                k = end
+            else:
+                k += 1
+
     def skip_heredoc_bodies(pos, pending):
         """Consume the bodies queued by `<<` operators on the line just ended."""
-        for delim, strip_tabs in pending:
+        for delim, strip_tabs, expands in pending:
+            body_start = pos
             while pos < n:
                 eol = command.find("\n", pos)
                 line_end = n if eol < 0 else eol
@@ -741,6 +765,8 @@ def _segments(command: str, _depth: int = 0):
                 # back in front of the parser.
                 if (line.lstrip("\t") if strip_tabs else line) == delim:
                     break
+            if expands:
+                emit_body_substitutions(command[body_start:pos])
         return pos
 
     pending_heredocs = []
@@ -883,9 +909,12 @@ def _segments(command: str, _depth: int = 0):
                     break
                 else:
                     j += 1
-            delim = _dequote_word(command[start:j])
+            word = command[start:j]
+            delim = _dequote_word(word)
             if delim:
-                pending_heredocs.append((delim, strip_tabs))
+                # ANY quoting in the word disables expansion in the body —
+                # `<<'EOF'` and `<<\EOF` are literal, `<<EOF` is not.
+                pending_heredocs.append((delim, strip_tabs, word == delim))
             buf.append(command[i:j])
             i = j
         elif c in "&|;\n":
