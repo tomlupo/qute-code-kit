@@ -15,10 +15,12 @@ Two properties are load-bearing and are asserted explicitly:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+from importlib.machinery import SourceFileLoader
 from pathlib import Path
 
 import pytest
@@ -274,6 +276,112 @@ def test_malformed_config_fails_open(tmp_path, home):
 # Defect 38: a field of the wrong TYPE silently unguarded the repo. `123` was
 # truthy, so it became the "protected branch" and matched no branch name at
 # all — while the file's presence still said the repo was opted in.
+
+
+# Defect 64, found by merging `pre-push` (TOM-348) rather than by review: both
+# layers read the SAME `.claude/git-guard.json`, so they have to agree on what
+# it says. `pre-push` normalises `refs/heads/main` to `main` — the two
+# spellings mean the same thing to a human — while this guard read it
+# literally, matched no branch, and left the repo silently unguarded on the
+# agent side while looking opted in.
+
+PRE_PUSH_GUARD = (
+    Path(__file__).resolve().parents[1]
+    / "templates"
+    / "hooks"
+    / "pre-push-branch-guard"
+)
+
+
+def _load_guard_module():
+    """This guard, imported rather than shelled out to, so the config reader
+    can be compared with its sibling's directly."""
+    loader = SourceFileLoader("git_workflow_guard", str(HOOK))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def _pre_push_module():
+    """The sibling guard, loaded from the template (it has no `.py` suffix)."""
+    loader = SourceFileLoader("pre_push_branch_guard", str(PRE_PUSH_GUARD))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    "spelling", ["main", "refs/heads/main", "  main  ", "refs/heads/main  "]
+)
+def test_a_qualified_protected_branch_is_normalised(spelling, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _write_raw_cfg(
+        repo, json.dumps({"protected_branch": spelling, "integration_branch": None})
+    )
+    decision, hso = _run("git commit -m x", repo, home)
+    assert decision == "deny", spelling
+    assert "main" in hso["permissionDecisionReason"], spelling
+
+
+def test_a_qualified_integration_branch_is_normalised(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "dev", None)
+    _write_raw_cfg(
+        repo,
+        json.dumps(
+            {"protected_branch": "main", "integration_branch": "refs/heads/dev"}
+        ),
+    )
+    decision, hso = _run("git commit -m x", repo, home)
+    assert decision == "deny"
+    assert "dev" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(
+    "value", ["refs/tags/v1", "refs/remotes/origin/main", "refs/heads/"]
+)
+def test_a_ref_that_is_not_a_branch_is_unusable(value, tmp_path, home):
+    """It could never match a commit or push destination, so it falls back to
+    the house default here. (`pre-push` REFUSES the push on the same value —
+    it is the layer that reports the mistake; this one keeps guarding.)"""
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _write_raw_cfg(
+        repo, json.dumps({"protected_branch": value, "integration_branch": None})
+    )
+    decision, hso = _run("git commit -m x", repo, home)
+    assert decision == "deny", value
+    assert "main" in hso["permissionDecisionReason"], value
+
+
+@pytest.mark.skipif(
+    not PRE_PUSH_GUARD.is_file(), reason="pre-push guard template not present"
+)
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        {"protected_branch": "main", "integration_branch": None},
+        {"protected_branch": "refs/heads/main", "integration_branch": None},
+        {"protected_branch": "trunk", "integration_branch": "release"},
+        {
+            "protected_branch": "refs/heads/trunk",
+            "integration_branch": "refs/heads/release",
+        },
+        {},
+    ],
+)
+def test_both_layers_read_the_same_config_the_same_way(cfg, tmp_path, home):
+    """The invariant that keeps one file from meaning two things. Asserted
+    against the real sibling guard, so a future change to either that makes
+    them disagree fails here."""
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _write_raw_cfg(repo, json.dumps(cfg))
+
+    ours = _load_guard_module()._load_config(repo)
+    theirs = _pre_push_module().load_config(repo)
+
+    assert ours["protected"] == theirs["protected"], cfg
+    assert ours["integration"] == theirs["integration"], cfg
 
 
 @pytest.mark.parametrize(

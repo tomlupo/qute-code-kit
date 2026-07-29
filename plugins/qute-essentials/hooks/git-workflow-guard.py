@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58, 59 and 61-63 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58, 59, 61-63 and 64 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42, 43, 61 and 63 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -338,18 +338,39 @@ the same footing — a guard that cries wolf gets turned off:
       `cat <<EOF` … `$(git push origin main)` … `EOF` really pushes;
   63. clustered `command -pv` — a `v`/`V` anywhere in the cluster makes it a
       LOOKUP that runs nothing, but only the bare `-v` was recognised, so the
-      clustered form was denied.
+      clustered form was denied;
+  64. the SAME config file, read two ways — `pre-push` normalises
+      `refs/heads/main` to `main`, this guard read it literally, matched no
+      branch, and left the repo silently unguarded here while looking opted
+      in. Found by merging TOM-348, not by review.
 
-`pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
-Git invokes `pre-push` with the real local/remote refs it is about to send —
-after alias expansion, after `env`, after every shell trick, and regardless of
-who or what ran the command. So it needs no command-line parser, none of the
-shapes above exist at that layer, and a human's own push is covered too.
+`pre-push` IS THE ACTUAL ENFORCEMENT LAYER, and it EXISTS — TOM-348 merged, and
+it ships as `templates/hooks/pre-push-branch-guard` with an installer that
+verifies its own work. Git invokes it with the real local/remote refs it is
+about to send — after alias expansion, after `env`, after every shell trick,
+and regardless of who or what ran the command. So it needs no command-line
+parser, none of the shapes above exist at that layer, and a human's own push is
+covered too.
 
-The two are COMPLEMENTARY, not redundant. This hook gives an agent IMMEDIATE
-FEEDBACK and a message naming the right route before the command ever runs;
-`pre-push` is what HOLDS. Anyone tempted to harden this parser against the
-out-of-scope side of the line should land TOM-348 instead.
+The two are COMPLEMENTARY, not redundant, and the division is now concrete
+rather than aspirational:
+
+  * `pre-push` HOLDS, but only for pushes. `git commit` never reaches it, so a
+    direct commit on a guarded branch is this hook's to catch — and it is the
+    commit that makes the mess a push then has to carry.
+  * this hook is EARLY. It refuses before the command runs and says which
+    branch to use instead, where `pre-push` can only refuse after the work is
+    committed.
+  * this hook is a SPEED BUMP with a tail; `pre-push` is not. Anyone tempted to
+    harden this parser against the out-of-scope side of the line should check
+    whether `pre-push` already covers the case — for a push, it does.
+
+BOTH READ THE SAME `.claude/git-guard.json`, which is a contract between them:
+a field one layer honours and the other ignores is protection you would believe
+in and only sometimes have. Branch names are normalised identically (see
+`branch_name` and defect 64), and the sibling refuses a schema this one would
+have to guess at. A test asserts the two readers agree; widen the schema in
+both files or neither.
 
 Documented gaps (deliberate — these are explicit acts, not the accidental
 footgun this guards, and catching them would risk false blocks):
@@ -403,6 +424,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from guard_config import guard_enabled  # noqa: E402
 
 GUARD_NAME = "git-workflow"
+
+# The one qualified form `.claude/git-guard.json` accepts for a branch field,
+# kept identical to `pre-push-branch-guard`'s `BRANCH_PREFIX`: both layers read
+# that file and must agree on what it says.
+_BRANCH_PREFIX = "refs/heads/"
 
 DEFAULT_PROTECTED = "main"
 DEFAULT_INTEGRATION = "dev"
@@ -527,11 +553,29 @@ def _load_config(repo_root: Path):
         return None
 
     def branch_name(value):
-        """A usable branch name, or None. A non-string is not one: a config
-        saying `"protected_branch": 123` compared 123 against every branch
-        name, matched nothing, and silently unguarded the repo while looking
-        opted in (defect 38)."""
-        return value.strip() if isinstance(value, str) and value.strip() else None
+        """A usable SHORT branch name, or None.
+
+        A non-string is not one: a config saying `"protected_branch": 123`
+        compared 123 against every branch name, matched nothing, and silently
+        unguarded the repo while looking opted in (defect 38).
+
+        Neither is a qualified ref left qualified. `pre-push` normalises
+        `refs/heads/main` to `main` — deliberately, because the two spellings
+        mean the same thing to a human — so reading it literally here made the
+        SAME config file guard `main` at one layer and nothing at the other
+        (defect 64). This file is read by both; they have to agree on what it
+        says. Anything still under `refs/` after the prefix comes off names
+        something that is not a local branch and could never match a commit or
+        push destination.
+        """
+        if not isinstance(value, str) or isinstance(value, bool):
+            return None
+        value = value.strip()
+        if value.startswith(_BRANCH_PREFIX):
+            value = value[len(_BRANCH_PREFIX) :]
+        if not value or value.startswith("refs/"):
+            return None
+        return value
 
     # A bad value falls back to the house default rather than disabling the
     # guard: the file's presence says this repo WANTS guarding, so the safe
@@ -2191,8 +2235,9 @@ def _guidance(cfg: dict) -> str:
         "Claude tool calls only (a human's own shell, and any script they run, "
         "are invisible to it) and it reads a command string, so it cannot "
         "resist deliberately constructed evasion. The `pre-push` hook "
-        "(TOM-348) is the layer that actually holds; this one is here to tell "
-        "you the route early."
+        "(TOM-348, merged) is the layer that actually holds for PUSHES; this "
+        "one also covers `git commit`, which never reaches it, and tells you "
+        "the route before the command runs."
     )
 
 
