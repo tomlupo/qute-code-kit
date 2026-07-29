@@ -1035,9 +1035,11 @@ def execution_surface(command: str) -> str:
 #     rule searched the flag anywhere in the first segment for any program at
 #     all, so `rm -rf /srv/data --dry-run` was exempt — `rm` has no such flag
 #     and would have deleted the path. The bare-word half is what stops
-#     `git -c alias.x='!rm -rf /srv/data' x --dry-run`: every program with a
+#     `git -c alias.x='!rm -rf /srv/data' x --dry-run` and its unquoted
+#     sibling `git -c alias.x=!killall x -- --dry-run`: every program with a
 #     dry-run flag can also be made to run something, and every spelling of
-#     that needs quoting or whitespace in an option value.
+#     that carries the command in an OPTION VALUE — which needs quoting,
+#     whitespace, or an `=`.
 #   * a stage that is only assignments and redirections (`FOO=bar`). Nothing
 #     runs. A value expanded LATER (`FOO='rm -rf /'; $FOO`) is the documented,
 #     unfixable limitation at the top of this file, unchanged either way.
@@ -1236,29 +1238,39 @@ def _carries_an_exec_option(program: str, args: list) -> bool:
 
 
 def _is_a_bare_word(token: str) -> bool:
-    """No quoting and no whitespace — a flag, a subcommand or a path.
+    """A flag, a subcommand or a path: no quoting, no whitespace, no `=`.
 
-    The dry-run exemption's second, program-agnostic net, and the reason it
-    needs no per-program option table (review on #91, round 3). Every program
-    with a dry-run flag can also be made to run something —
-    `git -c alias.x='!rm -rf /srv/data' x --dry-run`,
-    `rsync -e 'rm -rf /srv/data' --dry-run …`,
-    `make --eval='$(shell rm -rf /srv/data)' --just-print` — and smuggling a
-    command into an option value takes quoting or whitespace in every one of
-    them. A real dry run does not: `git clean -fd --dry-run`,
-    `rsync --dry-run -a /srv/data /backup/`, `make --just-print clean` are bare
-    words end to end.
+    The dry-run exemption's program-agnostic net, and the reason it needs no
+    per-program option table (review on #91, round 3). Every program with a
+    dry-run flag can also be made to run something, and every spelling of that
+    puts a command into an OPTION VALUE:
 
-    Not applied to the text tools, whose whole point is a quoted pattern.
+        git -c alias.x='!rm -rf /srv/data' x --dry-run
+        git -c alias.x=!killall x -- --dry-run
+        git -c core.pager=mkfs clean -fd --dry-run
+        rsync -e 'rm -rf /srv/data' --dry-run src dst
+        make --eval='$(shell rm -rf /srv/data)' --just-print
 
-    What it cannot catch, stated rather than left to be found: a ONE-WORD
-    command smuggled as a bare option value, `git -c core.pager=mkfs clean
-    -fd --dry-run`. Four patterns match a single word — `mkfs`, `dropdb`,
-    `dropuser`, `killall` — and each of them is inert without arguments, which
-    an option value cannot supply. Every multi-word pattern, which is all the
-    rest, needs whitespace and is therefore caught.
+    Quoting and whitespace catch the multi-word ones. `=` catches the rest: a
+    value carried inside a single token needs it, and so do the one-word
+    commands that fit in such a token — `mkfs`, `dropdb`, `dropuser`,
+    `killall`, the only patterns that match a single word. Round 3 excluded
+    only quoting and whitespace, and said so in a comment that the second
+    example above contradicts; `=` is the correction (round 6).
+
+    A real dry run needs none of the three: `git clean -fd --dry-run`,
+    `rsync --dry-run -a /srv/data /backup/`, `make --just-print clean` and
+    `docker system prune -a --dry-run` are bare words end to end.
+
+    Not applied to the text tools, whose whole point is a quoted pattern; they
+    have `EXEC_OPTIONS` instead.
+
+    What remains, stated rather than left to be found: an option value passed
+    as a SEPARATE bare token, `git --exec-path /tmp/mkfs clean -fd --dry-run`.
+    Reaching a destructive command that way needs the file to exist already —
+    and if this call wrote it, route 3 catches the write.
     """
-    return not any(c.isspace() or c in "'\"`" for c in token)
+    return not any(c.isspace() or c in "'\"`=" for c in token)
 
 
 def _data_spans(stage: str):

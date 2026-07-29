@@ -107,6 +107,9 @@ PUSH_FORCE = "git push --force overwrites remote history"
 RM_ROOT = "rm -rf on non-tmp root path"
 DROP = "DROP destroys database objects"
 VAULT = "removing Obsidian vault data"
+KILLALL = "killall terminates all matching processes"
+MKFS = "mkfs formats a filesystem"
+DROPDB = "dropdb removes entire database"
 
 
 # ------------------------------------------------------- TOM-379: literals
@@ -809,10 +812,41 @@ class TestAToolThatCanRunItsOwnOptionValue:
     )
     def test_a_dry_run_carrying_a_quoted_option_value_is_not_data_only(self, command):
         """Every program with a dry-run flag can also be made to run something,
-        and every spelling of that needs quoting or whitespace in an option
-        value. So the dry-run exemption requires bare words end to end — one
-        rule, no per-program option table."""
+        and every spelling of that carries the command in an OPTION VALUE. So
+        the dry-run exemption requires bare words end to end — one rule, no
+        per-program option table."""
         assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            ("git -c alias.x=!killall x -- --dry-run", KILLALL),
+            ("git -c core.pager=mkfs clean -fd --dry-run", MKFS),
+            ("git -c alias.x=!dropdb x mydb --dry-run", DROPDB),
+        ],
+    )
+    def test_an_unquoted_option_value_is_not_a_bare_word_either(
+        self, command, description
+    ):
+        """Review finding on #91 round 6: an unquoted alias value is a single
+        token with no whitespace, and git hands it the arguments that follow —
+        so quoting and whitespace were not the whole of it. `=` is what these
+        have in common, and a real dry run has none of the three.
+
+        These are the four single-word patterns, deliberately: a one-word
+        command is exactly what fits in a bare option value, and round 3
+        documented that as a residual. It is now closed."""
+        assert_denied(command, description)
+
+    def test_the_reported_shape_itself_is_no_longer_data_only(self):
+        """The shape as reported. It is asserted at the predicate rather than
+        through a verdict because the command contains no text any pattern
+        matches — git's alias NAME sits between `!rm` and the later `-rf
+        /srv/data`, so `rm -rf /` is never contiguous. The exemption applying
+        to it was still wrong, and no longer does."""
+        stage = "git -c alias.x=!rm x -rf /srv/data -- --dry-run"
+        assert guard._stage_is_data_only(stage) is False
+        assert guard.execution_surface(stage) == stage
 
     @pytest.mark.parametrize(
         "command",
