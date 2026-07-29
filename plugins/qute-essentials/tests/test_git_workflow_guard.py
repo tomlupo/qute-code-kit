@@ -1159,6 +1159,9 @@ def test_commit_dry_run_after_a_double_dash_is_a_pathspec(tmp_path, home):
         "git push -n",
         "git push --dry-run origin main",
         "git push -n origin main",
+        "git push -vn origin main",
+        "git push -nv origin main",
+        "git push -qn origin main",
         "git push --all --dry-run origin",
         "git push --mirror -n origin",
         "git push --dry-run origin $BRANCH",
@@ -1178,6 +1181,15 @@ def test_push_dry_run_as_an_option_value_is_not_a_dry_run(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
     decision, _ = _run("git push -o --dry-run origin main", repo, home)
     assert decision == "deny"
+
+
+def test_an_n_inside_an_option_value_is_not_a_dry_run(tmp_path, home):
+    """Scanning a cluster stops at a value-taking letter: in `-vo n` the `n`
+    is `-o`'s VALUE, not `--dry-run`, so the push is real."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    for cmd in ("git push -vo n origin main", "git push -on origin main"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "deny", cmd
 
 
 # ─── tag pushes are never branch pushes ───────────────────────
@@ -3255,6 +3267,33 @@ def test_pipeline_inside_a_chain_only_rolls_back_its_own_elements(tmp_path, home
     )
     assert decision == "deny"
     assert "main" in hso["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize(
+    "sub",
+    ["$(printf '(')", "$(printf ')')", "$(echo 'a b')", "`printf '('`"],
+)
+def test_a_quoted_paren_in_a_substitution_leaves_read_only_git_alone(
+    sub, tmp_path, home
+):
+    """Defect 47. `_tokens` masked substitutions with a regex that could not
+    see quoting, so `git -C $(printf '(') status` came out shredded, `status`
+    stopped being the subcommand, and a READ-ONLY command fell into the
+    unknown-target fail-closed path."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(f"git -C {sub} status", repo, home)
+    assert decision == "allow", sub
+
+
+@pytest.mark.parametrize("sub", ["$(printf '(')", "$(cat p)"])
+def test_a_substitution_target_still_fails_closed_for_guarded_verbs(
+    sub, tmp_path, home
+):
+    """The control: tokenizing it correctly must not stop it being unknown."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"git -C {sub} commit -m x", repo, home)
+    assert decision == "deny", sub
+    assert "cannot determine which repo" in hso["permissionDecisionReason"], sub
 
 
 @pytest.mark.parametrize(

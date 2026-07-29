@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45 and 46 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
+34-36, 38-41 and 45-48 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -280,7 +280,13 @@ the same footing — a guard that cries wolf gets turned off:
   46. short-option CLUSTERS on `git commit` — git reads `-am` as `-a -m`, so
       `git commit -am --dry-run` makes `--dry-run` the MESSAGE and really
       commits, while the guard read the cluster as an unknown option and let
-      it through as a dry run.
+      it through as a dry run;
+  47. `_tokens` masked substitutions with a REGEX while `_segments` used the
+      quote-aware scanner, so `git -C $(printf '(') status` came out shredded
+      and a READ-ONLY command fell into the unknown-target fail-closed path;
+  48. short-option clusters on `git push` — `-vn` is `-v -n`, a dry run that
+      writes nothing, but only the exact `-n` was recognised, so it was
+      blocked.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -892,9 +898,54 @@ _CONSTRUCT_OPEN_HEADS = {"for": False, "case": True}
 _CONDITIONAL_END_WORDS = frozenset({"fi", "done", "esac"})
 
 
-# A command substitution, with one level of nested parens tolerated.
-_SUBST_RE = re.compile(r"\$\((?:[^()]|\([^()]*\))*\)|`[^`]*`")
 _SUBST_HOLE_RE = re.compile(r"\0S(\d+)\0")
+
+
+def _mask_substitutions(segment: str):
+    """Replace each command substitution with a space-free placeholder,
+    returning `(masked_text, originals)`.
+
+    Scanned with the same quote-aware `_skip_group` that `_segments` uses,
+    rather than a regex. A regex could not see quoting, so `$(printf '(')`
+    ended at the wrong paren and the tokens came out shredded — which then
+    made a READ-ONLY `git -C $(printf '(') status` look like an unidentifiable
+    subcommand and fail closed, contradicting the promise that read-only
+    commands are untouched (defect 47).
+    """
+    holes = []
+    out = []
+    i, n = 0, len(segment)
+    quote = None
+    while i < n:
+        c = segment[i]
+        if quote:
+            if c == quote:
+                quote = None
+            out.append(c)
+            i += 1
+        elif c == "\\" and i + 1 < n:
+            out.append(segment[i : i + 2])
+            i += 2
+        elif c in "'\"":
+            quote = c
+            out.append(c)
+            i += 1
+        elif c == "$" and segment[i + 1 : i + 2] == "(":
+            end = _skip_group(segment, i + 1, "(", ")")
+            end = n if end is None else end
+            holes.append(segment[i:end])
+            out.append(f"\0S{len(holes) - 1}\0")
+            i = end
+        elif c == "`":
+            end = segment.find("`", i + 1)
+            end = n if end < 0 else end + 1
+            holes.append(segment[i:end])
+            out.append(f"\0S{len(holes) - 1}\0")
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out), holes
 
 
 def _tokens(segment: str):
@@ -906,13 +957,7 @@ def _tokens(segment: str):
     are therefore masked to a space-free placeholder before splitting and
     restored after, which matches how `_segments` already treats them.
     """
-    holes = []
-
-    def stash(match):
-        holes.append(match.group(0))
-        return f"\0S{len(holes) - 1}\0"
-
-    masked = _SUBST_RE.sub(stash, segment)
+    masked, holes = _mask_substitutions(segment)
     try:
         words = shlex.split(masked)
     except ValueError:
@@ -1400,6 +1445,11 @@ _PUSH_OPTS_WITH_VALUE = frozenset(
     {"-o", "--push-option", "--receive-pack", "--exec", "--recurse-submodules"}
 )
 
+# The same, as single letters, because short options cluster: in `-vo ci.skip`
+# the `o` still takes the next token.
+_PUSH_SHORT_OPTS_WITH_VALUE = "o"
+
+
 # Bounded sweep for siblings of the `--repo` bug — options that change what the
 # positionals MEAN (not merely options that take a value). What was found:
 #
@@ -1546,12 +1596,23 @@ def _push_targets(args, current_branch):
                 all_tags = True
             elif a == _FOLLOW_TAGS_OPT:
                 follow_tags = True
-            elif a in ("--dry-run", "-n"):
+            elif a == "--dry-run":
                 # For `git push`, `-n` IS `--dry-run` (unlike `git commit -n`,
-                # which is `--no-verify` and really commits). Only these exact
-                # spellings count — a bundle like `-nf` is left to deny, which
-                # is the safe direction for a flag whose presence means allow.
+                # which is `--no-verify` and really commits).
                 dry_run = True
+            elif len(a) > 1 and a[1] != "-":
+                # Short options CLUSTER, so `git push -vn origin main` is a
+                # dry run and writes nothing — denying it was an over-block
+                # (defect 48). Scanning stops at a value-taking letter, whose
+                # value is either glued on (`-onci.skip`) or the next token
+                # (`-vo ci.skip`): letters after it are that VALUE, not flags,
+                # so an `n` there must not be read as `--dry-run`.
+                for index, letter in enumerate(a[1:]):
+                    if letter in _PUSH_SHORT_OPTS_WITH_VALUE:
+                        skip_value = index == len(a) - 2
+                        break
+                    if letter == "n":
+                        dry_run = True
             continue
         positionals.append(a)
 
