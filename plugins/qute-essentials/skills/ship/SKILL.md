@@ -1,7 +1,7 @@
 ---
 name: ship
-description: Cut a release for the current project. One entry point, two modes — Plugin (marketplace.json present → delegates to scripts/release-plugin.sh) and Python (pyproject.toml → bumps via commitizen). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. Refuses to bump if forbidden skill-artifact paths are tracked or if tracked files have uncommitted changes. First-time setup (commitizen + CHANGELOG + workflow) runs automatically and idempotently for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
-argument-hint: "[plugin-name] [patch|minor|major|X.Y.Z] [--dry-run]"
+description: Cut a release for the current project. One entry point, two modes — Plugin (marketplace.json present → delegates to scripts/release-plugin.sh) and Python (pyproject.toml → bumps via commitizen). Updates `CHANGELOG.md` and creates an annotated `vX.Y.Z` git tag from Conventional Commits since the last release. The BRANCH selects bump-vs-tag — integration branch bumps only, `/ship --tag` on the release branch completes a two-stage release, single-branch repos do both at once, any other branch is refused. Refuses to bump if forbidden skill-artifact paths are tracked, if tracked files have uncommitted changes, or if a previous bump is still untagged. First-time setup (commitizen + CHANGELOG + workflow) runs automatically and idempotently for Python projects. Use when the user says "ship it", "cut a release", "bump version", "tag release", or asks to release. Webapps use `gstack ship` instead.
+argument-hint: "[plugin-name] [patch|minor|major|X.Y.Z] [--tag] [--dry-run]"
 ---
 
 # /ship
@@ -10,7 +10,9 @@ Cut a release for the current project. Updates `CHANGELOG.md` and creates an
 annotated `vX.Y.Z` git tag based on Conventional Commits since the last
 release.
 
-`vX.Y.Z` on `main` is the only release-tag namespace.
+`vX.Y.Z` on the **release branch** is the only release-tag namespace. That
+branch is `main` by house rule, or whatever `conductor.yml` declares as
+`release.branch`.
 
 In Python mode the tag *name* is asked of commitizen itself
 (`cz version --project --tag`) rather than re-rendered here, so a custom
@@ -38,6 +40,102 @@ The script auto-detects mode by what's in the repo root:
 
 Webapps (`package.json` at the root): use `gstack ship` from the shell instead.
 
+## The branch selects the act (ADR-0008)
+
+Bump and tag are **separate acts**, and the branch you are standing on picks
+which one happens. No flag is required and none can be forgotten:
+
+| Where you are | What happens |
+|---|---|
+| integration branch (`dev`) | bump + changelog + lockfile + commit. **No tag.** |
+| release branch, two-stage repo | bare `/ship` refuses; `/ship --tag` completes the release |
+| release branch, single-stage repo | bump **and** tag, exactly as before |
+| any other branch | **refused**, writing nothing |
+
+**Which branch is which.** Release branch = `main`, integration branch = `dev`,
+by house rule. A repo's `conductor.yml` may declare `release.branch`, and that
+declaration wins — the release tool and the dispatch policy must not disagree.
+Two-stage is derived from whether `origin/dev` exists (a local ref read, no
+network). `origin/HEAD` is deliberately not consulted: it is unset in a good
+share of real clones.
+
+A repo with **no `main`** falls back to `master` if it has one — a pre-`main`
+repo still needs to be able to release. If it has neither and declares nothing,
+`/ship` says exactly that and asks for a `release.branch` declaration rather
+than guessing. Either branch counts whether it is local or only `origin/<name>`
+(a `git clone -b dev` has no local `main`).
+
+**Why the branch and not a flag.** The failure this replaces was a correctly
+documented convention that someone did not apply in the moment. A flag
+reproduces that failure exactly. You cannot not be on a branch.
+
+**Why a feature branch is refused.** Bumping there computes a changelog from a
+branch usually behind integration — release metadata describing code that is
+not the release — and leaves the new version untagged, which then blocks the
+next real release.
+
+### `/ship --tag` — completing a two-stage release
+
+Run on the release branch **after** the release PR has merged. It asserts five
+things before creating anything:
+
+1. the tree is clean, so the release the tag names is the committed one — a tag
+   is *rendered* from `tag_format` in `pyproject.toml`, which commitizen reads
+   from the working tree, so an uncommitted edit there renames the tag that gets
+   pushed;
+2. the remote is reachable (it fetches `--tags`; offline is a refusal, because
+   this step both verifies against and publishes to the remote);
+3. the local branch matches its remote — the tag must name the commit everyone
+   else can see;
+4. the version declared at the **tip** (read out of the commit, not the working
+   tree) is the version being tagged, and matches any `X.Y.Z` you named;
+5. the tag does not already exist.
+
+Then it creates the annotated tag **and pushes it**. Pushing is deliberate: not
+pushing fails silently and late — the tag sits local, everything looks green,
+and it surfaces when a consumer cannot resolve the ref. Pushing wrongly fails
+loudly and immediately, because `release-tag-guard.yml` asserts on push that the
+tagged commit is an ancestor of the release branch.
+
+Cutting the tag here, after the merge, is what makes **squash-merging a release
+PR safe**: a tag cut on `dev` before the merge points at a commit the squash
+never makes an ancestor of `main` (quantbox `v0.4.0`, re-cut as `v0.4.1`).
+
+`/ship --tag --dry-run` runs every assertion and creates nothing.
+
+### Bump in flight
+
+Between the bump and the tag, the declared version has no tag — and commitizen
+computes the next increment from the **last tag**. A second `/ship` in that
+window would compute off a stale baseline and double-bump, so it is refused.
+
+Two exceptions: a repo with no release tags at all is a first release, and the
+tag fetch is best-effort so being offline never blocks a release.
+
+Accepted consequence: **an abandoned bump is sticky.** The refusal names both
+exits — finish the release (`/ship --tag` on the release branch) or revert the
+bump commit. A stuck release is loud; a double-bump is silent.
+
+### Explicit overrides
+
+`--bump-only`, `--bump-and-tag` and `--tag` pick the act directly. Use
+`--bump-and-tag` for a hotfix cut straight on the release branch of a two-stage
+repo.
+
+They pick the **act**, never the branch. A feature branch is refused with any of
+them, and **the two that create a tag (`--tag`, `--bump-and-tag`) are confined
+to the release branch** — allowing `--bump-and-tag` on the integration branch
+would leave the original failure reachable behind one flag, which is the shape
+this whole design rejects. `--bump-only` writes no tag and is available on
+either branch.
+
+### Plugin mode
+
+`release-plugin.sh` bumps and tags in one step and `/ship` does not own its
+tagging path, so plugin mode has no bump/tag split. It applies the half of the
+rule that does transfer: plugin releases must be cut on the release branch, and
+any other branch is refused before the release script runs.
+
 ## Pre-bump gates (LLM-driven)
 
 `ship.py` itself does not run tests or audits — those gates are the model's
@@ -64,16 +162,23 @@ ${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/scripts/ship.py [args
 
 `ship.py` dispatches to the correct mode. Pass through the user's args:
 - Plugin mode: `[<plugin>] <bump|version>`
-- Python mode: `[patch|minor|major|X.Y.Z]` and/or `--dry-run`, `--increment`
+- Python mode: `[patch|minor|major|X.Y.Z]` and/or `--dry-run`, `--increment`,
+  `--tag`, `--bump-only`, `--bump-and-tag`
 
 Report:
 - the new version
-- the tag that was created (annotated `vX.Y.Z`)
+- the tag that was created (annotated `vX.Y.Z`) — **or, on the integration
+  branch, that no tag was created and that `/ship --tag` on the release branch
+  is the next step.** Do not paper over this: a bump commit where someone
+  expected a release is surprising, and an unexplained surprise gets "fixed" by
+  a hand-cut tag, which is the failure the split removes.
 - a one-line summary of the CHANGELOG entries that were added
 
 **Do not** stage, commit, push, or modify anything beyond what `ship.py`
-does itself. The downstream script already produces the bump commit and
-the `vX.Y.Z` tag. Caller pushes: `git push --follow-tags`.
+does itself, and **never create a release tag by hand** — `/ship` owns the only
+tagging path. After a bump the caller pushes the branch (`git push`, or
+`git push --follow-tags` in a single-stage repo, where the tag was created
+locally). `/ship --tag` pushes its own tag.
 
 **If the script errors with "forbidden paths are tracked"**, stop and tell
 the user which paths need to be stripped. Do not strip them yourself —
@@ -204,11 +309,17 @@ branches diverge and every later bump computes from a stale baseline.
 
 | Flow | Owner | Notes |
 |---|---|---|
-| `dev -> main` via release PR (default) | **`/ship` on `dev`** | Bump BEFORE the merge so it reaches main through the PR and both branches match. |
+| `dev -> main` via release PR (default) | **`/ship` on `dev`**, then **`/ship --tag` on `main`** | The bump reaches `main` through the PR, so both branches match; the tag is cut afterwards, on `main`. |
+| Single branch | **`/ship` on the release branch** | Bump and tag in one act. |
 | Single branch, CI-owned | the workflow | Copy `templates/github-workflow-release.yml` deliberately and stop using /ship's bump. |
 
 After a release, `main` and the integration branch must agree:
 `git diff origin/main origin/dev -- pyproject.toml` — empty is correct.
+
+`templates/release-tag-guard.yml` is the detector for the same failure from the
+other side: it fires on every pushed `v*` tag and asserts the tagged commit is
+an ancestor of the release branch. It catches hand-cut tags `/ship` never sees,
+so the two are complements, not alternatives.
 
 Note: an existing `release.yml` cannot simply be deleted if setup ever created
 it — check nothing recreates it. Making the trigger `workflow_dispatch` only is
@@ -230,11 +341,22 @@ the stable way to neuter it.
   instead of via `/ship` — `cz bump` can compute unexpected versions. Don't
   hand-tag; verify with `git tag --list 'v*' | sort -V | tail -5` if a bump
   looks off.
-- **Uncommitted changes to tracked files** → the bump is **refused**, with
-  every dirty path named. Commit or stash them first; a release is cut from a
-  clean tree. `--dry-run` reports them instead of refusing.
+- **Uncommitted changes to tracked files** → **refused**, with every dirty path
+  named. Commit or stash them first; a release is cut from a clean tree.
+  `--dry-run` reports them instead of refusing. This applies to `--tag` as well
+  as to the bump: a tag names a commit, but it is *rendered* from `tag_format`
+  and carries a message built from the changelog, and cz reads both from the
+  working tree — so an uncommitted edit there changes the tag that gets pushed.
 - **Untracked files** → harmless, never block. Lockfiles, scratch output and
   build artifacts are routinely untracked, so they are ignored outright.
+- **"a bump is already in flight"** → the declared version has no tag. Finish
+  the release with `/ship --tag` on the release branch, or revert the bump
+  commit. The message names both, and the commit it means.
+- **Wrong branch** → `/ship` refuses and writes nothing. Check out the
+  integration branch to bump, or the release branch to tag.
+- **Lockfile** → a tracked `uv.lock` is refreshed into the bump commit
+  (`uv lock`). Best-effort: if the refresh fails, `/ship` warns and continues
+  rather than blocking an otherwise correct release.
 
 ## Related
 

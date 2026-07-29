@@ -1232,5 +1232,1469 @@ class ChangelogPathContainment(unittest.TestCase):
             self.assertNotIn("older", body)
 
 
+def _ship_module(name: str = "ship_branch_under_test"):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(name, SHIP_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class ConductorReleaseBranch(unittest.TestCase):
+    """`conductor.yml`'s `release.branch` wins over the house default.
+
+    The release tool and the dispatch policy must not silently disagree about
+    which branch releases — that disagreement is the whole drift class ADR-0008
+    is about. /ship READS the key; it does not own the contract.
+    """
+
+    def test_reads_this_repos_own_contract(self):
+        """Not a fixture: the real conductor.yml this repo ships with."""
+        mod = _ship_module()
+        self.assertEqual(mod.conductor_release_branch(REPO_ROOT), "main")
+
+    def test_declared_branch_overrides_the_default(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "conductor.yml").write_text(
+                "version: 1\nrelease:\n  branch: trunk\n  tagPattern: 'v*'\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(mod.conductor_release_branch(root), "trunk")
+
+    def test_conductor_yaml_extension_also_read(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "conductor.yaml").write_text(
+                "release:\n  branch: shipping\n", encoding="utf-8"
+            )
+            self.assertEqual(mod.conductor_release_branch(root), "shipping")
+
+    def test_no_contract_and_no_release_block_return_none(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self.assertIsNone(mod.conductor_release_branch(root))
+            (root / "conductor.yml").write_text(
+                "version: 1\nbaseBranch: main\n", encoding="utf-8"
+            )
+            self.assertIsNone(mod.conductor_release_branch(root))
+
+    YAML_WITH_A_DECOY = (
+        "# a comment\n"
+        "worktree:\n"
+        "  release:\n"
+        "    branch: not-this-one\n"
+        "release:\n"
+        "  branch: shipline   # trailing comment\n"
+        "  tagPattern: 'v*'\n"
+    )
+
+    def test_only_the_top_level_release_block_counts(self):
+        mod = _ship_module()
+        self.assertEqual(
+            mod._release_branch_from_yaml(self.YAML_WITH_A_DECOY), "shipline"
+        )
+
+    def test_the_same_answer_without_pyyaml(self):
+        """ship.py runs under whatever interpreter run-hook finds — no deps.
+
+        `sys.modules["yaml"] = None` makes `import yaml` raise ImportError,
+        which is exactly the state a missing or broken PyYAML puts the process
+        in. If the fallback scanner ever regresses, the two answers diverge.
+        """
+        mod = _ship_module()
+        with mock.patch.dict(sys.modules, {"yaml": None}):
+            with self.assertRaises(ImportError):
+                import yaml  # noqa: F401
+            self.assertEqual(
+                mod._release_branch_from_yaml(self.YAML_WITH_A_DECOY), "shipline"
+            )
+            self.assertIsNone(mod._release_branch_from_yaml("version: 1\n"))
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), *args], check=True, capture_output=True, text=True
+    ).stdout
+
+
+def make_repo(root: Path, *, version: str = "0.1.0") -> None:
+    """A minimal commitizen-configured repo on `main`, tagged at `version`."""
+    root.mkdir(parents=True, exist_ok=True)
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "commit.gpgsign", "false")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo"\nversion = "0.1.0"\n\n'
+        "[tool.commitizen]\n"
+        'name = "cz_conventional_commits"\n'
+        f'version = "{version}"\n'
+        'tag_format = "v$version"\n'
+        'version_files = ["pyproject.toml:version"]\n',
+        encoding="utf-8",
+    )
+    (root / "README.md").write_text("# demo\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "feat: initial")
+    git(root, "tag", "-a", f"v{version}", "-m", f"Release v{version}")
+
+
+def make_pep621_repo(root: Path) -> None:
+    """A repo where cz keeps NO version of its own — `[project]` is the source.
+
+    `version_provider = "pep621"` is a supported, ordinary commitizen setup, and
+    the one where reading only `[tool.commitizen] version` finds nothing.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    git(root, "init", "-q", "-b", "main")
+    git(root, "config", "user.email", "test@example.com")
+    git(root, "config", "user.name", "Test")
+    git(root, "config", "commit.gpgsign", "false")
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "demo621"\nversion = "0.1.0"\n'
+        'requires-python = ">=3.11"\ndependencies = []\n\n'
+        "[tool.commitizen]\n"
+        'name = "cz_conventional_commits"\n'
+        'version_provider = "pep621"\n'
+        'tag_format = "v$version"\n',
+        encoding="utf-8",
+    )
+    (root / "README.md").write_text("# demo621\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "feat: initial")
+    git(root, "tag", "-a", "v0.1.0", "-m", "Release v0.1.0")
+
+
+def make_two_stage(base: Path) -> tuple[Path, Path]:
+    """`(bare origin, working clone)` with `main` + `dev` both published.
+
+    A real remote, not a mock: everything `--tag` asserts (fetch, remote-sync,
+    tag absence on the remote, the push itself) is git talking to git.
+    """
+    origin = base / "origin.git"
+    subprocess.run(
+        ["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+        check=True,
+        capture_output=True,
+    )
+    work = base / "work"
+    make_repo(work)
+    git(work, "remote", "add", "origin", str(origin))
+    git(work, "push", "-q", "origin", "main")
+    git(work, "push", "-q", "origin", "--tags")
+    git(work, "checkout", "-q", "-b", "dev")
+    git(work, "push", "-q", "-u", "origin", "dev")
+    return origin, work
+
+
+def feature_commit(root: Path, name: str = "feature.py") -> None:
+    (root / name).write_text("X = 1\n", encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", f"feat: add {name}")
+
+
+def cz_env(root: Path) -> dict[str, str] | None:
+    """PATH exposing git + a real cz, or None if commitizen is unreachable."""
+    bindir = _outside_bindir(root)
+    if not _install_cz_shim(bindir):
+        return None
+    return _ship_env(bindir)
+
+
+class ModeSelection(unittest.TestCase):
+    """The branch selects the act. Flags override the act, never the branch.
+
+    Unit-level table over `resolve_mode`; the end-to-end classes below prove
+    the same rules against real repos.
+    """
+
+    def topo(self, current, *, release="main", integration="dev", in_git=True):
+        mod = _ship_module()
+        return mod, mod.Topology(release, integration, current, in_git)
+
+    def test_integration_branch_bumps_only(self):
+        mod, topo = self.topo("dev")
+        self.assertEqual(mod.resolve_mode(topo, None), (mod.MODE_BUMP_ONLY, None))
+
+    def test_release_branch_of_a_single_stage_repo_bumps_and_tags(self):
+        mod, topo = self.topo("main", integration=None)
+        self.assertEqual(mod.resolve_mode(topo, None), (mod.MODE_BUMP_AND_TAG, None))
+
+    def test_release_branch_of_a_two_stage_repo_refuses_and_names_the_flag(self):
+        mod, topo = self.topo("main")
+        mode, refusal = mod.resolve_mode(topo, None)
+        self.assertIsNone(mode)
+        self.assertIn("/ship --tag", refusal)
+        self.assertIn("--bump-and-tag", refusal)
+
+    def test_any_other_branch_refuses(self):
+        for integration in ("dev", None):
+            with self.subTest(integration=integration):
+                mod, topo = self.topo("feat/thing", integration=integration)
+                mode, refusal = mod.resolve_mode(topo, None)
+                self.assertIsNone(mode)
+                self.assertIn("feat/thing", refusal)
+                self.assertIn("nothing was written", refusal.lower())
+
+    def test_an_override_does_not_unlock_a_feature_branch(self):
+        """Overrides pick the ACT. A feature branch still has no release."""
+        mod, topo = self.topo("feat/thing")
+        for requested in (mod.MODE_BUMP_ONLY, mod.MODE_BUMP_AND_TAG, mod.MODE_TAG):
+            with self.subTest(requested=requested):
+                self.assertIsNone(mod.resolve_mode(topo, requested)[0])
+
+    def test_bump_only_is_available_on_either_branch(self):
+        """It writes no tag, so it cannot put one on the wrong branch."""
+        for current in ("dev", "main"):
+            with self.subTest(current=current):
+                mod, topo = self.topo(current)
+                self.assertEqual(
+                    mod.resolve_mode(topo, mod.MODE_BUMP_ONLY)[0], mod.MODE_BUMP_ONLY
+                )
+
+    def test_every_tag_creating_override_is_confined_to_the_release_branch(self):
+        """Review blocker on PR #88 (third round), and a real one.
+
+        `--bump-and-tag` used to be accepted on the integration branch, which
+        left the incident's exact shape reachable behind one flag: a tag cut on
+        `dev`, naming a commit a squash-merge never makes an ancestor of
+        `main`. An override that reintroduces the failure the change removes is
+        that failure, explicitness notwithstanding — and it serves no case, the
+        hotfix it exists for being cut ON the release branch.
+        """
+        mod, dev = self.topo("dev")
+        for requested in (mod.MODE_TAG, mod.MODE_BUMP_AND_TAG):
+            with self.subTest(requested=requested):
+                mode, refusal = mod.resolve_mode(dev, requested)
+                self.assertIsNone(mode)
+                self.assertIn("`main`", refusal)
+                self.assertIn("squash-merge", refusal)
+
+        # Both remain available where a tag legitimately belongs.
+        _, main = self.topo("main")
+        self.assertEqual(mod.resolve_mode(main, mod.MODE_TAG)[0], mod.MODE_TAG)
+        self.assertEqual(
+            mod.resolve_mode(main, mod.MODE_BUMP_AND_TAG)[0], mod.MODE_BUMP_AND_TAG
+        )
+
+    def test_detached_head_is_not_a_branch(self):
+        mod, topo = self.topo(None)
+        mode, refusal = mod.resolve_mode(topo, None)
+        self.assertIsNone(mode)
+        self.assertIn("detached", refusal)
+
+    def test_outside_a_git_repo_behaviour_is_unchanged(self):
+        """No branch to select on, and no git to tag with — today's path."""
+        mod, topo = self.topo(None, in_git=False)
+        self.assertEqual(mod.resolve_mode(topo, None), (mod.MODE_BUMP_AND_TAG, None))
+
+    def test_the_declared_release_branch_is_the_one_that_counts(self):
+        mod, topo = self.topo("master", release="master", integration=None)
+        self.assertEqual(mod.resolve_mode(topo, None)[0], mod.MODE_BUMP_AND_TAG)
+        mod, topo = self.topo("main", release="master", integration=None)
+        self.assertIsNone(mod.resolve_mode(topo, None)[0])
+
+
+class TopologyDetection(unittest.TestCase):
+    """Two-stage is derived from `origin/dev`; the release branch from config."""
+
+    def test_no_remote_dev_is_single_stage(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            topo = mod.resolve_topology(root)
+            self.assertTrue(topo.in_git)
+            self.assertEqual(topo.current, "main")
+            self.assertEqual(topo.release, "main")
+            self.assertIsNone(topo.integration)
+            self.assertFalse(topo.two_stage)
+
+    def test_a_local_dev_branch_alone_is_not_two_stage(self):
+        """ADR-0008 §5 says `origin/dev`. A stale local branch is not topology."""
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "branch", "dev")
+            self.assertIsNone(mod.resolve_topology(root).integration)
+
+    def test_published_dev_makes_the_repo_two_stage(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            topo = mod.resolve_topology(work)
+            self.assertEqual(topo.integration, "dev")
+            self.assertEqual(topo.current, "dev")
+            self.assertTrue(topo.two_stage)
+
+    def test_conductor_release_branch_overrides_the_house_default(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            (root / "conductor.yml").write_text(
+                "release:\n  branch: master\n", encoding="utf-8"
+            )
+            self.assertEqual(mod.resolve_topology(root).release, "master")
+
+    def test_a_master_repo_releases_from_master(self):
+        """`main` is the house rule, not a precondition for having a release.
+
+        Three repos in this fleet are `master` with no `main` and no contract
+        (atlas, qute-platform, forgejo-review-kit). Resolving to a branch that
+        does not exist would refuse every branch in them — a release tool that
+        cannot release.
+        """
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "branch", "-m", "main", "master")
+            topo = mod.resolve_topology(root)
+            self.assertEqual(topo.release, "master")
+            self.assertTrue(topo.release_exists)
+            self.assertEqual(mod.resolve_mode(topo, None)[0], mod.MODE_BUMP_AND_TAG)
+
+    def test_main_wins_when_a_repo_carries_both(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "branch", "master")
+            self.assertEqual(mod.resolve_topology(root).release, "main")
+
+    def test_a_declaration_wins_over_a_branch_that_exists(self):
+        """The contract is authoritative even for a branch not checked out yet."""
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            (root / "conductor.yml").write_text(
+                "release:\n  branch: release/stable\n", encoding="utf-8"
+            )
+            topo = mod.resolve_topology(root)
+            self.assertEqual(topo.release, "release/stable")
+            self.assertTrue(topo.release_exists)
+
+    def test_no_recognisable_release_branch_says_so(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "checkout", "-q", "-b", "trunk")
+            git(root, "branch", "-D", "main")
+            topo = mod.resolve_topology(root)
+            self.assertFalse(topo.release_exists)
+            mode, refusal = mod.resolve_mode(topo, None)
+            self.assertIsNone(mode)
+            self.assertIn("cannot tell which branch this repo releases from", refusal)
+            self.assertIn("release:", refusal)
+            self.assertIn("branch:", refusal)
+
+    def test_a_release_branch_that_exists_only_on_the_remote_counts(self):
+        """`git clone -b dev` never creates a local `main` — origin's is it.
+
+        The ordinary shape of a two-stage checkout: the clone has
+        `refs/heads/dev` and `refs/remotes/origin/main`, and nothing else names
+        the release branch. Looking only at local heads would resolve "no
+        release branch" and refuse the bump.
+        """
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, _ = make_two_stage(base)
+            clone = base / "clone"
+            subprocess.run(
+                ["git", "clone", "-q", "-b", "dev", str(origin), str(clone)],
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(
+                git(clone, "branch", "--list", "--format=%(refname:short)").split(),
+                ["dev"],
+            )
+            topo = mod.resolve_topology(clone)
+            self.assertEqual(topo.release, "main")
+            self.assertTrue(topo.release_exists)
+            self.assertEqual(topo.integration, "dev")
+            self.assertEqual(mod.resolve_mode(topo, None)[0], mod.MODE_BUMP_ONLY)
+
+    def test_detached_head_reports_no_branch(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "checkout", "-q", "--detach", "HEAD")
+            topo = mod.resolve_topology(root)
+            self.assertTrue(topo.in_git)
+            self.assertIsNone(topo.current)
+
+    def test_a_plain_directory_is_not_a_repo(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(mod.resolve_topology(Path(d)).in_git)
+
+
+class FeatureBranchWritesNothing(unittest.TestCase):
+    """A refusal that has already written is not a refusal.
+
+    The gate therefore runs before first-time setup, which legitimately edits
+    `pyproject.toml` and creates `CHANGELOG.md` — the state this test would
+    catch if the gate ever moved below it.
+    """
+
+    def test_python_mode_refuses_and_leaves_the_tree_exactly_as_it_was(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            git(work, "checkout", "-q", "-b", "feat/thing")
+            feature_commit(work)
+            before_head = git(work, "rev-parse", "HEAD")
+            before_toml = (work / "pyproject.toml").read_text(encoding="utf-8")
+            before_tags = git(work, "tag", "--list")
+
+            result = run_ship(["patch"], work)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("feat/thing", result.stderr)
+            self.assertIn("nothing was written", result.stderr.lower())
+            self.assertEqual(before_head, git(work, "rev-parse", "HEAD"))
+            self.assertEqual(
+                before_toml, (work / "pyproject.toml").read_text(encoding="utf-8")
+            )
+            self.assertEqual(before_tags, git(work, "tag", "--list"))
+            self.assertFalse((work / "CHANGELOG.md").exists())
+            self.assertFalse((work / ".venv").exists())
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+
+    def test_dry_run_on_a_feature_branch_also_refuses(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            git(work, "checkout", "-q", "-b", "feat/thing")
+            result = run_ship(["--dry-run"], work)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("feat/thing", result.stderr)
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+
+    def test_plugin_mode_refuses_before_the_release_script_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            PluginModeDispatch._make_marketplace(root, ["demo"])
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "release-plugin.sh").write_text(
+                "#!/bin/sh\necho RELEASED\nexit 0\n", encoding="utf-8"
+            )
+            git(root, "add", "-A")
+            git(root, "commit", "-q", "-m", "chore: marketplace")
+            git(root, "checkout", "-q", "-b", "feat/thing")
+
+            result = run_ship(["patch"], root)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertNotIn("RELEASED", result.stdout)
+            self.assertIn("plugin releases are cut on `main`", result.stderr)
+
+    def test_plugin_mode_on_the_release_branch_is_unchanged(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            PluginModeDispatch._make_marketplace(root, ["demo"])
+            scripts = root / "scripts"
+            scripts.mkdir()
+            (scripts / "release-plugin.sh").write_text(
+                "#!/bin/sh\necho RELEASED\nexit 0\n", encoding="utf-8"
+            )
+            result = run_ship(["patch"], root)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("RELEASED", result.stdout)
+
+
+class TwoStageBumpOnly(unittest.TestCase):
+    """The integration branch produces a bump commit and NO tag."""
+
+    def test_bump_on_dev_commits_and_creates_no_tag(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            _, work = make_two_stage(base)
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+            before_head = git(work, "rev-parse", "HEAD").strip()
+
+            result = run_ship([], work, env=env)
+            out = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=out)
+
+            # A commit happened...
+            self.assertNotEqual(before_head, git(work, "rev-parse", "HEAD").strip())
+            self.assertIn("bump: version 0.1.0", git(work, "log", "-1", "--pretty=%s"))
+            self.assertIn('version = "0.2.0"', git(work, "show", "HEAD:pyproject.toml"))
+            self.assertIn("CHANGELOG.md", git(work, "show", "--name-only", "HEAD"))
+            # ...and no tag did. This is the whole point.
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            # The report names the next step rather than leaving it to docs.
+            self.assertIn("NO tag was created", out)
+            self.assertIn("/ship --tag", out)
+            self.assertIn("`main`", out)
+
+    def test_bump_and_tag_is_refused_on_dev_end_to_end(self):
+        """No flag reopens the path that cuts a release tag on `dev`."""
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+            head = git(work, "rev-parse", "HEAD").strip()
+
+            result = run_ship(["--bump-and-tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("squash-merge", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            self.assertEqual(head, git(work, "rev-parse", "HEAD").strip())
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+
+    def test_bump_and_tag_is_a_hotfix_path_on_the_release_branch(self):
+        """The case the override exists for: bump AND tag ON `main`."""
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            git(work, "checkout", "-q", "main")
+            feature_commit(work, "hotfix.py")
+
+            result = run_ship(["--bump-and-tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertEqual(
+                sorted(git(work, "tag", "--list").split()), ["v0.1.0", "v0.2.0"]
+            )
+
+    def test_bump_only_override_on_a_single_stage_repo(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+            result = run_ship(["--bump-only"], root, env=env)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertEqual(git(root, "tag", "--list").split(), ["v0.1.0"])
+            self.assertIn("bump: version", git(root, "log", "-1", "--pretty=%s"))
+
+
+class SingleStageIsUnchanged(unittest.TestCase):
+    """A repo with no `origin/dev` must behave exactly as it did before."""
+
+    def test_release_branch_bumps_and_tags_in_one_act(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+
+            result = run_ship([], root, env=env)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+            self.assertEqual(
+                sorted(git(root, "tag", "--list").split()), ["v0.1.0", "v0.2.0"]
+            )
+            # Annotated, on the bump commit, and nothing pushed anywhere.
+            self.assertEqual(
+                git(
+                    root, "cat-file", "-t", git(root, "rev-parse", "v0.2.0").strip()
+                ).strip(),
+                "tag",
+            )
+            self.assertEqual(
+                git(root, "rev-list", "-n", "1", "v0.2.0").strip(),
+                git(root, "rev-parse", "HEAD").strip(),
+            )
+            self.assertIn("git push --follow-tags", result.stdout)
+
+    def test_a_master_only_repo_still_ships(self):
+        """End-to-end proof of the regression the candidate list prevents."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "branch", "-m", "main", "master")
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+
+            result = run_ship([], root, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(root, "tag", "--list").split())
+
+    def test_a_feature_branch_of_a_master_repo_is_still_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "branch", "-m", "main", "master")
+            git(root, "checkout", "-q", "-b", "feat/thing")
+            result = run_ship([], root)
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("`master`", result.stderr)
+
+    def test_a_remote_without_dev_is_still_single_stage(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin = base / "origin.git"
+            subprocess.run(
+                ["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+                check=True,
+                capture_output=True,
+            )
+            work = base / "work"
+            make_repo(work)
+            git(work, "remote", "add", "origin", str(origin))
+            git(work, "push", "-q", "origin", "main")
+            git(work, "push", "-q", "origin", "--tags")
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+
+            result = run_ship([], work, env=env)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(work, "tag", "--list").split())
+            # Bump-and-tag does not push; the caller does.
+            self.assertNotIn("v0.2.0", git(origin, "tag", "--list").split())
+
+
+class TagCompletesTheRelease(unittest.TestCase):
+    """`/ship --tag` on the release branch, after a SQUASH merge.
+
+    The squash is the incident: it creates a new commit on the release branch,
+    so a tag cut on `dev` is never an ancestor of `main`. Doing the tag here,
+    afterwards, is what makes squash-merging a release PR safe again.
+    """
+
+    def _bumped_and_squash_merged(self, base: Path) -> tuple[Path, Path, dict]:
+        origin, work = make_two_stage(base)
+        env = cz_env(work)
+        if env is None:
+            self.skipTest("commitizen not reachable via `cz` or `uv`")
+        feature_commit(work)
+        result = run_ship([], work, env=env)
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        git(work, "push", "-q", "origin", "dev")
+        git(work, "checkout", "-q", "main")
+        git(work, "merge", "--squash", "dev")
+        git(work, "commit", "-q", "-m", "feat: release 0.2.0")
+        git(work, "push", "-q", "origin", "main")
+        return origin, work, env
+
+    def test_tag_is_created_annotated_pushed_and_on_the_release_branch(self):
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+
+            result = run_ship(["--tag"], work, env=env)
+            out = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, msg=out)
+
+            self.assertIn("v0.2.0", git(work, "tag", "--list").split())
+            self.assertEqual(
+                git(
+                    work, "cat-file", "-t", git(work, "rev-parse", "v0.2.0").strip()
+                ).strip(),
+                "tag",
+            )
+            # Pushed — the tag exists on the remote, still annotated.
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
+            self.assertEqual(
+                git(
+                    origin, "cat-file", "-t", git(origin, "rev-parse", "v0.2.0").strip()
+                ).strip(),
+                "tag",
+            )
+            # And the assertion the release-tag-guard workflow makes on push:
+            # the tagged commit IS an ancestor of the release branch, despite
+            # the squash. Cutting the tag on `dev` would fail this.
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(work),
+                    "merge-base",
+                    "--is-ancestor",
+                    "v0.2.0^{commit}",
+                    "origin/main",
+                ],
+                check=True,
+                capture_output=True,
+            )
+            # The changelog body rode along into the tag message.
+            self.assertIn("v0.2.0", git(work, "tag", "-n1", "--list", "v0.2.0"))
+
+    def test_refuses_when_the_branch_is_ahead_of_its_remote(self):
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            feature_commit(work, "unpushed.py")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("does not match", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            self.assertNotIn("v0.2.0", git(origin, "tag", "--list").split())
+
+    def test_refuses_when_the_branch_is_behind_its_remote(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            # Someone else pushes to main; we have not pulled.
+            other = base / "other"
+            subprocess.run(
+                ["git", "clone", "-q", str(origin), str(other)],
+                check=True,
+                capture_output=True,
+            )
+            git(other, "config", "user.email", "other@example.com")
+            git(other, "config", "user.name", "Other")
+            git(other, "config", "commit.gpgsign", "false")
+            feature_commit(other, "theirs.py")
+            git(other, "push", "-q", "origin", "main")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("does not match", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    # Both tag-absence tests assert /ship's OWN wording, not the substring
+    # "already exists". git says that too — `git tag -a` on an existing tag and
+    # `git push` of a diverged one both do — so a test keyed on it passes when
+    # the precondition has been deleted and git happens to catch the fallout
+    # afterwards. That is a test measuring git, and it survived exactly this
+    # mutation before being tightened.
+    REFUSAL = "bump again before tagging again"
+
+    def test_refuses_when_the_tag_already_exists_locally(self):
+        """A hand-cut, UNPUSHED tag. Only the local check can see this one."""
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            git(work, "tag", "-a", "v0.2.0", "-m", "hand-cut")
+            self.assertNotIn("v0.2.0", git(origin, "tag", "--list").split())
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn(self.REFUSAL, result.stderr)
+            self.assertNotIn("v0.2.0", git(origin, "tag", "--list").split())
+
+    def test_refuses_a_tag_that_exists_only_on_the_remote(self):
+        """The fetch is load-bearing: a tag pushed elsewhere still counts.
+
+        Nothing local knows about `v0.2.0` when this starts. It is caught only
+        because step 1 fetches `--tags` before step 4 reads the local refs — so
+        this test fails if the fetch is ever dropped, which is precisely the
+        reason the local check is allowed to be the only one.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            git(work, "tag", "-a", "v0.2.0", "-m", "Release v0.2.0")
+            git(work, "push", "-q", "origin", "v0.2.0")
+            remote_tag_object = git(origin, "rev-parse", "v0.2.0").strip()
+            git(work, "tag", "-d", "v0.2.0")
+            self.assertNotIn("v0.2.0", git(work, "tag", "--list").split())
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn(self.REFUSAL, result.stderr)
+            # The only v0.2.0 in this repo is the one the fetch brought back —
+            # /ship created no tag object of its own.
+            self.assertEqual(
+                git(work, "rev-parse", "v0.2.0").strip(), remote_tag_object
+            )
+
+    def test_refuses_when_the_remote_cannot_be_reached(self):
+        """`--tag` pushes; it cannot verify or publish anything offline."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "set-url", "origin", str(base / "vanished.git"))
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("could not fetch", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_refuses_when_the_named_version_is_not_the_one_at_the_tip(self):
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+
+            result = run_ship(["--tag", "9.9.9"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("9.9.9", result.stderr)
+            self.assertIn("0.2.0", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_an_uncommitted_tag_format_cannot_rename_the_pushed_tag(self):
+        """Review blocker on PR #88 (fourth round), and a real one.
+
+        `--tag` used to skip the clean-tree gate, reasoning that a tag names a
+        commit so a dirty file cannot ride into it. That covered the version and
+        nothing else. A tag is *rendered* from `tag_format`, which lives in
+        `pyproject.toml`, which cz reads from the WORKING TREE — so an
+        uncommitted `tag_format` renamed the tag that got pushed.
+
+        Reproduced against the pre-fix code before this test was written: a
+        committed `v$version` with an uncommitted `release-$version` published
+        `release-0.2.0`, a tag name the released commit never defined.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            toml = work / "pyproject.toml"
+            self.assertIn(
+                'tag_format = "v$version"', git(work, "show", "HEAD:pyproject.toml")
+            )
+            toml.write_text(
+                toml.read_text(encoding="utf-8").replace(
+                    'tag_format = "v$version"', 'tag_format = "release-$version"'
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            # The refusal explains the situation the caller is in, not the bump
+            # commit a tag-only run is not making.
+            self.assertIn("tag NAME is rendered from", result.stderr)
+            # The mis-named tag exists nowhere — not locally, not on the remote.
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            self.assertNotIn("release-0.2.0", git(origin, "tag", "--list").split())
+
+    def test_an_uncommitted_changelog_cannot_reach_the_tag_message(self):
+        """Same hole, other input: the tag MESSAGE is read from the tree too."""
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            changelog = work / "CHANGELOG.md"
+            changelog.write_text(
+                changelog.read_text(encoding="utf-8").replace(
+                    "## v0.2.0", "## v0.2.0\n\nUNCOMMITTED-NOTE", 1
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_refuses_when_the_working_tree_is_dirty(self):
+        """Any dirty tracked file, not a curated list of 'release metadata'.
+
+        A list is a partial rule that drifts out of step with what cz actually
+        reads — which is how the `tag_format` hole existed at all.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            (work / "README.md").write_text("# demo\nscratch\n", encoding="utf-8")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            self.assertIn("README.md", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_an_untracked_file_still_does_not_block_a_tag(self):
+        """The gate ignores untracked files; cz cannot read a file it has none of."""
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            (work / "scratch.log").write_text("noise\n", encoding="utf-8")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
+
+    def test_refuses_on_the_integration_branch(self):
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            git(work, "checkout", "-q", "dev")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("belongs on `main`", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_refuses_when_no_remote_is_unambiguously_the_publisher(self):
+        """Review blocker on PR #88 (second round), and a real one.
+
+        Several remotes and no `origin` used to resolve to None, which
+        `ship_tag` read as "local-only repo" — so it announced no remote was
+        configured, skipped the fetch AND the sync check, created the tag, and
+        did not push it. A release that looks cut and is not: the exact
+        silent-late failure this change exists to end.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "rename", "origin", "upstream")
+            git(work, "remote", "add", "fork", str(base / "fork.git"))
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("cannot tell which remote", result.stderr)
+            self.assertIn("upstream", result.stderr)
+            self.assertIn("fork", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_a_single_non_origin_remote_is_unambiguous(self):
+        """One remote is not a guess — it is the only answer."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "rename", "origin", "upstream")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
+
+    def test_a_repo_with_no_remote_at_all_tags_locally(self):
+        """No remote is a legitimate state; ambiguity is not."""
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work, env = self._bumped_and_squash_merged(base)
+            git(work, "remote", "remove", "origin")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("no git remote is configured", result.stdout)
+            self.assertIn("v0.2.0", git(work, "tag", "--list").split())
+
+    def test_dry_run_asserts_everything_and_creates_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+
+            result = run_ship(["--tag", "--dry-run"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("would create annotated tag `v0.2.0`", result.stdout)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            self.assertNotIn("v0.2.0", git(origin, "tag", "--list").split())
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+            self.assertFalse((work / ".venv").exists())
+
+    def test_tag_and_an_increment_are_contradictory(self):
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            result = run_ship(["--tag", "minor"], work, env=env)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+
+class TagPushVersusThePrePushGuard(unittest.TestCase):
+    """`--tag` pushes a tag; the pre-push branch guard is now live in repos.
+
+    TOM-348 and this ticket landed within a day of each other, and they meet at
+    exactly one point: `git push origin v0.2.0`. The guard reads `refs/heads/`
+    and skips everything else, so a tag refspec should sail through — but
+    "should" is the word that precedes an outage, and the guard is stamped into
+    real repos now.
+
+    The control matters as much as the assertion. A test that only shows the
+    tag push succeeding passes just as well when the guard was never armed, so
+    this first proves a direct `git push origin main` IS refused in the same
+    repo, in the same state, moments before.
+    """
+
+    INSTALLER = REPO_ROOT / "plugins/qute-essentials/scripts/install_pre_push_guard.py"
+    GUARD = REPO_ROOT / "plugins/qute-essentials/templates/hooks/pre-push-branch-guard"
+
+    def _arm_guard(self, work: Path) -> None:
+        """Install the real guard and opt the repo in, guarding `main`."""
+        claude = work / ".claude"
+        claude.mkdir(exist_ok=True)
+        # Opt-in IS the presence of this file.
+        (claude / "git-guard.json").write_text(
+            json.dumps({"protected_branch": "main", "integration_branch": "dev"}),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.INSTALLER),
+                "--repo",
+                str(work),
+                "--mechanism",
+                "native",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_the_release_tag_push_is_not_a_guarded_branch_push(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work = make_two_stage(base)
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+            self.assertEqual(run_ship([], work, env=env).returncode, 0)
+            git(work, "push", "-q", "origin", "dev")
+            git(work, "checkout", "-q", "main")
+            git(work, "merge", "--squash", "dev")
+            git(work, "commit", "-q", "-m", "feat: release 0.2.0")
+            git(work, "push", "-q", "origin", "main")
+
+            self._arm_guard(work)
+
+            # ---- CONTROL: the guard is genuinely armed in THIS repo. -------
+            # Without this, a green tag push proves nothing — an installer that
+            # silently no-opped would produce exactly the same result.
+            (work / "probe.txt").write_text("x\n", encoding="utf-8")
+            git(work, "add", "probe.txt")
+            git(work, "commit", "-q", "-m", "chore: probe")
+            blocked = subprocess.run(
+                ["git", "-C", str(work), "push", "origin", "main"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(
+                blocked.returncode,
+                0,
+                msg="the pre-push guard did NOT block a direct push to the "
+                "protected branch, so this test proves nothing about tags:\n"
+                + blocked.stdout
+                + blocked.stderr,
+            )
+            # Undo the probe so the tag names the released commit.
+            git(work, "reset", "-q", "--hard", "HEAD~1")
+
+            # ---- THE ASSERTION: `/ship --tag` still publishes. -------------
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
+            self.assertIn("pushed v0.2.0", result.stdout)
+
+    def test_the_guard_itself_classifies_a_tag_ref_as_not_a_branch(self):
+        """Unit twin, straight against the guard's own `evaluate()`."""
+        import importlib.machinery
+        import importlib.util
+
+        loader = importlib.machinery.SourceFileLoader(
+            "pre_push_guard_under_test", str(self.GUARD)
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+
+        sha, zero = "a" * 40, "0" * 40
+        # A release tag push: not a branch, not the guard's business.
+        self.assertIsNone(
+            mod.evaluate(
+                [("refs/tags/v0.2.0", sha, "refs/tags/v0.2.0", zero)], {"main"}
+            )
+        )
+        # ...while the branch push it exists for is still caught, so the skip
+        # above is a classification and not a dead guard.
+        self.assertEqual(
+            mod.evaluate([("refs/heads/main", sha, "refs/heads/main", sha)], {"main"}),
+            ("main", "update"),
+        )
+
+
+class InFlightBumpGuard(unittest.TestCase):
+    """A declared-but-untagged version blocks the next bump.
+
+    cz computes the increment from the last TAG, so a second bump in that
+    window reads a baseline one release behind. The refusal is sticky by
+    design, which is why it must name both ways out.
+    """
+
+    def test_a_second_bump_refuses_and_names_both_exits(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+            self.assertEqual(run_ship([], work, env=env).returncode, 0)
+            head_after_bump = git(work, "rev-parse", "HEAD").strip()
+            feature_commit(work, "second.py")
+
+            result = run_ship([], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("already in flight", result.stderr)
+            # Both exits, named.
+            self.assertIn("/ship --tag", result.stderr)
+            self.assertIn("git revert", result.stderr)
+            # And the bump commit it points at is the real one.
+            self.assertIn(head_after_bump[:7], result.stderr)
+            # It refused before ANYTHING wrote — including first-time setup,
+            # which edits pyproject.toml. A refusal that dirties the tree sends
+            # the next run into the clean-tree gate for an unrelated reason.
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+            self.assertNotIn(
+                'version = "0.3.0"',
+                (work / "pyproject.toml").read_text(encoding="utf-8"),
+            )
+            # ...and it stays refused for the SAME reason on a second attempt.
+            again = run_ship([], work, env=env)
+            self.assertEqual(again.returncode, 1)
+            self.assertIn("already in flight", again.stderr)
+            self.assertEqual(git(work, "status", "--porcelain").strip(), "")
+
+    def test_a_first_release_is_not_blocked(self):
+        """No release tags at all is the initial state, not an abandoned bump."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "tag", "-d", "v0.1.0")
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+
+            result = run_ship([], root, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(root, "tag", "--list").split())
+
+    def test_unrelated_tags_do_not_forfeit_the_first_release_exception(self):
+        """`nightly-*` is not this repo's release series."""
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "tag", "-d", "v0.1.0")
+            git(root, "tag", "-a", "nightly-2026-07-28", "-m", "nightly")
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+
+            result = run_ship([], root, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(root, "tag", "--list").split())
+
+    def test_a_pep621_repo_is_guarded_too(self):
+        """Review blocker on PR #88, and a real one.
+
+        Under `version_provider = "pep621"` commitizen keeps no version of its
+        own, so reading only `[tool.commitizen] version` returns None — and a
+        guard handed None does not fire. The repos that declare their version
+        the standard way would have been the ones with no protection. This is
+        the end-to-end proof against a real cz using that provider.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_pep621_repo(root)
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(root)
+
+            first = run_ship(["--bump-only"], root, env=env)
+            self.assertEqual(first.returncode, 0, msg=first.stdout + first.stderr)
+            self.assertIn('version = "0.2.0"', git(root, "show", "HEAD:pyproject.toml"))
+            self.assertEqual(git(root, "tag", "--list").split(), ["v0.1.0"])
+
+            feature_commit(root, "second.py")
+            second = run_ship(["--bump-only"], root, env=env)
+
+            self.assertEqual(second.returncode, 1, msg=second.stdout + second.stderr)
+            self.assertIn("already in flight", second.stderr)
+            self.assertIn("v0.2.0", second.stderr)
+            self.assertEqual(git(root, "status", "--porcelain").strip(), "")
+
+    def test_the_declared_version_reader_sees_every_declaration_style(self):
+        """Unit twin: the guard is only as good as the version it is handed."""
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_pep621_repo(root)
+            pyproject = root / "pyproject.toml"
+            # No cz reachable, so this proves the FILE read finds it — not a
+            # subprocess fallback that happens to be available on this host.
+            self.assertEqual(
+                mod.declared_version(root, pyproject, ["definitely-not-cz-xyz"]),
+                "0.1.0",
+            )
+            # ...and the guard therefore fires on it.
+            pyproject.write_text(
+                pyproject.read_text(encoding="utf-8").replace("0.1.0", "0.2.0"),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                mod.check_bump_in_flight(
+                    root,
+                    ["definitely-not-cz-xyz"],
+                    mod._read_cz_config(pyproject),
+                    mod.declared_version(root, pyproject, ["definitely-not-cz-xyz"]),
+                ),
+                1,
+            )
+
+    def test_a_prefix_free_tag_format_still_recognises_a_first_release(self):
+        """Review blocker on PR #88 (second round), and a real one.
+
+        `tag_format = "$version"` is a supported config that renders bare
+        semver tags. The series matcher used to be the glob
+        `tag.replace(version, "*")`, which there collapses to `*` — every tag
+        in the repo — so a stray `nightly-*` made a FIRST release look like an
+        abandoned bump. The `v$version` test passed throughout, because `v*`
+        happens to exclude it.
+        """
+        mod = _ship_module()
+        cfg = {"tag_format": "$version"}
+        no_cz = ["definitely-not-a-real-binary-xyz"]  # forces local rendering
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            git(root, "tag", "-d", "v0.1.0")
+            git(root, "tag", "-a", "nightly-2026-07-28", "-m", "nightly")
+
+            # Only unrelated tags -> first release, not an abandoned bump.
+            self.assertEqual(mod.check_bump_in_flight(root, no_cz, cfg, "0.2.0"), 0)
+
+            # A real release tag in the series -> the guard fires again.
+            git(root, "tag", "-a", "0.1.0", "-m", "Release 0.1.0")
+            self.assertEqual(mod.check_bump_in_flight(root, no_cz, cfg, "0.2.0"), 1)
+            # ...and stands down once the declared version IS tagged.
+            self.assertEqual(mod.check_bump_in_flight(root, no_cz, cfg, "0.1.0"), 0)
+
+    def test_the_series_matcher_reads_the_shape_around_the_version(self):
+        mod = _ship_module()
+        for tag, version, yes, no in [
+            ("v0.1.0", "0.1.0", ["v0.1.0", "v10.2.3", "v1.0.0rc1"], ["nightly-1", "v"]),
+            ("0.1.0", "0.1.0", ["0.1.0", "2.0.0"], ["nightly-2026-07-28", "deploy-3"]),
+            (
+                "release-0.1.0",
+                "0.1.0",
+                ["release-1.2.3"],
+                ["0.1.0", "release-x", "prerelease-1.2.3"],
+            ),
+        ]:
+            with self.subTest(tag=tag):
+                matches = mod._release_tag_matcher(tag, version)
+                for t in yes:
+                    self.assertTrue(matches(t), f"{t} should match {tag}")
+                for t in no:
+                    self.assertFalse(matches(t), f"{t} should not match {tag}")
+
+    def test_a_tagged_declared_version_proceeds(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            self.assertEqual(
+                mod.check_bump_in_flight(
+                    root, [sys.executable, "-c", "pass"], {}, "0.1.0"
+                ),
+                0,
+            )
+
+    def test_the_guard_is_local_only_when_there_is_no_remote(self):
+        """Offline / remoteless must not block a release (unit-level)."""
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            self.assertIsNone(mod._remote_name(root))
+            # 0.9.0 declared, only v0.1.0 tagged -> in flight, refused.
+            self.assertEqual(
+                mod.check_bump_in_flight(
+                    root, [sys.executable, "-c", "pass"], {}, "0.9.0"
+                ),
+                1,
+            )
+
+    def test_tag_mode_is_the_way_out_and_is_not_itself_blocked(self):
+        with tempfile.TemporaryDirectory() as d:
+            _, work = make_two_stage(Path(d))
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+            self.assertEqual(run_ship([], work, env=env).returncode, 0)
+            git(work, "push", "-q", "origin", "dev")
+            git(work, "checkout", "-q", "main")
+            git(work, "merge", "--squash", "dev")
+            git(work, "commit", "-q", "-m", "feat: release")
+            git(work, "push", "-q", "origin", "main")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(work, "tag", "--list").split())
+
+
+class VersionAtTip(unittest.TestCase):
+    """ "Declared at the tip" is a claim about the COMMIT, not the tree."""
+
+    def test_reads_the_committed_version_not_the_working_tree(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            toml = root / "pyproject.toml"
+            toml.write_text(
+                toml.read_text(encoding="utf-8").replace("0.1.0", "9.9.9"),
+                encoding="utf-8",
+            )
+            self.assertEqual(mod._version_at_tip(root, toml), "0.1.0")
+
+    def test_falls_back_to_the_project_table(self):
+        """`version_provider = "pep621"` keeps no cz version of its own."""
+        mod = _ship_module()
+        self.assertEqual(
+            mod._declared_version_in_toml(
+                '[project]\nname = "x"\nversion = "2.3.4"\n\n'
+                '[tool.commitizen]\nversion_provider = "pep621"\n'
+            ),
+            "2.3.4",
+        )
+
+    def test_the_commitizen_version_wins_when_both_are_present(self):
+        mod = _ship_module()
+        self.assertEqual(
+            mod._declared_version_in_toml(
+                '[project]\nversion = "1.0.0"\n\n[tool.commitizen]\nversion = "2.0.0"\n'
+            ),
+            "2.0.0",
+        )
+
+    def test_no_commits_yields_none(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            subprocess.run(
+                ["git", "init", "-q", "-b", "main", str(root)],
+                check=True,
+                capture_output=True,
+            )
+            (root / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+            self.assertIsNone(mod._version_at_tip(root, root / "pyproject.toml"))
+
+
+class LockfileRefresh(unittest.TestCase):
+    """The lock is refreshed into the bump commit, best-effort."""
+
+    def test_an_untracked_lockfile_is_left_alone(self):
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            (root / "uv.lock").write_text("# scratch\n", encoding="utf-8")
+            mod.refresh_lockfile(root)
+            self.assertEqual(
+                (root / "uv.lock").read_text(encoding="utf-8"), "# scratch\n"
+            )
+
+    def test_a_failing_refresh_warns_instead_of_raising(self):
+        """Best-effort by contract: a resolver failure must not block a bump."""
+        mod = _ship_module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            make_repo(root)
+            # Tracked lock, but a pyproject `uv lock` cannot resolve (no
+            # [project] name/version is fine; a bogus dependency is not).
+            (root / "uv.lock").write_text("# stale\n", encoding="utf-8")
+            git(root, "add", "uv.lock")
+            git(root, "commit", "-q", "-m", "chore: lock")
+            toml = root / "pyproject.toml"
+            toml.write_text(
+                toml.read_text(encoding="utf-8").replace(
+                    'version = "0.1.0"\n\n[tool.commitizen]',
+                    'version = "0.1.0"\n'
+                    'requires-python = ">=3.11"\n'
+                    'dependencies = ["this-package-does-not-exist-qck349"]\n\n'
+                    "[tool.commitizen]",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            if not shutil.which("uv"):
+                self.skipTest("uv not on PATH")
+            mod.refresh_lockfile(root)  # must not raise
+            self.assertEqual(
+                (root / "uv.lock").read_text(encoding="utf-8"), "# stale\n"
+            )
+
+    @unittest.skipUnless(shutil.which("uv"), "uv not on PATH")
+    def test_a_tracked_lockfile_is_refreshed_into_the_bump_commit(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d) / "repo"
+            root.mkdir(parents=True)
+            git(root, "init", "-q", "-b", "main")
+            git(root, "config", "user.email", "test@example.com")
+            git(root, "config", "user.name", "Test")
+            git(root, "config", "commit.gpgsign", "false")
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "demo"\nversion = "0.1.0"\n'
+                'requires-python = ">=3.11"\ndependencies = []\n\n'
+                "[tool.commitizen]\n"
+                'name = "cz_conventional_commits"\n'
+                'version = "0.1.0"\n'
+                'tag_format = "v$version"\n'
+                'version_files = ["pyproject.toml:version"]\n',
+                encoding="utf-8",
+            )
+            (root / "demo.py").write_text("X = 1\n", encoding="utf-8")
+            subprocess.run(
+                ["uv", "lock"], cwd=root, check=True, capture_output=True, text=True
+            )
+            self.assertIn(
+                'version = "0.1.0"', (root / "uv.lock").read_text(encoding="utf-8")
+            )
+            git(root, "add", "-A")
+            git(root, "commit", "-q", "-m", "feat: initial")
+            git(root, "tag", "-a", "v0.1.0", "-m", "Release v0.1.0")
+            feature_commit(root)
+
+            env = cz_env(root)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            # uv must be reachable for the refresh itself.
+            uv = shutil.which("uv")
+            bindir = Path(env["PATH"].split(":")[0])
+            if not (bindir / "uv").exists():
+                (bindir / "uv").symlink_to(uv)
+
+            result = run_ship([], root, env=env)
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+            committed = git(root, "diff", "--name-only", "HEAD~1", "HEAD").split()
+            self.assertIn("uv.lock", committed)
+            self.assertIn('version = "0.2.0"', git(root, "show", "HEAD:uv.lock"))
+            # Nothing left dirty — the lock landed IN the release commit.
+            self.assertEqual(
+                git(root, "status", "--porcelain", "--untracked-files=no").strip(), ""
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

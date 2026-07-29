@@ -340,7 +340,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |
 | `/pickup` | Resume work from a previous handoff |
-| `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). Auto-runs first-time setup (commitizen + CHANGELOG + workflow) on Python projects |
+| `/ship` | Cut a release — auto-detects Plugin mode (`marketplace.json`) or Python mode (`pyproject.toml`). **The branch selects the act** (ADR-0008): bump-only on the integration branch, `/ship --tag` completes the release on the release branch, both at once in a single-branch repo, any other branch refused. Auto-runs first-time setup (commitizen + CHANGELOG) on Python projects |
 | `/task` | Add or close a task — tiered: manages `TASKS.md` by default, graduates to GitHub Issues once the list earns it; proposes migration once |
 | `/repo-status` | Git/worktree dashboard **plus** a read-only Open tasks glance at the repo's active store — `TASKS.md` (Tier 1) or GitHub Issues via `gh` (Tier 2), auto-detected |
 | `/board` | Linear board write-identity conventions (ADR-0003/0006): interactive sessions write via the Linear MCP tagged `[session:]`; agents/crons via `linear-post` → dispatcher `:8002/post` tagged `[agent:]` |
@@ -419,8 +419,11 @@ costs nothing. Where they *do* apply they are fail-closed, not best-effort:
     refuses.
 - **`templates/lockfile-check.yml`** — runs `uv lock --check` on PRs and pushes, failing when
   `uv.lock` is out of step with `pyproject.toml`. A project's own version is recorded in its
-  lockfile, so every `/ship` bump staleness the lock and nothing else notices. No `uv.lock` → the
-  job reports the absence and passes. (`--check` = staleness; `--check-exists` = presence only.)
+  lockfile, so a bump staleness the lock and nothing else notices. `/ship` now refreshes a
+  **tracked** `uv.lock` into the bump commit itself (best-effort — a refresh failure warns rather
+  than blocking a correct release), so this job is the backstop for the case where that refresh
+  did not happen. No `uv.lock` → the job reports the absence and passes. (`--check` = staleness;
+  `--check-exists` = presence only.)
 
 ### Event-driven security audit (3 layers)
 

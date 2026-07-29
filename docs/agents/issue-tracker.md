@@ -28,10 +28,11 @@ Specs, PRDs and ticket breakdowns live **in Linear**, not in the repo tree. Noth
 under `docs/specs/` is committed.
 
 Treat that as the rule, not as something a tool will catch for you. `/ship` does
-carry a forbidden-paths check, but only on its Python-mode path — plugin-mode
-repos (this one included) dispatch straight to the release script and never reach
-it. So the tree staying clean depends on the artefacts never being written into
-it, which is why the rule is stated here rather than left to enforcement.
+carry a forbidden-paths check covering `docs/specs/`, and it now runs before mode
+dispatch so plugin-mode repos (this one included) get it too — but it is a
+backstop that fires at release time, long after the artefact was written and
+reviewed. The tree stays clean because the artefacts are never written into it,
+which is why the rule is stated here rather than left to enforcement.
 
 ## Ideas
 
