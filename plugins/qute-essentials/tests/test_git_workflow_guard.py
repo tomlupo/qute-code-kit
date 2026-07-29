@@ -271,6 +271,59 @@ def test_malformed_config_fails_open(tmp_path, home):
     assert decision == "allow"
 
 
+# Defect 38: a field of the wrong TYPE silently unguarded the repo. `123` was
+# truthy, so it became the "protected branch" and matched no branch name at
+# all — while the file's presence still said the repo was opted in.
+
+
+@pytest.mark.parametrize(
+    "value", ["123", "true", "[]", "{}", '""', '"   "', "0", "null"]
+)
+def test_a_non_string_protected_branch_falls_back_to_the_default(value, tmp_path, home):
+    """The file's presence says this repo WANTS guarding, so an unusable value
+    means the house default — not "nothing"."""
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _write_raw_cfg(repo, f'{{"protected_branch": {value}, "integration_branch": null}}')
+    decision, hso = _run("git commit -m x", repo, home)
+    assert decision == "deny", value
+    assert "main" in hso["permissionDecisionReason"], value
+
+
+@pytest.mark.parametrize("value", ["123", "true", "[]", '"  "'])
+def test_a_non_string_integration_branch_falls_back_to_detection(value, tmp_path, home):
+    """An unusable integration value is not an explicit `null`, so the normal
+    `origin/dev` detection applies rather than the field being trusted."""
+    repo = _make_repo(tmp_path / "r", "dev", None, origin_dev=True)
+    _write_raw_cfg(repo, f'{{"integration_branch": {value}}}')
+    decision, hso = _run("git commit -m x", repo, home)
+    assert decision == "deny", value
+    assert "dev" in hso["permissionDecisionReason"], value
+
+
+def test_an_explicit_null_integration_is_still_honoured(tmp_path, home):
+    """The control: `null` is a real answer and must not be swept up with the
+    unusable values."""
+    repo = _make_repo(tmp_path / "r", "dev", None, origin_dev=True)
+    _write_raw_cfg(repo, '{"integration_branch": null}')
+    decision, _ = _run("git commit -m x", repo, home)
+    assert decision == "allow"
+
+
+def test_a_non_string_release_tool_is_dropped_from_the_guidance(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _write_raw_cfg(repo, '{"integration_branch": null, "release_tool": 42}')
+    decision, hso = _run("git commit -m x", repo, home)
+    assert decision == "deny"
+    assert "42" not in hso["additionalContext"]
+
+
+def test_branch_names_are_stripped(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    _write_raw_cfg(repo, '{"protected_branch": "  main  ", "integration_branch": null}')
+    decision, _ = _run("git commit -m x", repo, home)
+    assert decision == "deny"
+
+
 def test_non_git_directory_allowed(tmp_path, home):
     plain = tmp_path / "plain"
     plain.mkdir()
@@ -3119,6 +3172,69 @@ def test_control_flow_cd_is_followed(tmp_path, home):
     )
     assert decision == "deny"
     assert "main" in hso["permissionDecisionReason"]
+
+
+# Defect 37, environment axis: an `if`/loop body may not run at all, so a `cd`
+# inside one is conditional in exactly the way defect 33 described — it adds a
+# candidate directory rather than replacing the current one.
+
+
+@pytest.mark.parametrize(
+    "chain",
+    [
+        "if false; then cd {other}; fi",
+        "if true; then cd {other}; fi",
+        "if false; then echo no; else cd {other}; fi",
+        "while read x; do cd {other}; done",
+        "for f in a; do cd {other}; done",
+        "until x; do cd {other}; done",
+    ],
+)
+def test_a_cd_inside_a_conditional_body_keeps_the_original_place(chain, tmp_path, home):
+    """The commit may well run in the ORIGINAL repo, which is guarded."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(chain.format(other=other) + "; git commit -m x", session, home)
+    assert decision == "deny", chain
+    assert "main" in hso["permissionDecisionReason"], chain
+
+
+def test_a_cd_inside_a_conditional_body_also_checks_the_new_place(tmp_path, home):
+    """Mirror: the body's destination is guarded, and that must deny too."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(f"if x; then cd {other}; fi; git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_conditional_cd_is_quiet_when_no_candidate_is_guarded(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"if x; then cd {other}; fi; git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_an_unconditional_cd_after_a_closed_block_still_replaces(tmp_path, home):
+    """`fi` closes the body, so a later `cd` is certain again and the original
+    directory stops being a candidate."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"if x; then echo hi; fi; cd {other}; git commit -m x", session, home
+    )
+    assert decision == "allow"
+
+
+def test_nested_conditionals_unwind_correctly(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"if a; then if b; then echo x; fi; fi; cd {other}; git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "allow", "both blocks closed, so the cd is certain again"
 
 
 def test_control_flow_terminators_are_not_commands(tmp_path, home):

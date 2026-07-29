@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36 are parsing; 10-13, 16-18, 22, 25, 26 and 33 are the environment axis, and
+34-36 and 38 are parsing; 10-13, 16-18, 22, 25, 26, 33 and 37 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32 and 36 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -245,7 +245,13 @@ the same footing — a guard that cries wolf gets turned off:
       behind the obvious fix. `gc() { git commit -m x; }` defines and writes
       nothing, but the body was read as a live command; simply skipping it
       would have lost `gc() { … }; gc`, which really does commit. The body is
-      parked at the definition and expanded at the CALL.
+      parked at the definition and expanded at the CALL;
+  37. a `cd` inside an `if`/loop BODY — defect 33 for control flow rather than
+      `&&`. `if false; then cd /feature; fi; git commit` commits in the
+      original repo, but the body was applied as if it always ran;
+  38. config field TYPES — `{"protected_branch": 123}` is truthy, so 123
+      became the guarded branch name, matched nothing, and silently unguarded
+      a repo that looked opted in.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -404,12 +410,26 @@ def _load_config(repo_root: Path):
     if not isinstance(raw, dict):
         return None
 
-    protected = raw.get("protected_branch") or DEFAULT_PROTECTED
+    def branch_name(value):
+        """A usable branch name, or None. A non-string is not one: a config
+        saying `"protected_branch": 123` compared 123 against every branch
+        name, matched nothing, and silently unguarded the repo while looking
+        opted in (defect 38)."""
+        return value.strip() if isinstance(value, str) and value.strip() else None
 
-    if "integration_branch" in raw:
+    # A bad value falls back to the house default rather than disabling the
+    # guard: the file's presence says this repo WANTS guarding, so the safe
+    # reading of a malformed field is "the default", not "nothing".
+    protected = branch_name(raw.get("protected_branch")) or DEFAULT_PROTECTED
+
+    if "integration_branch" in raw and (
+        raw["integration_branch"] is None
+        or branch_name(raw["integration_branch"]) is not None
+    ):
         # An explicit null means "this repo genuinely has no integration
-        # branch" — the default must not resurrect one.
-        integration = raw["integration_branch"] or None
+        # branch" — the default must not resurrect one. Any other unusable
+        # value falls through to the default detection below.
+        integration = branch_name(raw["integration_branch"])
     else:
         integration = (
             DEFAULT_INTEGRATION
@@ -419,10 +439,11 @@ def _load_config(repo_root: Path):
     if integration == protected:
         integration = None
 
+    release_tool = raw.get("release_tool")
     return {
         "protected": protected,
         "integration": integration,
-        "release_tool": raw.get("release_tool"),
+        "release_tool": release_tool if isinstance(release_tool, str) else None,
     }
 
 
@@ -791,6 +812,13 @@ _LEADING_SHELL_WORDS = frozenset(
     }
 )
 _TRAILING_SHELL_WORDS = frozenset({"}"})
+
+# Reserved words that OPEN a body which may not run — an `if` branch, a loop
+# body. A `cd` inside one is conditional, so it adds a candidate directory
+# rather than replacing the current one.
+_CONDITIONAL_BODY_WORDS = frozenset({"then", "else", "elif", "do"})
+# …and the words that close one again.
+_CONDITIONAL_END_WORDS = frozenset({"fi", "done", "esac"})
 
 
 # A command substitution, with one level of nested parens tolerated.
@@ -1846,6 +1874,8 @@ def main():
     run_next = True
     run_uncertain = False
     skip_depth = 0
+    # How deep we are inside `if`/loop/`case` bodies, which may not run.
+    conditional_depth = 0
 
     # Shell functions: name -> body. Defining one runs nothing, so the body is
     # parked here and spliced into the event stream at the CALL instead.
@@ -1913,11 +1943,22 @@ def main():
         # Redirections can sit anywhere, including before the command word.
         tokens = _strip_redirections(tokens)
         # Peel shell reserved words standing in front of the command, so
-        # `then git commit` is read as the `git commit` it is.
+        # `then git commit` is read as the `git commit` it is — and note when
+        # one of them opens a body that may not run at all. `if false; then cd
+        # /feature; fi; git commit` commits in the ORIGINAL repo, so a `cd` in
+        # there ADDS a possibility rather than replacing the current one, the
+        # same way a `cd` after an unevaluated `&&` does (defect 37).
         while tokens and tokens[0] in _LEADING_SHELL_WORDS:
+            if tokens[0] in _CONDITIONAL_BODY_WORDS:
+                conditional_depth += 1
             tokens = tokens[1:]
         while tokens and tokens[-1] in _TRAILING_SHELL_WORDS:
             tokens = tokens[:-1]
+        if tokens and tokens[0] == "case":
+            conditional_depth += 1  # its arms are conditional too
+        if tokens and tokens[0] in _CONDITIONAL_END_WORDS:
+            conditional_depth = max(0, conditional_depth - 1)
+            continue
 
         # CALLING a function runs its body — so splice the body's events in
         # here, which is the half that keeps `gc() { git commit; }; gc` caught
@@ -1957,8 +1998,11 @@ def main():
                     )
                     moved.append((new_dir, new_unknown))
                     statuses.add(ok)
-            # A `cd` bash only MIGHT have run leaves the shell in either place.
-            candidates = (list(states) + moved) if run_uncertain else moved
+            # A `cd` bash only MIGHT have run leaves the shell in either
+            # place — whether the doubt comes from an unevaluated `&&`/`||`
+            # condition or from sitting inside an `if`/loop body.
+            uncertain = run_uncertain or conditional_depth > 0
+            candidates = (list(states) + moved) if uncertain else moved
             deduped = list(dict.fromkeys(candidates))
             if len(deduped) > max_states:
                 # Too many branches to enumerate — collapse to "unknown", which
@@ -1967,7 +2011,7 @@ def main():
             states = deduped
             # One agreed status, or none at all.
             last_status = statuses.pop() if len(statuses) == 1 else None
-            if run_uncertain:
+            if uncertain:
                 last_status = None
             # $OLDPWD only moves when the `cd` actually succeeded.
             if states[0] != was:
