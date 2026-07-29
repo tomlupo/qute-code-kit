@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48 and 51-53 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50 and 54-57 are the environment axis, and
+34-36, 38-41, 45-48, 51-53 and 58 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50 and 54-57 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -316,7 +316,12 @@ the same footing — a guard that cries wolf gets turned off:
       one. The probes now run with git's repo-selection variables stripped;
   57. `env -- git …` — `--` ends env's options, but it was read as an unknown
       long option, so the invocation became unresolvable and even read-only
-      git was denied.
+      git was denied;
+  58. the OTHER negated push booleans — defect 51 fixed only `--dry-run`, so
+      `git push --tags --no-tags origin` still looked tags-only, suppressed
+      the current-branch fallback, and let a push of the guarded branch
+      through. `--no-all`, `--no-branches`, `--no-mirror` and
+      `--no-follow-tags` were equally ignored.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1619,6 +1624,21 @@ _MIRROR_OPT = "--mirror"
 _TAGS_OPT = "--tags"
 _FOLLOW_TAGS_OPT = "--follow-tags"
 
+# Git generates a `--no-` form for every one of these booleans and the LAST
+# flag wins — verified, all six are accepted, and `git push --tags --no-tags`
+# reports "The current branch … has no upstream branch", i.e. an ordinary
+# refspec-less BRANCH push. Ignoring the negations left `--tags --no-tags`
+# looking tags-only, which suppressed the current-branch fallback and let a
+# push of the guarded branch through (defect 58). Same shape as defect 51,
+# which fixed only `--dry-run`.
+_PUSH_BOOLEAN_NEGATIONS = {
+    "--no-tags": "all_tags",
+    "--no-follow-tags": "follow_tags",
+    "--no-all": "push_all",
+    "--no-branches": "push_all",
+    "--no-mirror": "push_mirror",
+}
+
 # `git push <remote> tag <name>` is shorthand for `refs/tags/<name>` — the word
 # after `tag` is a TAG, never a branch destination. Reading it as one blocked
 # `git push origin tag main` in a repo that has a tag called `main`.
@@ -1731,6 +1751,17 @@ def _push_targets(args, current_branch):
                 # `git push -n --no-dry-run rem HEAD:probe` really creates the
                 # remote branch — verified (defect 51).
                 dry_run = False
+            elif a in _PUSH_BOOLEAN_NEGATIONS:
+                # …and the same holds for every other boolean here.
+                flag = _PUSH_BOOLEAN_NEGATIONS[a]
+                if flag == "all_tags":
+                    all_tags = False
+                elif flag == "follow_tags":
+                    follow_tags = False
+                elif flag == "push_all":
+                    push_all = False
+                else:
+                    push_mirror = False
             elif len(a) > 1 and a[1] != "-":
                 # Short options CLUSTER, so `git push -vn origin main` is a
                 # dry run and writes nothing — denying it was an over-block

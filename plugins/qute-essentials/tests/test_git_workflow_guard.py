@@ -1161,6 +1161,41 @@ def test_a_negated_dry_run_is_a_real_commit(cmd, tmp_path, home):
     assert "main" in hso["permissionDecisionReason"], cmd
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push --tags --no-tags origin",
+        "git push --all --no-all origin",
+        "git push --branches --no-branches origin",
+        "git push --mirror --no-mirror origin",
+        "git push --follow-tags --no-follow-tags origin",
+    ],
+)
+@pytest.mark.parametrize("branch", ["main", "dev"])
+def test_a_negated_push_boolean_is_an_ordinary_branch_push(cmd, branch, tmp_path, home):
+    """Defect 58, the same shape as 51 for the other booleans. Git generates a
+    `--no-` form for each and the last wins — verified, `git push --tags
+    --no-tags` reports "The current branch … has no upstream branch", i.e. an
+    ordinary refspec-less BRANCH push. Ignoring the negation left `--tags
+    --no-tags` looking tags-only, which suppressed the current-branch
+    fallback."""
+    repo = _make_repo(tmp_path / branch.replace("/", "_"), branch, STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "deny", f"{cmd} on {branch}"
+
+
+def test_a_push_boolean_after_its_negation_still_applies(tmp_path, home):
+    """Last flag wins both ways: `--no-tags --tags` really is tags-only, and
+    `--no-all --all` really does push every branch."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("git push --no-tags --tags origin", repo, home)
+    assert decision == "allow"
+
+    decision, hso = _run("git push --no-all --all origin", repo, home)
+    assert decision == "deny"
+    assert "every local branch" in hso["permissionDecisionReason"]
+
+
 def test_a_dry_run_after_a_negation_is_still_a_dry_run(tmp_path, home):
     """Last flag wins cuts both ways."""
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
