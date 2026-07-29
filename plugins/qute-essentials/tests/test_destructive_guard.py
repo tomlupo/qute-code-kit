@@ -1065,10 +1065,46 @@ class TestWhereADataOnlyStagesOutputEndsUp:
             'echo "$(rm -rf /srv/data)"',
             "echo `rm -rf /srv/data`",
             "grep x <(rm -rf /srv/data)",
+            # Double quotes do NOT stop a substitution.
+            'echo "prefix $(rm -rf /srv/data) suffix"',
+            'echo "prefix `rm -rf /srv/data` suffix"',
         ],
     )
     def test_a_substitution_inside_the_data_only_stage_is_not_data(self, command):
         assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # Review finding on #91 round 11: the plainness test was a raw
+            # substring check, so a pipe inside quotes — the commonest thing
+            # this exemption exists for — stopped the stage being data.
+            "echo 'rm -rf /srv/data | note'",
+            'echo "rm -rf /srv/data | note"',
+            "grep 'rm -rf /srv/data|note' file",
+            "echo 'rm -rf /srv/data' > /tmp/f",
+            "echo 'rm -rf /srv/data | note' > /tmp/f",
+            # Single quotes and a backslash DO stop a substitution.
+            "echo 'rm -rf /srv/data $(x)'",
+            "echo 'rm -rf /srv/data `x`'",
+            "grep 'rm -rf /srv/data <(x)' file",
+            "echo rm\\ -rf\\ /srv/data\\|note",
+        ],
+    )
+    def test_an_operator_the_shell_will_not_act_on_is_still_data(self, command):
+        assert_allowed(command)
+
+    def test_the_quote_aware_test_does_not_lose_a_real_operator(self):
+        """A backslash inside SINGLE quotes is a literal, so the quote closes
+        at the next `'` and what follows is unquoted. Reading it as an escape
+        would swallow that quote and leave the scanner believing the rest of
+        the stage is quoted — so the substitution here would look inert.
+
+        The substitution rather than a pipe, deliberately: a pipe is caught by
+        route 2 whatever the plainness test believes, so a test using one
+        would pass with this logic broken."""
+        assert_denied("echo 'a\\' $(rm -rf /srv/data)", RM_ROOT)
+        assert_denied("echo 'rm -rf /srv/data\\' | bash", RM_ROOT)
 
     def test_a_consumer_that_cannot_execute_does_not_void_it(self):
         # tee writes a file; nothing in this call runs it. Same shape, and the

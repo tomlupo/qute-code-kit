@@ -888,6 +888,66 @@ def _segment_can_run_a_program(command: str, seg_range, bodies: dict) -> bool:
     # check gates the WHOLE call here, not just the segment owning the data.
     if not _segment_is_plain(segment):
         return True
+    return _program_can_execute(command, seg_range, bodies)
+
+
+def _stage_is_plain(stage: str) -> bool:
+    """Nothing the SHELL will turn into a command — quote-aware, unlike
+    `_segment_is_plain`.
+
+    That raw substring test is right for its own callers: it gates the heredoc
+    and python exemptions, where erring toward scanning is the whole design.
+    Reused for a data-only stage it costs a false positive on the commonest
+    thing this exemption exists for — a quoted pattern containing a pipe:
+    `echo 'rm -rf /srv/data | note'`, `grep 'a|b' file` (review on #91,
+    round 11).
+
+    The operators do not all behave the same inside quotes, which is why this
+    is a scan rather than a substring test:
+
+      * `|`, `<(`, `>(` are inert inside quotes of either kind;
+      * `$(` and a backtick still expand inside DOUBLE quotes, and are inert
+        only inside single quotes or behind a backslash;
+      * inside SINGLE quotes a backslash is a literal character and escapes
+        nothing — reading it as an escape would swallow the closing quote and
+        hide a real pipe after it.
+    """
+    i, n, quote = 0, len(stage), None
+    while i < n:
+        c = stage[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+            i += 1
+            continue
+        if c == "\\":
+            i += 2
+            continue
+        if quote == '"':
+            if c == '"':
+                quote = None
+            elif c == "`" or stage[i : i + 2] == "$(":
+                return False  # double quotes do not stop a substitution
+            i += 1
+            continue
+        if c in "'\"":
+            quote = c
+            i += 1
+            continue
+        if c in "|`" or stage[i : i + 2] in ("$(", "<(", ">("):
+            return False
+        i += 1
+    return True
+
+
+def _program_can_execute(command: str, seg_range, bodies: dict) -> bool:
+    """Whether the segment's PROGRAM could run something, plainness aside.
+
+    Split out so that the data-only path can pair the same program judgement
+    with a quote-aware plainness test (`_stage_is_plain`) without loosening
+    the raw one this function's other caller depends on.
+    """
+    segment = command[seg_range[0] : seg_range[1]]
     program, args = _split_command(segment)
     if not program:
         return False
@@ -1422,14 +1482,19 @@ def _stage_writes_stdin_to_a_file(stage: str) -> bool:
 def _stage_can_execute(command: str, stage_range, bodies: dict) -> bool:
     """Whether one pipeline stage could run a program or a file.
 
-    TOM-379's `_segment_can_run_a_program` unchanged — no widening for text
-    tools, because `rg --pre=…`, `man -P …` and `ack --pager=…` really do run
-    a named file. A comment is the one thing it cannot be asked about: its `#`
-    is not a program name, it is the absence of one.
+    TOM-379's program judgement unchanged — no widening for text tools,
+    because `rg --pre=…`, `man -P …` and `ack --pager=…` really do run a named
+    file. Two differences from `_segment_can_run_a_program`, both about what
+    the SHELL does rather than what the program does: plainness is judged
+    quote-aware, so a quoted pipe is not an executor; and a comment, whose `#`
+    is not a program name but the absence of one, runs nothing.
     """
-    if command[stage_range[0] : stage_range[1]].strip().startswith("#"):
+    stage = command[stage_range[0] : stage_range[1]]
+    if not _stage_is_plain(stage):
+        return True
+    if stage.strip().startswith("#"):
         return False
-    return _segment_can_run_a_program(command, stage_range, bodies)
+    return _program_can_execute(command, stage_range, bodies)
 
 
 def _call_can_execute(command: str, segments, bodies: dict) -> bool:
@@ -1447,7 +1512,7 @@ def _blank_data_only_stages(command: str, chars: list, segments, bodies: dict) -
         stages = _pipeline_stages(command, seg)
         for index, (start, end) in enumerate(stages):
             stage = command[start:end]
-            if not _segment_is_plain(stage):
+            if not _stage_is_plain(stage):
                 continue  # route 1: the shell runs part of this stage itself
             if not _stage_is_data_only(stage):
                 continue
@@ -1504,7 +1569,7 @@ def is_safe_context(command: str) -> bool:
         if _call_can_execute(command, segments, bodies):
             return False
         return all(
-            _segment_is_plain(stage)
+            _stage_is_plain(stage)
             and _stage_is_data_only(stage)
             and not _stage_writes_a_file(stage)
             for stage in stages
