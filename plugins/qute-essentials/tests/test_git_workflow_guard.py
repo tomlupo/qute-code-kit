@@ -3302,6 +3302,35 @@ def test_a_closed_block_leaves_no_conditional_residue(block, tmp_path, home):
     assert decision == "allow", block
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        "if cd {other}; then :; fi",
+        "while cd {other}; do break; done",
+        "until cd {other}; do break; done",
+        "if cd {other}; then :; else :; fi",
+    ],
+)
+def test_a_cd_in_a_condition_definitely_ran(block, tmp_path, home):
+    """Defect 43. A condition runs unconditionally — verified, `if cd ../other;
+    then :; fi; pwd` prints `../other`. Treating the whole construct as
+    conditional kept the original guarded repo live and blocked the commit
+    that follows."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(block.format(other=other) + "; git commit -m x", session, home)
+    assert decision == "allow", block
+
+
+def test_a_condition_cd_into_a_guarded_repo_is_still_caught(tmp_path, home):
+    """The mirror: definitely-ran cuts both ways."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(f"if cd {other}; then :; fi; git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
 def test_conditional_bodies_are_still_conditional_after_the_fix(tmp_path, home):
     """The control the balance must not cost: a `cd` INSIDE the block, in
     every branch, still leaves the original repo a live candidate."""

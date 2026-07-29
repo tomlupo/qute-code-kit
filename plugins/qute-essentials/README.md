@@ -117,7 +117,7 @@ Each git command in a chain is scoped to the repo it actually targets — `cd <o
 - a `cd` **inside `( … )`** — it dies with the subshell, so a command after the `)` is back in the original repo. Brace groups (`{ …; }`) run in the current shell and their `cd` does persist.
 - a `cd` in a **pipeline element** or before a **`&`** — bash runs those in their own process, so the `cd` dies with it. `;`, `&&` and `||` keep the shell in one process and do propagate.
 - a `cd` behind an assignment or a `command`/`builtin` wrapper **does** move the shell and is followed; `env cd` and `exec cd` look up a nonexistent external `cd`, fail, and are not.
-- a `cd` inside an `if`/loop body, which may not run at all — same treatment as below
+- a `cd` inside an `if`/loop **body**, which may not run at all — same treatment as below. A `cd` in the **condition** (`if cd x; then …`) runs unconditionally and is followed normally
 - a `cd` bash only **might** have run — when the condition is one the guard can't evaluate (`test -d x && cd other`), *both* possible directories are checked and the guarded one denies. Checking each candidate rather than failing closed keeps the common `git add -A && cd subdir && git commit` (both candidates in the same repo) quiet.
 - a `cd` bash **skips**. A `cd` is the one command whose exit status the guard can compute, so `&&`/`||` short-circuiting is modelled: `cd /missing && cd other` never applies the second `cd`, and `cd other || git commit` never reaches the commit. An unknown status (any non-`cd` command) leaves both branches live.
 
@@ -165,7 +165,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21, 23, 24, 27–32, 34–36 and 38–41 are parsing; 10–13, 16–18, 22, 25, 26, 33, 37 and 42 are the environment axis, and are why that axis is written down at all. Most let something *through*; 24, 27, 29–32, 36 and 42 **blocked** something they shouldn't have, which is a defect on the same footing — a guard that cries wolf gets turned off:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21, 23, 24, 27–32, 34–36 and 38–41 are parsing; 10–13, 16–18, 22, 25, 26, 33, 37, 42 and 43 are the environment axis, and are why that axis is written down at all. Most let something *through*; 24, 27, 29–32, 36, 42 and 43 **blocked** something they shouldn't have, which is a defect on the same footing — a guard that cries wolf gets turned off:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -211,6 +211,7 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 40 | parsing | function call arguments | `g() { git "$@"; }` is an ordinary wrapper, and expanding the body without the call's arguments left a subcommand of `$@` that matched nothing |
 | 41 | parsing | a variable subcommand | `git $VERB -m x` was allowed outright — the verb is as unresolvable as a refspec we can't expand, and now fails closed the same way |
 | 42 | environment | conditional-depth leak | defect 37's own bookkeeping — counting `then`/`else`/`elif`/`do` incremented once per *branch* but decremented once per `fi`, so after an `if … else … fi` a later certain `cd` still kept the old repo alive as a candidate |
+| 43 | environment | a `cd` in a condition | counting the construct instead over-denied the *condition* — `if cd ../other; then :; fi` really moves the shell, because a condition runs unconditionally |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 

@@ -127,9 +127,9 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42 are the environment axis, and
+34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42 and 43 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27, 29-32, 36 and 42 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -264,7 +264,11 @@ the same footing — a guard that cries wolf gets turned off:
       `then`/`else`/`elif`/`do` incremented once per BRANCH but decremented
       once per `fi`, so after an `if … else … fi` the guard still believed it
       was inside a conditional and a later CERTAIN `cd` kept the old repo
-      alive as a candidate, denying on it.
+      alive as a candidate, denying on it;
+  43. …and counting the CONSTRUCT instead over-denied the CONDITION. `if cd
+      ../other; then :; fi` really moves the shell, because a condition runs
+      unconditionally. The two are now separated: a construct's condition is
+      certain, its body is not.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -852,21 +856,29 @@ _LEADING_SHELL_WORDS = frozenset(
 )
 _TRAILING_SHELL_WORDS = frozenset({"}"})
 
-# Words that OPEN a construct whose body may not run, and the words that close
-# it again. A `cd` anywhere inside one is conditional, so it adds a candidate
-# directory rather than replacing the current one.
+# A `cd` in a body that may not run is conditional, so it adds a candidate
+# directory rather than replacing the current one. Tracked as a STACK of
+# constructs, each flagged "are we in its body yet" — because the two things a
+# plain counter conflated are both real:
 #
-# Counting the CONSTRUCT, not the body word, is what makes this balance.
-# Counting `then`/`else`/`elif`/`do` did not: `if x; then …; else …; fi`
-# incremented twice and decremented once, so the guard believed it was still
-# inside a conditional for the rest of the command, and a later CERTAIN `cd`
-# kept the old repo alive as a candidate and could deny on it. `elif` chains
-# leaked once per branch (defect 42).
+#   COUNTING BRANCH WORDS leaks. `then`/`else`/`elif`/`do` incremented once per
+#   BRANCH while `fi` decremented once per CONSTRUCT, so `if x; then …; else …;
+#   fi` never unwound, and a later CERTAIN `cd` kept the old repo alive as a
+#   candidate and denied on it (defect 42).
 #
-# `if`/`while`/`until` are peeled as leading words, so they are counted there;
-# `for`/`case` are not, so they are counted from the first token.
+#   COUNTING THE CONSTRUCT over-denies the CONDITION. `if cd ../other; then :;
+#   fi` really does move the shell — verified — because a condition runs
+#   unconditionally; treating it as "maybe" kept the original repo live and
+#   blocked the commit after it (defect 43).
+#
+# So: opening a construct pushes "not in the body yet", a body word flips the
+# top entry, the closing word pops, and uncertainty is "are we inside ANY
+# construct's body".
 _CONSTRUCT_OPEN_WORDS = frozenset({"if", "while", "until"})
-_CONSTRUCT_OPEN_HEADS = frozenset({"for", "case"})
+_BODY_OPEN_WORDS = frozenset({"then", "do", "else", "elif"})
+# `for f in a` is a header, so its body waits for `do`; a `case` has no body
+# word at all and its arms are conditional from the start.
+_CONSTRUCT_OPEN_HEADS = {"for": False, "case": True}
 _CONDITIONAL_END_WORDS = frozenset({"fi", "done", "esac"})
 
 
@@ -1923,8 +1935,9 @@ def main():
     run_next = True
     run_uncertain = False
     skip_depth = 0
-    # How deep we are inside `if`/loop/`case` bodies, which may not run.
-    conditional_depth = 0
+    # One entry per open `if`/loop/`case`; True once we are inside its BODY,
+    # which is the part that may not run. See `_CONSTRUCT_OPEN_WORDS`.
+    construct_stack: list = []
 
     # Shell functions: name -> body. Defining one runs nothing, so the body is
     # parked here and spliced into the event stream at the CALL instead.
@@ -1999,14 +2012,17 @@ def main():
         # same way a `cd` after an unevaluated `&&` does (defect 37).
         while tokens and tokens[0] in _LEADING_SHELL_WORDS:
             if tokens[0] in _CONSTRUCT_OPEN_WORDS:
-                conditional_depth += 1
+                construct_stack.append(False)  # in its CONDITION, which runs
+            elif tokens[0] in _BODY_OPEN_WORDS and construct_stack:
+                construct_stack[-1] = True  # now in a body, which may not
             tokens = tokens[1:]
         while tokens and tokens[-1] in _TRAILING_SHELL_WORDS:
             tokens = tokens[:-1]
         if tokens and tokens[0] in _CONSTRUCT_OPEN_HEADS:
-            conditional_depth += 1  # a loop body, or a `case` arm
+            construct_stack.append(_CONSTRUCT_OPEN_HEADS[tokens[0]])
         if tokens and tokens[0] in _CONDITIONAL_END_WORDS:
-            conditional_depth = max(0, conditional_depth - 1)
+            if construct_stack:
+                construct_stack.pop()
             continue
 
         # CALLING a function runs its body — so splice the body's events in
@@ -2062,7 +2078,7 @@ def main():
             # A `cd` bash only MIGHT have run leaves the shell in either
             # place — whether the doubt comes from an unevaluated `&&`/`||`
             # condition or from sitting inside an `if`/loop body.
-            uncertain = run_uncertain or conditional_depth > 0
+            uncertain = run_uncertain or any(construct_stack)
             candidates = (list(states) + moved) if uncertain else moved
             deduped = list(dict.fromkeys(candidates))
             if len(deduped) > max_states:
