@@ -3341,6 +3341,50 @@ def test_an_unexpanded_git_dir_fails_closed(tmp_path, home):
     assert "cannot determine which repo" in hso["permissionDecisionReason"]
 
 
+# Defect 65: git exits on a `-C` it cannot enter — "fatal: cannot change to
+# '/missing'" — so NOTHING runs, whatever a later `--git-dir` says. Following
+# that `--git-dir` anyway denied a command that writes nothing.
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        "git -C /does/not/exist --git-dir={g}",
+        "env -C /does/not/exist git --git-dir={g}",
+        "git -C {ok} -C /does/not/exist --git-dir={g}",
+        "git -C /does/not/exist",
+    ],
+)
+def test_a_failed_dash_c_means_git_never_runs(form, tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    cmd = form.format(g=f"{other}/.git", ok=str(other)) + " commit -m x"
+    decision, _ = _run(cmd, session, home)
+    assert decision == "allow", form
+
+
+def test_a_dash_c_that_exists_is_unaffected(tmp_path, home):
+    """The control: only a `-C` git cannot enter stops the command."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    for cmd in (
+        f"git -C {other} commit -m x",
+        f"git --git-dir={other}/.git commit -m x",
+        f"git -C {other.parent} -C {other.name} commit -m x",
+    ):
+        decision, _ = _run(cmd, session, home)
+        assert decision == "deny", cmd
+
+
+def test_an_unexpanded_dash_c_is_unknown_not_failed(tmp_path, home):
+    """We cannot check a path we never expanded, so it stays unknown and keeps
+    failing closed rather than being read as a `-C` that git refuses."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    decision, hso = _run('git -C "$D" commit -m x', session, home)
+    assert decision == "deny"
+    assert "cannot determine which repo" in hso["permissionDecisionReason"]
+
+
 def test_dash_c_alone_selects_the_repo(tmp_path, home):
     session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
     other = _make_repo(tmp_path / "other", "main", STD_CFG)

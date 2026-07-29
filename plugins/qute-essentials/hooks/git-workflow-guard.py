@@ -127,9 +127,9 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58, 59, 61-63 and 64 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58, 59, 61-63 and 64 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57, 60 and 65 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27, 29-32, 36, 42, 43, 61 and 63 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32, 36, 42, 43, 61, 63 and 65 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -342,7 +342,10 @@ the same footing — a guard that cries wolf gets turned off:
   64. the SAME config file, read two ways — `pre-push` normalises
       `refs/heads/main` to `main`, this guard read it literally, matched no
       branch, and left the repo silently unguarded here while looking opted
-      in. Found by merging TOM-348, not by review.
+      in. Found by merging TOM-348, not by review;
+  65. a FAILED `-C` — git exits on a directory it cannot enter, so nothing
+      runs, but a later `--git-dir` was followed anyway and the command was
+      denied.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER, and it EXISTS — TOM-348 merged, and
 it ships as `templates/hooks/pre-push-branch-guard` with an installer that
@@ -1612,7 +1615,8 @@ def _resolve_cd(base: Path, base_unknown: bool, operand: str):
 
 def _resolve_git_target_dir(base: Path, base_unknown: bool, opts: dict):
     """The directory to evaluate this git command against — i.e. one that
-    belongs to the repo git will actually act on — as `(dir, unknown)`.
+    belongs to the repo git will actually act on — as `(dir, unknown, fails)`,
+    where `fails` means git exits before doing anything.
 
     The two options compose, in git's documented order — `-C` FIRST, whatever
     order they appear in on the command line:
@@ -1645,15 +1649,24 @@ def _resolve_git_target_dir(base: Path, base_unknown: bool, opts: dict):
     CLEARED by any later absolute literal operand, which genuinely re-anchors
     the target no matter where the shell is.
     """
-    d, unknown = base, base_unknown
+    d, unknown, fails = base, base_unknown, False
     for p in opts.get("C") or []:
         pp = _literal_path(p)
         if pp is None:
             unknown = True
-        elif pp.is_absolute():
+            continue
+        target = pp if pp.is_absolute() else (d / pp)
+        if not unknown and not target.is_dir():
+            # git exits on a `-C` it cannot enter — "fatal: cannot change to
+            # '/missing'" — so NOTHING runs, whatever a later `--git-dir` says.
+            # Following that `--git-dir` anyway denied a command that writes
+            # nothing (defect 65). Only a LITERAL path can be checked; an
+            # unexpanded one stays unknown and keeps failing closed.
+            fails = True
+        if pp.is_absolute():
             d, unknown = pp, False
         elif not unknown:
-            d = d / pp
+            d = target
     git_dir = opts.get("git_dir")
     if git_dir:
         ap = _literal_path(git_dir)
@@ -1668,7 +1681,7 @@ def _resolve_git_target_dir(base: Path, base_unknown: bool, opts: dict):
             elif not unknown:
                 # Relative git dirs resolve against the post-`-C` directory.
                 d = d / ap
-    return d, unknown
+    return d, unknown, fails
 
 
 # `git push` options that consume the FOLLOWING token as their value. Without
@@ -2645,7 +2658,11 @@ def _check_git_command(base_dir, base_unknown, sub, args, opts, _cfg_for, cfgmap
     directory, denying (and exiting) if it would write to a guarded branch."""
     # Resolve the repo this specific git command targets, then load THAT
     # repo's guard config and current branch.
-    target_dir, target_unknown = _resolve_git_target_dir(base_dir, base_unknown, opts)
+    target_dir, target_unknown, target_fails = _resolve_git_target_dir(
+        base_dir, base_unknown, opts
+    )
+    if target_fails:
+        return  # git never starts, so it writes nothing
 
     if target_unknown:
         # Either a preceding `cd`, or one of this command's own path
