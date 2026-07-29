@@ -58,6 +58,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -233,6 +235,35 @@ def desired_config(
 # ------------------------------------------------------------------ core
 
 
+def _config_file_kind(cfg_path: Path):
+    """What is sitting at the config path: None (absent), "regular", or a phrase.
+
+    `lstat`, not `is_file()`, and deliberately the same test `pre-push` makes:
+    `is_file()` follows symlinks and answers False for a BROKEN one, so a repo
+    carrying a tracked `.claude/git-guard.json` symlink reads as opted in to
+    anyone looking at `git ls-files`, is refused by `pre-push` on every push, and
+    would have been waved through here as either "absent" (stamp over it) or
+    "already present" (report the repo migrated). Both answers are wrong.
+    """
+    try:
+        st = os.lstat(cfg_path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return f"unreadable ({exc})"
+    if stat.S_ISREG(st.st_mode):
+        return "regular"
+    if stat.S_ISLNK(st.st_mode):
+        try:
+            target = os.readlink(cfg_path)
+        except OSError:
+            target = "?"
+        return f"a symlink (-> {target})"
+    if stat.S_ISDIR(st.st_mode):
+        return "a directory"
+    return "not a regular file"
+
+
 def _inside(repo: Path, path: Path) -> bool:
     """Whether `path` still resolves inside `repo`.
 
@@ -320,10 +351,27 @@ def migrate(
 
     # ---- config stamp
     cfg_path = repo / CONFIG
-    if not _inside(repo, cfg_path):
-        # The one write that CREATES a path rather than editing one that exists,
-        # and therefore the one that needs the containment check most: with
-        # `.claude` symlinked out of the tree, `mkdir(parents=True)` +
+    # Order matters. `_config_file_kind` uses `lstat` and follows nothing, so it
+    # is the specific diagnosis; containment (which RESOLVES, and so follows a
+    # symlink to wherever it goes) would otherwise answer "outside the repo" for
+    # a config symlink and hide the real problem behind a vaguer one.
+    cfg_kind = _config_file_kind(cfg_path)
+    if cfg_kind not in (None, "regular"):
+        # Present but not a regular file. `pre-push` reads this path with
+        # `lstat` and raises `ConfigError` on exactly this case — it refuses the
+        # push rather than quietly guarding nothing — so a migrator that used
+        # `is_file()` (which FOLLOWS symlinks, and answers False for a broken
+        # one) would report a repo migrated while every push in it fails. The
+        # two layers read one file; they have to agree on what "present" means.
+        problems.append(
+            f"{CONFIG} is {cfg_kind}, not a regular file — `pre-push` refuses every push in this "
+            "state. Replace it with a real file (or delete it to opt the repo out) and re-run; "
+            "not overwriting it here, because whatever it points at was somebody's decision"
+        )
+    elif not _inside(repo, cfg_path):
+        # The stamp is the one write that CREATES a path rather than editing one
+        # that exists, and therefore the one that needs the containment check
+        # most: with `.claude` symlinked out of the tree, `mkdir(parents=True)` +
         # `write_text` would follow it and stamp a config into some other repo,
         # which then looks opted in to a guard nobody armed there. Checked
         # against the RESOLVED path, so it holds whether the symlink is
@@ -331,7 +379,7 @@ def migrate(
         problems.append(
             f"{CONFIG} resolves outside {repo} (a symlinked .claude?); refusing to stamp it"
         )
-    elif cfg_path.is_file():
+    elif cfg_kind == "regular":
         result["config_existing"] = cfg_path.read_text(encoding="utf-8")
         notes.append(f"{CONFIG} already present — left as the repo wrote it")
     elif stamp:

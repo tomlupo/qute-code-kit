@@ -20,6 +20,7 @@ a report — a report is what the code chose to say about itself.
 
 from __future__ import annotations
 
+import importlib.machinery
 import importlib.util
 import json
 import subprocess
@@ -309,6 +310,46 @@ def test_existing_config_is_never_rewritten(tmp_path):
     cfg.write_text(body)
     assert run_script(repo).returncode == 0
     assert cfg.read_text() == body
+
+
+@pytest.mark.parametrize("kind", ["symlink", "broken-symlink", "directory"])
+def test_non_regular_config_is_a_problem_and_pre_push_agrees(tmp_path, kind):
+    """ "Present" must mean the same thing here and at the enforcement layer.
+
+    `pre-push` reads this path with `lstat` and raises `ConfigError` on anything
+    that is not a regular file — it refuses every push rather than quietly
+    guarding nothing. `is_file()` here would have followed the symlink (and
+    answered False for a broken one), so the migrator would report the repo
+    migrated, or stamp over it, while every push in that repo fails.
+    """
+    repo = make_repo(tmp_path, f"nonregular-{kind}")
+    cfg = repo / ".claude" / "git-guard.json"
+    if kind == "symlink":
+        (repo / "real.json").write_text("{}\n")
+        cfg.symlink_to(repo / "real.json")
+    elif kind == "broken-symlink":
+        cfg.symlink_to(tmp_path / "does-not-exist")
+    else:
+        cfg.mkdir()
+
+    out = run_script(repo)
+    assert out.returncode == 1
+    assert "not a regular file" in out.stdout
+    # Nothing was overwritten: the path is still what it was.
+    assert cfg.is_symlink() if "symlink" in kind else cfg.is_dir()
+
+    # And `pre-push` — the layer that actually refuses the push — says the same.
+    pre_push = ROOT / "templates" / "hooks" / "pre-push-branch-guard"
+    pspec = importlib.util.spec_from_loader(
+        "qute_pre_push_for_migrate",
+        importlib.machinery.SourceFileLoader(
+            "qute_pre_push_for_migrate", str(pre_push)
+        ),
+    )
+    pmod = importlib.util.module_from_spec(pspec)
+    pspec.loader.exec_module(pmod)
+    with pytest.raises(pmod.ConfigError):
+        pmod.load_config(repo)
 
 
 def test_no_stamp_with_no_config_says_the_repo_is_not_opted_in(tmp_path):
