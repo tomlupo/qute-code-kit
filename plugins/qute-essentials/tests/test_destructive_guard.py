@@ -666,8 +666,16 @@ class TestEveryOtherPrefixThatUsedToExemptTheWholeCommand:
 
     def test_a_help_flag_that_is_not_the_first_argument(self):
         # The old rule was `^\w+\s+--help` — `--help` as the FIRST argument.
-        # Kept exactly that narrow: widening it is how `--dry-run` went wrong.
+        # Not widened: widening it is how `--dry-run` went wrong.
         assert_denied("rm -rf /srv/data --help", RM_ROOT)
+
+    def test_help_must_be_the_only_argument(self):
+        # NARROWER than the old rule, which asked only that `--help` came
+        # first. Nothing may ride along behind it, because what rides along
+        # can be a command: git prints help either way, but the exemption
+        # would have blanked the alias out of the scan.
+        assert_denied("git --help -c alias.x='!rm -rf /srv/data' x", RM_ROOT)
+        assert_allowed("git --help")
 
     def test_a_dry_run_later_in_the_pipeline_says_nothing_about_what_precedes(
         self,
@@ -743,11 +751,81 @@ class TestADataOnlyStageMayNotFeedAnExecutor:
         simply not on `INERT_PROGRAMS`, and that is enough."""
         assert_denied(f"echo 'rm -rf /srv/data' > /tmp/x ; {reader}", RM_ROOT)
 
-    def test_the_same_tool_still_gets_its_own_arguments_blanked(self):
-        """…and the finding costs the exemption nothing: being an executor
-        stops OTHER stages being blanked, not this one's own text."""
-        assert_allowed("rg --pre=/tmp/x 'rm -rf /srv/data' .")
+    def test_a_plain_invocation_of_the_same_tool_is_unaffected(self):
+        """…and the finding costs the exemption nothing when the tool is not
+        being handed a command: being an executor stops OTHER stages being
+        blanked, and a plain search is still a search."""
+        assert_allowed("rg 'rm -rf /srv/data' .")
+        assert_allowed("rg --hidden --type=py 'rm -rf /srv/data' .")
         assert_allowed("rg 'rm -rf /srv/data' . | wc -l")
+
+
+class TestAToolThatCanRunItsOwnOptionValue:
+    """Review finding on #91 round 3: a text tool being an executor was used
+    only to protect OTHER stages. But the destructive text can BE the option
+    value it executes, and that text was blanked before matching."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rg --pre 'rm -rf /srv/data' needle .",
+            "rg --pre='rm -rf /srv/data' needle .",
+            "rg --hostname-bin 'rm -rf /srv/data' .",
+            "ag --pager='rm -rf /srv/data' needle",
+            "ack --pager 'rm -rf /srv/data' needle",
+            "ack --ackrc='rm -rf /srv/data' needle",
+        ],
+    )
+    def test_a_text_tool_handed_a_command_is_not_data_only(self, command):
+        assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "man -P 'rm -rf /srv/data' rm",
+            "man -H 'rm -rf /srv/data' rm",
+            "man -e 'rm -rf /srv/data' rm",
+        ],
+    )
+    def test_man_is_off_the_data_only_list_entirely(self, command):
+        """`man -P CMD` runs CMD through a shell, and the list bought nothing
+        against that: no realistic `man …` contains text a pattern matches, so
+        `man rm` was never allowed BECAUSE of the exemption."""
+        assert_denied(command, RM_ROOT)
+
+    def test_man_without_a_command_option_is_still_fine(self):
+        assert_allowed("man rm")
+        assert_allowed("man git-push")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git -c alias.x='!rm -rf /srv/data' x --dry-run",
+            "git --exec-path='rm -rf /srv/data' clean -fd --dry-run",
+            "rsync -e 'rm -rf /srv/data' --dry-run src dst",
+            "make --eval='$(shell rm -rf /srv/data)' --just-print",
+            "git -c core.pager='rm -rf /srv/data' clean -fd --dry-run",
+        ],
+    )
+    def test_a_dry_run_carrying_a_quoted_option_value_is_not_data_only(self, command):
+        """Every program with a dry-run flag can also be made to run something,
+        and every spelling of that needs quoting or whitespace in an option
+        value. So the dry-run exemption requires bare words end to end — one
+        rule, no per-program option table."""
+        assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git clean -fd --dry-run",
+            "git push --dry-run --force origin main",
+            "rsync --dry-run -a /srv/data /backup/",
+            "make --just-print clean",
+            "docker system prune -a --dry-run",
+        ],
+    )
+    def test_a_real_dry_run_is_bare_words_end_to_end(self, command):
+        assert_allowed(command)
 
     @pytest.mark.parametrize(
         "writer",

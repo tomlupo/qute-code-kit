@@ -1006,16 +1006,21 @@ def execution_surface(command: str) -> str:
 #
 # WHAT STILL EXEMPTS A COMMAND, and why:
 #
-#   * a data-only PROGRAM (`TEXT_ONLY_PROGRAMS`) — allowlist of text search /
-#     print / lookup tools. They act on files and stdout, never on their own
-#     argument text.
-#   * `<prog> --help` with `--help` as the FIRST argument — the old rule's
-#     exact shape (`^\w+\s+--help`), deliberately not widened. `rm -rf / --help`
+#   * a data-only PROGRAM (`TEXT_ONLY_PROGRAMS`) — allowlist of text search
+#     and print tools — UNLESS the invocation hands it a command to run
+#     (`EXEC_OPTIONS`), because then the destructive text can be that option's
+#     value: `rg --pre 'rm -rf /srv/data' needle .`.
+#   * `<prog> --help` and nothing else — narrower than the old rule's
+#     `^\w+\s+--help`, so no other argument can ride along. `rm -rf / --help`
 #     is still scanned.
-#   * a dry-run flag, but only for a program that HAS one (`DRY_RUN_PROGRAMS`).
-#     The old rule searched the flag anywhere in the first segment for any
-#     program at all, so `rm -rf /srv/data --dry-run` was exempt — `rm` has no
-#     such flag and would have deleted the path.
+#   * a dry-run flag, but only for a program that HAS one (`DRY_RUN_PROGRAMS`)
+#     and only when every argument is a BARE WORD (`_is_a_bare_word`). The old
+#     rule searched the flag anywhere in the first segment for any program at
+#     all, so `rm -rf /srv/data --dry-run` was exempt — `rm` has no such flag
+#     and would have deleted the path. The bare-word half is what stops
+#     `git -c alias.x='!rm -rf /srv/data' x --dry-run`: every program with a
+#     dry-run flag can also be made to run something, and every spelling of
+#     that needs quoting or whitespace in an option value.
 #   * a stage that is only assignments and redirections (`FOO=bar`). Nothing
 #     runs. A value expanded LATER (`FOO='rm -rf /'; $FOO`) is the documented,
 #     unfixable limitation at the top of this file, unchanged either way.
@@ -1053,16 +1058,41 @@ def execution_surface(command: str) -> str:
 # PIPELINE STAGES, so a pipe by itself is not an executor when no stage in it
 # can execute.
 
-# Programs whose command line is TEXT: they search it, print it, or look it
-# up, and never execute it. An ALLOWLIST — an unknown program is an executor.
+# Programs whose command line is TEXT: they search it or print it, and never
+# execute it. An ALLOWLIST — an unknown program is an executor.
+#
+# `man`, `info`, `help`, `whatis` and `apropos` were on this list and are
+# deliberately OFF it (review on #91, round 3). `man -P CMD`, `-H CMD`,
+# `-e CMD` and `-C FILE` all hand man a command to run, and the list bought
+# nothing to weigh against that: no realistic `man …` invocation contains text
+# any pattern matches, so `man rm` was never allowed BECAUSE of this list.
 TEXT_ONLY_PROGRAMS = frozenset(
     {
         "grep", "egrep", "fgrep", "zgrep", "zegrep", "zfgrep",
         "rg", "ag", "ack", "ack-grep",
         "echo", "printf",
-        "man", "info", "whatis", "apropos", "help",
     }
 )  # fmt: skip
+
+# Options that hand a text tool a COMMAND. A tool carrying one is NOT
+# data-only, because the destructive text can BE that option's value:
+# `rg --pre 'rm -rf /srv/data' needle .` (review on #91, round 3).
+#
+# Only the four members of TEXT_ONLY_PROGRAMS that are not also on
+# INERT_PROGRAMS need an entry — the grep family, `echo` and `printf` are on
+# that allowlist, which already asserts that no option of theirs spawns a
+# program. An allowlist of BENIGN options is not available here: `rg` alone has
+# well over a hundred. So this is a list of the executing ones, and the failure
+# direction is stated rather than hidden — a spelling missing from it leaves
+# the stage data-only, which is where the file stood before the list existed;
+# an entry present can only ever take an exemption away. The bare-word rule on
+# the dry-run exemption below is the second, program-agnostic net.
+EXEC_OPTIONS = {
+    "rg": ("--pre", "--hostname-bin"),
+    "ag": ("--pager",),
+    "ack": ("--pager", "--ackrc"),
+    "ack-grep": ("--pager", "--ackrc"),
+}
 
 # Programs that actually HAVE a dry-run flag, so claiming one means something.
 # `rm --dry-run` does not exist; `rm` is not here, and `rm -rf /x --dry-run`
@@ -1160,12 +1190,53 @@ def _stage_is_data_only(stage: str) -> bool:
     if not program:
         return True  # assignments and/or redirections only — nothing runs
     if program in TEXT_ONLY_PROGRAMS:
+        return not _carries_an_exec_option(program, args)
+    if args == ["--help"]:
         return True
-    if args and args[0] == "--help":
-        return True
-    if program in DRY_RUN_PROGRAMS and any(_DRY_RUN_FLAG.match(a) for a in args):
+    if (
+        program in DRY_RUN_PROGRAMS
+        and any(_DRY_RUN_FLAG.match(a) for a in args)
+        and all(_is_a_bare_word(a) for a in args)
+    ):
         return True
     return False
+
+
+def _carries_an_exec_option(program: str, args: list) -> bool:
+    """Whether a text tool was handed a command to run — see `EXEC_OPTIONS`."""
+    for option in EXEC_OPTIONS.get(program, ()):
+        for arg in args:
+            if arg == option or arg.startswith(option + "="):
+                return True
+            if not option.startswith("--") and arg.startswith(option) and arg != option:
+                return True  # a short option with its value attached: `-Pless`
+    return False
+
+
+def _is_a_bare_word(token: str) -> bool:
+    """No quoting and no whitespace — a flag, a subcommand or a path.
+
+    The dry-run exemption's second, program-agnostic net, and the reason it
+    needs no per-program option table (review on #91, round 3). Every program
+    with a dry-run flag can also be made to run something —
+    `git -c alias.x='!rm -rf /srv/data' x --dry-run`,
+    `rsync -e 'rm -rf /srv/data' --dry-run …`,
+    `make --eval='$(shell rm -rf /srv/data)' --just-print` — and smuggling a
+    command into an option value takes quoting or whitespace in every one of
+    them. A real dry run does not: `git clean -fd --dry-run`,
+    `rsync --dry-run -a /srv/data /backup/`, `make --just-print clean` are bare
+    words end to end.
+
+    Not applied to the text tools, whose whole point is a quoted pattern.
+
+    What it cannot catch, stated rather than left to be found: a ONE-WORD
+    command smuggled as a bare option value, `git -c core.pager=mkfs clean
+    -fd --dry-run`. Four patterns match a single word — `mkfs`, `dropdb`,
+    `dropuser`, `killall` — and each of them is inert without arguments, which
+    an option value cannot supply. Every multi-word pattern, which is all the
+    rest, needs whitespace and is therefore caught.
+    """
+    return not any(c.isspace() or c in "'\"`" for c in token)
 
 
 def _data_spans(stage: str):
