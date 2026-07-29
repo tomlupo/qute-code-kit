@@ -3278,6 +3278,44 @@ def test_an_unconditional_cd_after_a_closed_block_still_replaces(tmp_path, home)
     assert decision == "allow"
 
 
+@pytest.mark.parametrize(
+    "block",
+    [
+        "if x; then echo a; else echo b; fi",
+        "if a; then echo 1; elif b; then echo 2; fi",
+        "if a; then echo 1; elif b; then echo 2; else echo 3; fi",
+        "if x; then echo a; fi",
+        "for f in a; do echo x; done",
+        "while x; do echo y; done",
+        "case $v in a) echo x;; esac",
+    ],
+)
+def test_a_closed_block_leaves_no_conditional_residue(block, tmp_path, home):
+    """Defect 42. Counting `then`/`else`/`elif`/`do` incremented once per
+    BRANCH but decremented once per `fi`, so an `if … else … fi` left the
+    guard believing it was still inside a conditional — and a later CERTAIN
+    `cd` kept the old, guarded repo alive as a candidate and denied on it.
+    Counting the construct balances."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"{block}; cd {other}; git commit -m x", session, home)
+    assert decision == "allow", block
+
+
+def test_conditional_bodies_are_still_conditional_after_the_fix(tmp_path, home):
+    """The control the balance must not cost: a `cd` INSIDE the block, in
+    every branch, still leaves the original repo a live candidate."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    for block in (
+        f"if x; then cd {other}; fi",
+        f"if x; then echo a; else cd {other}; fi",
+        f"if a; then echo 1; elif b; then cd {other}; fi",
+    ):
+        decision, _ = _run(f"{block}; git commit -m x", session, home)
+        assert decision == "deny", block
+
+
 def test_nested_conditionals_unwind_correctly(tmp_path, home):
     session = _make_repo(tmp_path / "lab", "main", STD_CFG)
     other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)

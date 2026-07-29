@@ -127,9 +127,9 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33 and 37 are the environment axis, and
+34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27, 29-32 and 36 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32, 36 and 42 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -259,7 +259,12 @@ the same footing — a guard that cries wolf gets turned off:
       `$@` that matched nothing;
   41. a VARIABLE subcommand — `git $VERB -m x` was allowed outright. The verb
       is exactly as unresolvable as a refspec we cannot expand, and now fails
-      closed the same way.
+      closed the same way;
+  42. conditional-depth leak — defect 37's own bookkeeping. Counting
+      `then`/`else`/`elif`/`do` incremented once per BRANCH but decremented
+      once per `fi`, so after an `if … else … fi` the guard still believed it
+      was inside a conditional and a later CERTAIN `cd` kept the old repo
+      alive as a candidate, denying on it.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -847,11 +852,21 @@ _LEADING_SHELL_WORDS = frozenset(
 )
 _TRAILING_SHELL_WORDS = frozenset({"}"})
 
-# Reserved words that OPEN a body which may not run — an `if` branch, a loop
-# body. A `cd` inside one is conditional, so it adds a candidate directory
-# rather than replacing the current one.
-_CONDITIONAL_BODY_WORDS = frozenset({"then", "else", "elif", "do"})
-# …and the words that close one again.
+# Words that OPEN a construct whose body may not run, and the words that close
+# it again. A `cd` anywhere inside one is conditional, so it adds a candidate
+# directory rather than replacing the current one.
+#
+# Counting the CONSTRUCT, not the body word, is what makes this balance.
+# Counting `then`/`else`/`elif`/`do` did not: `if x; then …; else …; fi`
+# incremented twice and decremented once, so the guard believed it was still
+# inside a conditional for the rest of the command, and a later CERTAIN `cd`
+# kept the old repo alive as a candidate and could deny on it. `elif` chains
+# leaked once per branch (defect 42).
+#
+# `if`/`while`/`until` are peeled as leading words, so they are counted there;
+# `for`/`case` are not, so they are counted from the first token.
+_CONSTRUCT_OPEN_WORDS = frozenset({"if", "while", "until"})
+_CONSTRUCT_OPEN_HEADS = frozenset({"for", "case"})
 _CONDITIONAL_END_WORDS = frozenset({"fi", "done", "esac"})
 
 
@@ -1983,13 +1998,13 @@ def main():
         # there ADDS a possibility rather than replacing the current one, the
         # same way a `cd` after an unevaluated `&&` does (defect 37).
         while tokens and tokens[0] in _LEADING_SHELL_WORDS:
-            if tokens[0] in _CONDITIONAL_BODY_WORDS:
+            if tokens[0] in _CONSTRUCT_OPEN_WORDS:
                 conditional_depth += 1
             tokens = tokens[1:]
         while tokens and tokens[-1] in _TRAILING_SHELL_WORDS:
             tokens = tokens[:-1]
-        if tokens and tokens[0] == "case":
-            conditional_depth += 1  # its arms are conditional too
+        if tokens and tokens[0] in _CONSTRUCT_OPEN_HEADS:
+            conditional_depth += 1  # a loop body, or a `case` arm
         if tokens and tokens[0] in _CONDITIONAL_END_WORDS:
             conditional_depth = max(0, conditional_depth - 1)
             continue
