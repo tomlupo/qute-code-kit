@@ -326,7 +326,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/wtf` | Activated on frustration/pushback — captures failure, applies three guardrail tiers (feedback memory + CLAUDE.md rule + hook), proposes smallest fix |
 | `/qute-review` | The shared review core (ADR-0005): Matt-review-base + quant layer, adversarial failure-class framing (`review-core.md`), cross-model via codex; posts the native GitHub review verdict the gate requires. Same core drives jimek's autonomous reviewer |
 
-## PR governance (ADR-0005: tier or rules, no policy file)
+## PR governance (ADR-0005: tier or `CLAUDE.md`, no policy file)
 
 There is **no per-repo PR policy file and no blocking client hook** — `.github/qute-pr.yml` and
 `pr-flow-guard.py` were deleted (qute-code-kit ADR-0005). Merge/PR governance is:
@@ -334,7 +334,7 @@ There is **no per-repo PR policy file and no blocking client hook** — `.github
 - **Jimek-managed repos** — the rigor **tier** in `conductor.yml` is the sole merge authority
   (trivial = auto-merge, standard = self-merge on SHIP, complex = human merges). The conductor
   stamps `jimek-tier:*` labels on managed PRs; the review-gate CI reads them.
-- **Standalone repos** — `.claude/rules` (stamped by `/setup-qute-repo`) states the expectations;
+- **Standalone repos** — `CLAUDE.md` (written by `/setup-qute-repo`) states the expectations;
   the review-gate CI enforces "get an independent review"; a human merges.
 
 ### Optional CI gate (tier-aware)
@@ -345,10 +345,17 @@ tier-aware: `jimek-tier:trivial` passes with no review; `standard`/`complex`/no-
 independent review object. Install it into an opting-in repo on request:
 
 ```bash
-mkdir -p .github/workflows && cp "$(claude plugin path qute-essentials)/templates/review-gate.yml" .github/workflows/review-gate.yml
+mkdir -p .github/workflows && cp "${CLAUDE_PLUGIN_ROOT}/templates/review-gate.yml" .github/workflows/review-gate.yml
 ```
 
-(or copy the file from the plugin's `templates/` directory).
+`${CLAUDE_PLUGIN_ROOT}` is set inside a Claude Code session running this plugin.
+From a plain shell it is unset — copy the file from the plugin's installed
+`templates/` directory instead, at
+`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` — here,
+`~/.claude/plugins/cache/qute-marketplace/qute-essentials/<version>/`. **No
+`claude plugin` subcommand prints that path**: `list` gives
+name/Version/Scope/Status and `details` gives a marketplace ref, so read the
+version from `claude plugin details qute-essentials` and build the path.
 
 The same workflow carries a second job, **`audit-sensitive-paths`** — on a PR that
 touches security-sensitive files (`pyproject.toml`, `uv.lock`, `requirements*.txt`,
@@ -403,9 +410,14 @@ The `audit` verb is wired to run by *change*, not by calendar (obsidian-vaults#1
 
 ```bash
 # weekly sweep, priority repos first, report to a dir
-python3 "$(claude plugin path qute-essentials)/scripts/deep_sweep.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_sweep.py" \
   --config ~/.config/qute/audit-inventory.json --report ~/audit-reports
 ```
+
+(`${CLAUDE_PLUGIN_ROOT}` resolves inside a session running this plugin; from a
+cron entry or plain shell, substitute the plugin's installed path,
+`~/.claude/plugins/cache/qute-marketplace/qute-essentials/<version>/`. No
+`claude plugin` subcommand prints it — see above.)
 
 ## Setup
 

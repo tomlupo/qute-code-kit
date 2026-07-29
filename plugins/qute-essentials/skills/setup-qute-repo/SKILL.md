@@ -6,7 +6,7 @@ description: >-
   (webapp / quant package / quant lab / quant production / simple tool / peer
   product), Matt
   spine, task tracker (Linear default, TASKS.md for simple repos), Jimek
-  management (conductor.yml), behavioral rules (.claude/rules), worktree
+  management (conductor.yml), behavioral contract (CLAUDE.md), worktree
   config, shipping mode, research regime, guards + CI posture, and root files — each step defaulted by repo type,
   diff-first, idempotent, never clobbering. Use when onboarding or re-aligning
   a repo: "set up this repo", "setup qute repo", "adopt matt workflow",
@@ -19,9 +19,11 @@ argument-hint: "[webapp|quant-package|quant-lab|quant-production|simple|peer] [-
 One wizard to take a repo from "pile of files" to a clean single regime
 (ADR-0001..0004 in qute-code-kit). It supersedes `adopt-matt-workflow` and
 keeps its contract: **defer, don't duplicate** — Matt's
-`setup-matt-pocock-skills` owns planning-spine configuration; `/jimek-onboard`
-owns the conductor contract; this wizard sequences them and stamps only the
-qute deltas.
+`setup-matt-pocock-skills` owns planning-spine configuration; jimek owns the
+conductor contract and ships its canonical `conductor.yml` template (step 4
+renders from it — there is no separate `/jimek-onboard` skill; ADR-0006 folded
+its job into step 4); this wizard sequences them and stamps only the qute
+deltas.
 
 Every step: detect current state → propose (showing a diff for anything it
 would write) → apply on confirmation. Re-running is safe; identical files are
@@ -66,8 +68,8 @@ Defaults are proposals — the user can override any cell.
 own conventions and workflow (e.g. atlas): don't pull it under the regime, just
 bind it so fleet tooling can interoperate. Runs ONLY step 3 (tracker binding +
 repo label) and the `docs/adr/` part of step 10, then jumps to step 11. No
-conductor.yml, no `.claude/rules/`, no worktree/shipping/research stamping, and
-CLAUDE.md is left alone. (TOM-59 is the reference example.)
+conductor.yml, no behavioral-contract sections, no worktree/shipping/research
+stamping, and CLAUDE.md is left alone. (TOM-59 is the reference example.)
 
 ## Step 2 — Matt spine
 
@@ -180,27 +182,89 @@ standalone; ADR-0006 folds its job into this step):
 Not Jimek-managed → skip; note it in the final report so it's a decision,
 not an omission.
 
-## Step 5 — Behavioral rules (`.claude/rules/`) — ADR-0005 §5
+## Step 5 — Behavioral contract → `CLAUDE.md` (ADR-0005 §5, narrowed)
 
-Stamp the repo's core behavioral contract into **`.claude/rules/`** (auto-loaded
-every session like CLAUDE.md, but modular — regenerable one concern-file at a
-time). Both interactive Claude AND autonomous jimek workers load these, so it is
-ONE contract for two worlds; rigor tiers only add enforcement on top.
+**Stamp nothing into `.claude/rules/`. Do not create the directory.** The repo's
+behavioral contract goes into **`CLAUDE.md`**, as sections.
 
-From `templates/rules/` stamp, idempotent per-file (write if absent; if present
-and differing, show the diff and ask — never silently clobber):
+### 5a — Which sections, from which source
 
-- `git-workflow.md` — branch off default, Conventional Commits, PR-per-change
-- `shipping.md` — `/ship` is the only version writer (skip/adapt when the
-  repo's shipping mode is "none")
-- `review-expectations.md` — non-trivial changes get an independent review
-  (a separate reviewing agent, not an identity trick)
-- `governance.md` — mode-conditional: copy `governance-jimek.md` if step 4 made
-  the repo conductor-managed, else `governance-standalone.md`
+The prose sources are `templates/contract/*.md`, plugin-relative — resolve them
+with `${CLAUDE_PLUGIN_ROOT}/templates/contract/` — the plugin root this skill is
+running from, the same idiom `guard`, `audit`, `ship`, `task`, `repo-status` and
+`worktrees` use. If it is unset, resolve relative to this skill file's own
+directory instead (`../../templates/contract/`). Write these concerns, in this
+order, each as a `##` section of `CLAUDE.md`:
 
-Each file carries a `<!-- qute-rule: <name> vN -->` marker so re-runs can tell a
-stamped file from a hand-authored one. `CLAUDE.md` stays human-authored
-(overview/architecture) — onboarding never writes rules into it.
+| Concern | Prose source | Write it when |
+|---|---|---|
+| Git workflow | `templates/contract/git-workflow.md` | always |
+| Shipping | `templates/contract/shipping.md` | the **confirmed shipping mode** is **not** `none` |
+| Review expectations | `templates/contract/review-expectations.md` | always |
+| Governance | `templates/contract/governance-jimek.md` if step 4 made the repo conductor-managed, else `templates/contract/governance-standalone.md` | always — exactly one of the two, never both |
+
+**Settle the shipping mode once, here.** Step 1's table proposes one per repo
+type, but step 1 also lets the user override any cell — so ask which mode this
+repo actually ships in (`/ship` commitizen · `/ship` plugin mode · `gstack
+ship` · `none`) and write it down. Step 7 branches on this **same confirmed
+answer**, not on the repo type, so an overridden repo cannot be told one thing
+here and the opposite there.
+
+**Confirmed mode `none`** (the quant-lab / simple default, and any repo
+overridden to it): skip the Shipping section and instead write the one-line
+alternative into `CLAUDE.md` here — `shipping: none`, deliverables go to
+`reports/`, no versions or tags are cut. Step 7 only confirms that line is
+present. That line and the section are alternatives; writing both is the
+contradiction to avoid. So this step writes **four** sections normally, and
+**three** sections plus the `shipping: none` line when the mode is `none`.
+
+These are **prose sources, not files to copy**: drop the
+`<!-- prose source: … -->` header, fit the heading depth to the host `CLAUDE.md`,
+and otherwise keep the wording — it is the wording the rest of the regime cites.
+
+### 5b — Per-concern, never clobbering
+
+Same additive discipline as the tracker binding in step 3, applied one concern at
+a time:
+
+- **Concern absent** → propose the section, show the diff, write on confirmation.
+- **Concern already documented, equivalently** → no-op. Report it as "already
+  covered", naming the section that covers it.
+- **Concern already documented, differently** → show the diff and **ask**. Never
+  silently overwrite, and never append a second section for the same concern —
+  a repo that documents a concern better than the template does keeps its own
+  wording, and two sections on one concern is exactly the drift this step exists
+  to prevent.
+- Always edit `CLAUDE.md` **in place**. Never create a second boot file, and
+  never split the contract across `CLAUDE.md` and `AGENTS.md`.
+
+Re-running the step on an already-onboarded repo must be a no-op.
+
+### 5c — Why `CLAUDE.md` and not the `.claude/rules` layer
+
+A `.claude/rules/*.md` file with no `paths:` frontmatter loads as the same
+project-memory object as a `CLAUDE.md` section, from the same ancestor walk, at
+the same session cost. It is a `CLAUDE.md` section with a second place to look.
+The mechanism stays sanctioned — ADR-0005 §5 still stands, as amended — but
+**only for `paths:`-scoped rules**, whose one real capability is not loading
+until an accessed file matches the glob.
+
+**A scoped rule is discovered, never stamped.** It is justified when you have a
+specific set of files whose instructions should be absent the rest of the time,
+which you learn during work, not at onboarding. This step used to stamp four
+files: the evidence is that its `<!-- qute-rule: <name> vN -->` marker headed
+every one of the five templates and matched **zero** files anywhere on the box —
+the step prescribed rules before anyone had a reason for one. Those headers are
+now `<!-- prose source: … -->`, and the marker is retired: nothing writes it and
+nothing reads it.
+
+Two further traps if you do reach for a scoped rule:
+
+- The matcher resolves the project root as `dirname(dirname(rulesDir))` and
+  rejects any accessed file outside it, so globs pointing at a sibling tree
+  **never fire**. Three such rules sat unreachable in an agent home for weeks.
+- Never move an invariant out of `CLAUDE.md` into a scoped rule. If it must hold
+  every session, scoping it is how it silently stops holding.
 
 ## Step 6 — Worktrees
 
@@ -226,15 +290,26 @@ the local pattern only governs human/interactive worktrees). Verify
 
 ## Step 7 — Shipping
 
-- **Plugin repo** (marketplace.json) → `/ship` plugin mode, nothing to stamp.
-- **Python package / production** → run `/ship --dry-run` once so its
-  idempotent first-time setup lands (commitizen dev-dep, `[tool.commitizen]`
-  with version reconciliation, CHANGELOG.md). `/ship` is the **only** version
-  writer — if a `release.yml` workflow bumps versions, warn and neuter it
-  (see the ship skill's "Who owns the version").
-- **Webapp** → `gstack ship`; stamp nothing.
-- **quant-lab / simple** → no releases; deliverables go to `reports/`
-  (lab) or nowhere. Record "shipping: none" explicitly in CLAUDE.md.
+**Branch on the mode step 5a confirmed, not on the repo type.** Step 1's table
+only proposes a mode and the user may have overridden it, so a type-keyed bullet
+here can contradict the section step 5a actually wrote. Take the confirmed mode
+from step 5a and act on it:
+
+- **`/ship` plugin mode** (repo carries `marketplace.json`) → nothing to stamp.
+- **`/ship` commitizen** (the Python package / production default) → run
+  `/ship --dry-run` once so its idempotent first-time setup lands (commitizen
+  dev-dep, `[tool.commitizen]` with version reconciliation, CHANGELOG.md).
+  `/ship` is the **only** version writer — if a `release.yml` workflow bumps
+  versions, warn and neuter it (see the ship skill's "Who owns the version").
+- **`gstack ship`** (the webapp default) → stamp nothing.
+- **`none`** (the quant-lab / simple default) → no releases; deliverables go to
+  `reports/` (lab) or nowhere. Step 5a wrote `shipping: none` into `CLAUDE.md`
+  in place of the Shipping section, so **confirm that line is there** rather
+  than adding a second one.
+
+For every mode other than `none`, step 5a wrote the Shipping **section** and
+there is no `shipping: none` line to look for — do not add one, and do not run
+commitizen setup for a repo whose confirmed mode is `none`.
 
 ## Step 8 — Research regime (quant-lab only)
 
@@ -272,7 +347,7 @@ gate binds it on conclude.
   installs, and then *measures* the result:
 
   ```bash
-  python3 "$(claude plugin path qute-essentials)/scripts/install_pre_push_guard.py" \
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_pre_push_guard.py" \
       --repo . [--opt-in] [--adopt-existing]
   ```
 
@@ -377,8 +452,39 @@ a silent pass in repos they don't apply to, so stamping them is cheap:
 Re-run the `/check-agent-regime` checks. Report: stamped / skipped /
 needs-human (tracker choice, Linear project mapping, docs/decisions/
 migration, review-gate adoption). The repo passes when there is exactly one
-task store, one boot file, one ADR location, a stamped `.claude/rules/` with a
-mode-correct `governance.md`, and every binding carries its machine marker.
+task store, one boot file, one ADR location, a `CLAUDE.md` carrying the
+behavioral contract with the mode-correct governance section, no unscoped
+`.claude/rules` file anywhere, and every binding carrying its machine marker.
+
+**`peer` repos are exempt from most of that** — step 1 runs only the tracker
+binding and the `docs/adr/` part of step 10, so a peer repo passes on those two
+criteria alone. Do not report a peer repo as failing for a `CLAUDE.md` contract
+it was deliberately never given.
+
+Two of the remaining criteria are mechanical; the rest are a read.
+
+- **No unscoped rule file** — `.claude/rules` need not be absent, only free of
+  files that would be `CLAUDE.md` sections. Run this; empty output passes:
+
+  ```bash
+  find .claude/rules -name '*.md' 2>/dev/null | while read -r f; do
+    grep -qE '^paths:' "$f" || echo "UNSCOPED (belongs in CLAUDE.md): $f"
+  done
+  ```
+
+- **Machine markers present** — `grep -rn 'qute-tracker:' docs/agents/` must
+  find the tracker binding from step 3.
+- **The behavioral contract is a HUMAN CHECK.** "Carries the contract with the
+  mode-correct governance section" is not mechanized by anything: no script
+  knows whether a `CLAUDE.md` section actually says what step 5's source says,
+  and a repo may legitimately word it its own way. Open `CLAUDE.md` and confirm
+  that the concerns of step 5a **that apply to this repo** are each covered
+  exactly once — **four** sections normally, or **three** sections plus a
+  `shipping: none` line when the confirmed shipping mode is `none` — and that the
+  governance section matches the mode step 4 chose. Then say in the report that
+  you read it. Do not report this criterion as verified on the strength of the
+  two commands above, and do not fail a `shipping: none` repo for the Shipping
+  section step 5a told you to skip.
 
 ## Policy (unchanged from adopt-matt-workflow)
 

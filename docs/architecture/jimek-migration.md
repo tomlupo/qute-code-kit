@@ -4,8 +4,10 @@
 > The target split below still holds, with two changes: `.github/qute-pr.yml` is **deleted**, not
 > moved (the rigor tier is the sole merge authority; the gate reads the `jimek-tier:` label), and
 > governance now runs on a **with/without-jimek** axis chosen at onboarding, with a shared
-> `.claude/rules` behavioral core. See the ADR's "Path to target state" for the current, ordered
-> migration. This doc is kept for its detailed target-split rationale.
+> behavioral core written into `CLAUDE.md` (ADR-0005 §5 as amended 2026-07-28 — the core was
+> originally stamped into `.claude/rules`; onboarding no longer writes there at all). See the
+> ADR's "Path to target state" for the current, ordered migration. This doc is kept for its
+> detailed target-split rationale.
 
 Companion to [ADR-0001](../adr/0001-matt-planning-spine-qute-runtime.md) and
 [ADR-0003](../adr/0003-task-tracking-tiers-linear-jimek.md). This is a **relocation, not a
@@ -16,7 +18,7 @@ GitHub — they belong with the conductor.
 
 ```text
 qute-essentials (stays)          jimek (receives)
-  /qute-review  — local-first      /qute-coder       — open PRs as qute-coder[bot]
+  /qute-review  — local-first      /qute-coder       — open PRs as qute-coding[bot]
   /test /audit  — verification     /qute-reviewer    — post qute-review[bot] verdicts
   /ship         — release          jimek-onboard     — repo onboarding (already Jimek-branded)
   /decision     — ADRs             .github/qute-pr.yml — PR policy mapping

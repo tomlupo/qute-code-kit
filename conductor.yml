@@ -91,9 +91,11 @@ baseBranch: main            # single PR base + worktree fork point
 
 # Bot-app identity — author != reviewer holds BY CONSTRUCTION, so the
 # require-independent-reviewer gate passes without any human step. Live App ids.
+# The gate compares LOGINS, and the coder App's login is not its App name:
+# App "qute-coder" (id 4172326) posts as qute-coding[bot] (user id 297830028).
 prIdentity:
-  coderAppId: 4172326       # qute-coder[bot]  — opens PRs via ~/bin/coder-pr
-  reviewAppId: 4172333      # qute-review[bot] — posts the independent verdict (must differ)
+  coderAppId: 4172326       # App "qute-coder" → login qute-coding[bot]; opens PRs via ~/bin/coder-pr
+  reviewAppId: 4172333      # App+login qute-review[bot] — posts the independent verdict (must differ)
   ghAppsDir: "$GHAPPS"
 
 # Shape of the open → review → assign chain (ADR-0005: no qute-pr.yml — this

@@ -53,7 +53,7 @@ Do NOT invoke for:
 
 ## ADR template
 
-This skill is the **single source of truth** for ADR format in the qute-essentials kit. Project-level `.claude/rules/decisions.md` covers edit-time policy (immutability, status transitions) but does not duplicate this template.
+This skill is the **single source of truth** for ADR format in the qute-essentials kit. A repo's own edit-time policy (immutability, status transitions) lives wherever it documents its conventions — `CLAUDE.md` by default — and does not duplicate this template.
 
 ```markdown
 # ADR-NNNN: <Short Title>
