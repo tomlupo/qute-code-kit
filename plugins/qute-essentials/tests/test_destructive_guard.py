@@ -337,6 +337,21 @@ class TestWriteThenExecuteInOneCall:
         anywhere gates the WHOLE call, not just the segment owning the data."""
         assert_denied(f"cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\n{runner}", RM_ROOT)
 
+    def test_a_line_continuation_hiding_a_pipe_voids_the_call(self):
+        """Review finding on #90 round 7: bash joins a line ending in `\\`
+        with the next, so this is the single pipeline `cat <<'EOF' | bash`.
+        Read as two physical lines, the pipe was invisible and the body — the
+        thing bash pipes into a shell — got blanked."""
+        assert_denied("cat <<'EOF' \\\n| bash\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_a_continuation_inside_a_body_is_the_documented_cost(self):
+        # Nothing here is executed; the exemption is forfeited anyway, because
+        # rebuilding logical lines would move every offset the surface relies
+        # on. Pinned so the trade-off is visible rather than surprising.
+        assert_denied(
+            "cat > /tmp/f <<'EOF'\nfirst \\\nsecond git reset --hard\nEOF", RESET_HARD
+        )
+
     def test_inert_neighbours_do_not_void_it(self):
         # chmod cannot run anything, so the common write-then-mark-executable
         # shape stays exempt.

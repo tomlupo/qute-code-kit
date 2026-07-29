@@ -905,6 +905,15 @@ def execution_surface(command: str) -> str:
     old behaviour, which errs toward blocking.
     """
     try:
+        # `_scan_layout` reads PHYSICAL lines, but bash joins a line ending in
+        # a backslash with the next one before parsing. `cat <<'EOF' \` +
+        # `| bash` is one pipeline to the shell and two lines here — enough to
+        # hide the pipe and get the body blanked. Reconstructing logical lines
+        # would move every offset this design depends on, so a continuation
+        # anywhere simply forfeits every exemption. The cost is a heredoc body
+        # whose own line ends in a backslash: also not exempt, also blocked.
+        if "\\\n" in command:
+            return command
         heredocs, segments = _scan_layout(command)
         bodies = {(s, e): command[bs:be] for _q, s, e, bs, be in heredocs}
         # One executor anywhere in the call voids every exemption in it: it
