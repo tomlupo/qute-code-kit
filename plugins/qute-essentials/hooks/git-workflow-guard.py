@@ -127,9 +127,9 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58, 59, 61 and 62 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58, 59 and 61-63 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27, 29-32, 36, 42, 43 and 61 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32, 36, 42, 43, 61 and 63 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -335,7 +335,10 @@ the same footing — a guard that cries wolf gets turned off:
       exist;
   62. an UNQUOTED here-doc body still EXPANDS — defect 30 made bodies inert,
       but only a quoted delimiter makes them literal, so
-      `cat <<EOF` … `$(git push origin main)` … `EOF` really pushes.
+      `cat <<EOF` … `$(git push origin main)` … `EOF` really pushes;
+  63. clustered `command -pv` — a `v`/`V` anywhere in the cluster makes it a
+      LOOKUP that runs nothing, but only the bare `-v` was recognised, so the
+      clustered form was denied.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1286,8 +1289,18 @@ def _strip_run_wrapper(tokens):
             break
         if not tok.startswith("-") or tok == "-":
             break
-        if name == "command" and tok in _COMMAND_LOOKUP_FLAGS:
-            return []  # a lookup, not an invocation
+        if name == "command" and not tok.startswith("--"):
+            # `command`'s short options CLUSTER: `-pv` is `-p -v`, and a `v`
+            # or `V` anywhere in the cluster makes the whole thing a LOOKUP
+            # that prints a path and runs nothing — verified, `command -pv
+            # git` prints `/bin/git`. Matching only the bare `-v` denied it
+            # (defect 63).
+            letters = tok[1:]
+            if letters and all(c in "pvV" for c in letters):
+                if any(c in "vV" for c in letters):
+                    return []  # a lookup, not an invocation
+                i += 1
+                continue
         if tok in flags:
             i += 1
         elif tok in with_value:

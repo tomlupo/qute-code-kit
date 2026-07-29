@@ -2325,6 +2325,33 @@ def test_command_v_is_a_lookup_not_an_invocation(cmd, tmp_path, home):
     assert decision == "allow", cmd
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "command -pv git commit -m x",
+        "command -pV git push origin main",
+        "command -vp git commit -m x",
+        "command -Vp git commit -m x",
+    ],
+)
+def test_a_clustered_command_lookup_flag_is_still_a_lookup(cmd, tmp_path, home):
+    """Defect 63. `command`'s short options cluster, and a `v`/`V` anywhere in
+    one makes the whole thing a lookup — verified, `command -pv git` prints
+    `/bin/git` and runs nothing. Matching only the bare `-v` denied these."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+def test_an_unknown_command_cluster_still_fails_closed(tmp_path, home):
+    """A letter we do not know may swallow the command token, so it stays
+    unresolvable rather than being waved through."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run("command -pq git commit -m x", repo, home)
+    assert decision == "deny"
+    assert "invocation runs" in hso["permissionDecisionReason"]
+
+
 def test_command_without_a_lookup_flag_still_runs_git(tmp_path, home):
     """The control: `command git commit` and `command -p git commit` really do
     execute git."""
