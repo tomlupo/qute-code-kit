@@ -4,21 +4,21 @@ Essential hooks, guards, and skills for Claude Code. Provides prompt injection s
 
 ## Guard System
 
-Six security guards — toggleable via `/guard`. Three run PreToolUse (before execution), three run PostToolUse (scan after):
+Seven security guards — toggleable via `/guard`. Four run PreToolUse (before execution), three run PostToolUse (scan after):
 
 ```
                      ┌──────────────────────────────┐
                      │   Tool call (any tool)        │
                      └──────────────┬───────────────┘
                                     │
-     ┌──────────────── PreToolUse ──┴───────────────┐
-     │                    │                         │
-┌────▼──────────┐ ┌───────▼──────────┐  ┌───────────▼──────┐
-│ Destructive   │ │  Secrets Guard   │  │ Provenance Guard │
-│ Guard         │ │  blocks writes   │  │ tags shared-rec  │
-│ blocks rm -rf │ │  with API keys   │  │ writes [agent:/  │
-│ git reset -H  │ │                  │  │ session:]        │
-└───────────────┘ └──────────────────┘  └──────────────────┘
+   ┌───────────────── PreToolUse ───┴──────────────────────┐
+   │                │                  │                   │
+┌──▼────────────┐ ┌─▼────────────┐ ┌───▼──────────────┐ ┌──▼───────────────┐
+│ Destructive   │ │ Git Workflow │ │  Secrets Guard   │ │ Provenance Guard │
+│ Guard         │ │ blocks direct│ │  blocks writes   │ │ tags shared-rec  │
+│ blocks rm -rf │ │ commit/push  │ │  with API keys   │ │ writes [agent:/  │
+│ git reset -H  │ │ on main/dev  │ │                  │ │ session:]        │
+└───────────────┘ └──────────────┘ └──────────────────┘ └──────────────────┘
                                     │
                                  executes
                                     │
@@ -138,6 +138,173 @@ Logs every match to `~/.claude/permission-audit/destructive-blocks.jsonl` with
 its `severity` and the resulting `decision`. Sends an ntfy alert on every
 `block`, and on no `warn` — a prompt already has somebody reading it.
 
+### Git Workflow Guard (PreToolUse)
+
+> **An agent-side speed bump, not enforcement.** It has to be right about two things — the *command* (what git verb, what destination) and the *environment* (which repo and branch git will actually act on) — and it targets *ordinary invocation forms*, within which a miss on either is a defect. But it reads a shell string and sees Claude tool calls only, so it cannot resist deliberately constructed evasion. **`pre-push` (TOM-348, merged) is the enforcement layer for pushes** — this one also covers `git commit`, which never reaches it. Read [What this covers](#what-this-covers--and-the-line-that-decides-it) below before relying on it for anything.
+
+A nudge for repos where GitHub branch protection isn't available (private repos on the Free plan). Aims at one class of mistake: a direct `git commit` / `git push` onto a branch that work is supposed to reach through a PR.
+
+Two branches are guarded, and denial applies to both:
+
+| | Default | Notes |
+|---|---|---|
+| `protected_branch` | `main` | the release branch |
+| `integration_branch` | `dev` | **only if `origin/dev` exists** in that repo |
+
+The integration branch is guarded for the same reason as the protected one: that's where the review gate lives. Work arrives via a PR; a direct commit opens no PR, so it runs neither review nor CI.
+
+**Opt in per repo** by committing `.claude/git-guard.json`. The *presence* of that file is the opt-in — with no file the guard is a total no-op for that repo, which is what keeps it out of scratch repos and third-party clones. Every field is optional, so a repo that wants house defaults can commit `{}`:
+
+```json
+{
+  "protected_branch": "main",
+  "integration_branch": "dev",
+  "release_tool": "commitizen (/ship)"
+}
+```
+
+Fields must be the right type: a `protected_branch` that isn't a usable string falls back to the house default (the file's presence says the repo wants guarding, so the safe reading is "the default", not "nothing"), and an unusable `integration_branch` falls through to the normal `origin/dev` detection. An explicit `"integration_branch": null` means *this repo genuinely has none* (feature → PR → `main`) and is never overridden by the `dev` default. `release_tool` only feeds the guidance text.
+
+**Dry runs are never blocked.** `git commit --dry-run` and `git push --dry-run`/`-n` write nothing, including clustered (`git push -vn`). It's the *last* flag that counts — for every push boolean, not just this one, so `--tags --no-tags`, `--all --no-all` and `--mirror --no-mirror` are ordinary branch pushes again. Note `git commit -n` is `--no-verify` — a *real* commit — and stays blocked; option values are skipped, including inside short-option clusters, so `git commit -m --dry-run` and `git commit -am --dry-run` are real commits too (while `-amwip --dry-run`, which carries its message in the cluster, is a genuine dry run).
+
+**Tag pushes are never branch pushes.** `--tags` with no refspec sends tags and nothing else, so the current-branch fallback doesn't fire; `git push origin tag <name>` is `refs/tags/<name>` even when the tag is called `main`. `--follow-tags` is the opposite — a normal branch push plus reachable tags — and keeps the fallback.
+
+**A push with no refspec is resolved from config, not assumed to be the current branch.** Git consults `remote.<name>.push` first, then `push.default` — and `upstream`/`tracking` send the push to `branch.<cur>.merge`, which is `main` for any branch created with `git checkout -b feat/x origin/main`. `matching` is unresolvable (it pushes every branch that exists on both sides) and therefore **denied**; `nothing` pushes nothing; `simple`/`current` mean the same-name branch.
+
+**Push destinations are resolved, not string-matched.** `git push origin HEAD` (and `@`) resolves to the branch you are standing on, a `+` force sigil and a `refs/heads/` prefix are stripped, and in `src:dst` only `dst` counts — so `HEAD`, `@`, `+main`, `refs/heads/main`, `HEAD:refs/heads/main` and `:main` are all recognised as the protected branch. A destination the guard *cannot* resolve — an unexpanded `$BRANCH`, a glob refspec (`refs/heads/*:refs/heads/*`), ref navigation (`@{-1}`, `HEAD~1`, `main^`), an empty dst (`main:`), or `HEAD` on a detached HEAD — is **denied**, not allowed: a check that cannot verify must not report success.
+
+Each git command in a chain is scoped to the repo it actually targets — `cd <other> && git commit`, `(cd <other> && git commit)`, `git -C <other> commit` and `git --git-dir=<other>/.git commit` all resolve to that repo's branch and config, not the session's. `GIT_DIR` in the environment (`GIT_DIR=… git commit`, via `env`, or `export`ed earlier in the same command) selects the repo the same way, with a command-line `--git-dir` overriding it and `env -i`/`env -u GIT_DIR` clearing it — while a *bare* `GIT_DIR=…;` is only a shell variable that git never sees; `GIT_WORK_TREE` selects nothing, just like `--work-tree`. `-C` and `--git-dir` **compose** in git's documented order — `-C` moves the cwd first (whatever order they appear in), then `--git-dir` names the repo, with a relative git dir resolved against the `-C` directory. Equally, the repo does *not* move where git and the shell don't move it either:
+
+- a `cd` to a directory that **doesn't exist** — it fails, so the shell stays put and the guard stays with it. A `cd` whose operand the guard *can't expand* (`cd "$MAIN_REPO"`, `cd $(…)`, `cd repo-*`, `cd -` with no prior `cd`) is a third case: the location becomes **unknown**, and a `git commit`/`git push` that still depends on the cwd is then **denied** rather than guessed at. `~` and a bare `cd` are expanded, not guessed;
+- **`--work-tree` without `--git-dir`** — git identifies a repo by its git dir and still discovers `.git` from the current directory, so `git --work-tree ../scratch commit` commits *here*;
+- a `cd` **inside `( … )`** — it dies with the subshell, so a command after the `)` is back in the original repo. Brace groups (`{ …; }`) run in the current shell and their `cd` does persist.
+- a `cd` in a **pipeline element** or before a **`&`** — bash runs those in their own process, so the `cd` dies with it. `;`, `&&` and `||` keep the shell in one process and do propagate.
+- a `cd` behind an assignment or a `command`/`builtin` wrapper **does** move the shell and is followed; `env cd` and `exec cd` look up a nonexistent external `cd`, fail, and are not.
+- a `cd` inside an `if`/loop **body**, which may not run at all — same treatment as below. A `cd` in the **condition** (`if cd x; then …`) runs unconditionally and is followed normally
+- a `cd` bash only **might** have run — when the condition is one the guard can't evaluate (`test -d x && cd other`), *both* possible directories are checked and the guarded one denies. Checking each candidate rather than failing closed keeps the common `git add -A && cd subdir && git commit` (both candidates in the same repo) quiet.
+- a `cd` bash **skips**. A `cd` is the one command whose exit status the guard can compute, so `&&`/`||` short-circuiting is modelled: `cd /missing && cd other` never applies the second `cd`, and `cd other || git commit` never reaches the commit. An unknown status (any non-`cd` command) leaves both branches live.
+
+A path operand the guard **can't expand** — `cd "$D"`, `git -C "$D"`, `git --git-dir="$D/.git"`, a glob, a command substitution — makes the target **unknown**, not "a literal directory of that name". Guarded verbs then fail closed; read-only ones are untouched, and any later *absolute literal* operand re-anchors the target and clears it. Command substitutions are opaque parts of a word rather than command boundaries, matched quote-aware so a `)` inside `$(printf ')')` doesn't end them early — but their bodies **run**, so they're also evaluated as subshell-scoped commands (inside double quotes too; single quotes suppress substitution).
+
+A function definition (`gc() { … }`, `function gc { … }`) defines rather than runs: its body is parked and expanded at the **call**, so the definition is never blocked and `gc() { … }; gc` still is. The table is scoped like the working directory — a definition inside `( … )` dies with the subshell, and a conditional redefinition keeps both bodies so each is checked. The call's arguments are substituted for the body's positional parameters, so `g() { git "$@"; }; g commit -m x` is caught while `g status` isn't; an assignment prefix (`FOO=1 gc`) still calls it, while `command gc` — which suppresses function lookup — doesn't. A subcommand the guard can't expand at all (`git $VERB`) is **denied**. Here-doc bodies (`cat <<EOF … EOF`) are skipped as data rather than parsed as commands — though an *unquoted* delimiter leaves the body subject to expansion, so a `$( … )` inside one is still evaluated — the terminator must match exactly (after quote removal, so `<<\EOF` is closed by `EOF`), with `<<-` allowing leading tabs; `<<<` is a here-string and is left alone. `command -v`/`-V` is a lookup, not an invocation — clustered (`-pv`) too. Redirections are stripped wherever they appear — before the command word (`>/tmp/out git commit`) or after it (`git push origin >main`, where `main` is a *filename*) — and `2>&1` / `>|file` are read as redirection syntax rather than as a background `&` or a pipe. The segment scan is quote-aware, so a `)` or a `;` inside `git commit -m "done)"` is text, not syntax. A `#` that starts a word begins a comment and the rest of the line is ignored (a `#` mid-word, like `a#b` or `$#`, is just text). Shell reserved words that stand in front of a command are peeled before parsing it, so `if …; then git commit; fi`, `while …; do git push origin main; done`, `! git …` and `time git …` (including `time -p`) are read as the git commands they contain.
+
+**Never prompts.** The decision is always allow or deny, never `ask`, and the guard never reads `permission_mode`. A hook that asks renders an interactive confirmation, and in a *backgrounded* agent session that stalls the worker at `waiting/blocked` until a human attaches — and the payload can't distinguish that from a headless run that would block cleanly (both report `permission_mode: "auto"`). The escape hatch is therefore the visible, deliberate toggle: `/guard git-workflow off`.
+
+The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positional is treated as a refspec rather than one being swallowed as the remote. Git actually *ignores* `--repo` once a positional repository is also given, and the two readings can't be told apart without knowing the repo's remotes — so with a single positional both are honoured: every positional is checked as a refspec, the current-branch fallback stays alive, and the no-refspec config lookup runs against **both** candidate remotes.
+
+**Git is matched on the normalised name of the executable, and wrappers are peeled first.** The name is the basename, lowercased, with a Windows `.exe` suffix stripped — so `/usr/bin/git`, `git.exe` and `/mingw64/bin/git.exe` all count. `command git push`, `exec git commit`, and `env GIT_AUTHOR_NAME=x git commit` (including `/usr/bin/env`, `-i`, `-u NAME`, and `-C dir`, which scopes the target repo exactly like git's own `-C`) all resolve to the git command underneath. A wrapper whose command can't be pinned down — `env -S`/`--split-string`, or any wrapper option the parser doesn't know, since a new option could swallow the token we'd read as `git` — is **denied**, not allowed. Lookalikes (`gitk`, `git-secret`) are correctly excluded.
+
+**An unrecognised subcommand is resolved one level as an alias** — from `-c alias.<name>=<expansion>` on the command line first (git prefers it over config, and so does the guard), then `git config --get alias.<name>` in the *target* repo — so `git ci` and `git publish` are read as the `commit`/`push` they expand to. The lookup is gated on the subcommand being unrecognised *and* the repo being opted in, so ordinary commands cost nothing. Resolution is deliberately **non-recursive**: an alias that expands to another alias, or to a `!shell` command, is **denied** rather than chased — chasing either re-opens exactly the unbounded-parser problem below. That over-denies a `!git status` alias in an opted-in repo; `/guard git-workflow off` is the escape hatch.
+
+**Option arity is modelled, because a value in the next token shifts every positional after it.** For `git push` that's `-o`, `--push-option`, `--receive-pack`, `--exec` and `--recurse-submodules`; for git's global options `-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--super-prefix`, `--attr-source`, `--config-env`. A global whose arity *isn't* modelled is only acted on when it leaves the subcommand unidentifiable (neither a builtin nor an alias) — then it's **denied**, so `git --literal-pathspecs status` and `git -p log` still cost nothing.
+
+**`--all` pushes every local branch** and overrides `push.default`, so its destinations are the local branch list — denied when a guarded branch is in it, allowed when it isn't, and denied if the list can't be read. **`--mirror` is different**: it makes the remote *match* this repo, deleting remote refs that are absent locally, so the guarded branch is written either way and it fails closed. (This used to be a "deliberate gap", caught only from a guarded branch. It isn't one: it's an ordinary invocation that writes the protected branch from anywhere.)
+
+The guard's own `git` probes run with git's repo-selection variables (`GIT_DIR`, `GIT_WORK_TREE`, …) stripped from the environment, so an exported one in the agent's shell can't quietly point every check at the wrong repo — those variables are modelled from the *command*, never inherited.
+
+Fail-open by design: no config, malformed config, a non-git directory, or any internal error all allow. One deliberate gap remains: a switch-then-act chain (`git checkout main && git commit`) reads the *current* branch and isn't caught. `/ship` needs no exemption — its git calls run inside a Python subprocess no PreToolUse hook observes, and its tag push carries a tag refspec, not a branch.
+
+#### What this covers — and the line that decides it
+
+The guard answers one question: **will this command write to a guarded branch?** It can be wrong about that on two independent axes, and a defect on **either** is in scope, because both end the same way — it evaluates a context that isn't the one git is about to act in, and says yes.
+
+- **The command (parsing)** — *what* is being run, and against which destination. `/usr/bin/git commit`, `env VAR=x git commit`, `command git push`, a `git ci` alias, `git push origin HEAD`, an option whose arity shifts the positionals.
+- **The environment (context)** — *which* repo and branch git will actually act on. Nothing to do with how the command is written; it's about whether the guard's model of the world matches the shell's and git's. A `cd` that **fails** leaves the shell where it was; `--work-tree` without `--git-dir` leaves the **repo** where it was; a `cd` inside `( … )` moves the shell only until the `)`. All three looked like ordinary commands and all three let a direct commit on a guarded branch through, because the guard went looking somewhere else.
+
+An environment-axis defect is in scope however ordinary the command looks. The "ordinary invocation forms" line below bounds the **first** axis only, and is about the kind of command, not the kind of bug.
+
+On the parsing axis the target is **ordinary invocation forms**: what a person or an agent actually types or scripts. Within that target the guard is meant to be correct, and a miss is a **defect**.
+
+It is **not**, and cannot be, resistant to **deliberately constructed evasion**. It reads a shell string, and git's command-line surface is unbounded; no amount of parsing closes that. That distinction is the line, and a new finding can be placed on one side of it without asking anyone:
+
+- **In scope** — a shape someone would plausibly write without trying to evade anything (all the parsing examples above). These are defects; fix them.
+- **Out of scope** — a shape that only occurs when someone is routing around the guard on purpose. Anyone doing that also has `--no-verify`, git behind a shell variable or a here-doc, a wrapper script, or simply their own terminal. Hardening the parser against them buys nothing, and `pre-push` is the layer that answers them.
+
+There is no equivalent escape clause on the environment axis: "the command was weird" never excuses evaluating the wrong repo.
+
+So: a **speed bump, not enforcement** — but with a criterion, not a shrug.
+
+Two limits are structural rather than defects, and neither has a fix in this hook:
+
+- **It observes Claude tool calls only.** A human typing in their own terminal, a Makefile target, a CI job, or any script an agent launches that shells out to git internally are all invisible to it — no PreToolUse hook ever sees them.
+- **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
+- **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
+
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21, 23, 24, 27–32, 34–36, 38–41, 45–48, 51–53, 58, 59, 61–64 and 66 are parsing; 10–13, 16–18, 22, 25, 26, 33, 37, 42–44, 49, 50, 54–57, 60 and 65 are the environment axis, and are why that axis is written down at all. Most let something *through*; 24, 27, 29–32, 36, 42, 43, 61, 63, 65 and 66 **blocked** something they shouldn't have, which is a defect on the same footing — a guard that cries wolf gets turned off:
+
+| # | Axis | Defect | What went wrong |
+|---|---|---|---|
+| 1 | parsing | bare `HEAD` | compared as the literal `"HEAD"`, never equal to `main` |
+| 2 | parsing | unresolvable refspecs | were allowed rather than denied |
+| 3 | parsing | `--repo <remote>` | supplies the remote, so every positional is a refspec — `git push --repo=origin main` parsed as "no refspec at all" |
+| 4 | parsing | the `env` wrapper | `env GIT_AUTHOR_NAME=x git commit`, bare `env git push origin main` |
+| 5 | parsing | git aliases | `git ci`, `git publish` — neither the literal `commit` nor the literal `push` |
+| 6 | parsing | push-option arity | `git push --recurse-submodules on-demand origin` read `on-demand` as the remote and `origin` as a harmless explicit refspec |
+| 7 | parsing | global-option arity | `git --namespace foo commit -m x` read `foo` as the subcommand |
+| 8 | parsing | the executable form | `/usr/bin/git commit`, `command git commit` — only `tokens[0] == "git"` had ever matched |
+| 9 | parsing | `-c alias.ci=commit` | an alias defined on the command line, invisible to a repo-config lookup |
+| 10 | environment | a failing `cd` | `cd /gone ; git commit` and `cd /gone \|\| git commit` run the commit in the original repo, but the guard followed the dead path into a non-repo |
+| 11 | environment | `--work-tree` without `--git-dir` | git still uses the current repo's `.git`, but the guard treated the work tree as the repo |
+| 12 | environment | subshell grouping | `(cd ../other && git commit)` was evaluated against the original repo — the segment splitter dropped `(` and `)` instead of scoping the working directory to them |
+| 13 | environment | `-C` + `--git-dir` | `-C` was treated as overriding `--git-dir`, but git applies `-C` to the cwd and still lets `--git-dir` pick the repo, so `git -C ../feature --git-dir=/repo-on-main/.git commit` was evaluated against `../feature` |
+| 14 | parsing | shell control flow | reserved words sit in front of the command they introduce, so `if …; then git commit; fi` tokenized as `["then", "git", …]` and never registered as a git command |
+| 15 | parsing | the Windows spelling | `git.exe commit`, `/mingw64/bin/git.exe push origin main` and any case variant matched neither the executable check nor the `"git" in command` fast path |
+| 16 | environment | an unexpanded `cd` operand | `cd "$MAIN_REPO" && git commit` was read as a *failed* `cd`, so the guard kept evaluating the current repo while bash expanded the variable and committed elsewhere |
+| 17 | environment | where a refspec-less push goes | `git push` was read as "the current branch", but `push.default=upstream` and a configured `remote.<name>.push` send it to `main` from a feature branch tracking `origin/main` |
+| 18 | environment | pipelines and `&` | bash runs each pipeline element, and any command ended by `&`, in its own process — so `cd other \| git commit` commits in the original repo, but `\|` was treated like `;` and the `cd` leaked |
+| 19 | parsing | `--repo <r>` as two tokens | the value was skipped rather than captured, so the no-refspec fallback read the default remote's `push` refspec instead of `<r>`'s |
+| 20 | parsing | `--all` / `--mirror` | they push every *local* branch and override `push.default`, so `git push --all origin` from a feature branch writes the protected branch with nothing on the command line naming it |
+| 21 | parsing | the `--repo` ambiguity, half-handled | the positionals were read under both meanings, but the *config* lookup still used the `--repo` value — so `git push --repo=origin upstream` consulted `remote.origin.push` while git pushed to `upstream` |
+| 22 | environment | an unexpanded `-C` / `--git-dir` operand | defect 16 one operand over — `git -C "$MAIN_REPO" commit` was read as a literal directory of that name, found not to be a repo, and allowed |
+| 23 | parsing | command substitutions as boundaries | `$( … )` is part of a word, but both the segment scanner and `shlex` broke it apart, so `git -C $(cat path) commit` stopped being recognised as a git command |
+| 24 | parsing | tag pushes read as branch pushes | `git push --tags origin` sends tags and *no* branch, and `git push origin tag <name>` is `refs/tags/<name>` — both were read as branch destinations and blocked from a guarded branch, falsifying the claim below and breaking `/ship` |
+| 25 | environment | `&&` / `\|\|` short-circuit | a `cd` bash *skips* was applied anyway, so `cd /missing && cd ../feature ; git commit` evaluated `../feature` while the commit really happened in the original, guarded repo |
+| 26 | environment | a wrapped `cd` | `FOO=1 cd /guarded`, `command cd /guarded` and `builtin cd /guarded` all move the shell, but only a bare `cd` was recognised |
+| 27 | parsing | dry runs treated as writes | `git commit --dry-run` and `git push --dry-run`/`-n` write nothing, yet were blocked |
+| 28 | parsing | redirections | bash allows them anywhere: `>/tmp/out git commit` left the redirection as token 0 so the segment stopped looking like git, and `git push origin >main` counted the *filename* as a refspec, suppressing the current-branch fallback |
+| 29 | parsing | `builtin git` | `builtin` runs only shell builtins, so git never runs — it was in the run-wrapper list anyway and got denied |
+| 30 | parsing | here-doc bodies | `cat <<EOF … EOF` feeds its body to stdin, but newline splitting turned every line into a command, so a `git commit` line inside one could be blocked |
+| 31 | parsing | the here-doc terminator | bash needs an exact match (`<<-` strips only leading tabs); comparing a stripped line closed the body early on an indented ` EOF` and handed the rest of the data back as commands |
+| 32 | parsing | `command -v` | it looks a name up and prints it, running nothing, but the flag was skipped and `command -v git commit` read as a commit |
+| 33 | environment | a `cd` gated on an unknown status | defect 25 modelled the short-circuit only where the outcome was computable; `test -d /missing && cd ../feature ; git commit` applied "might run" as "did run" and moved the guard while the commit landed on the guarded branch |
+| 34 | parsing | a quoted here-doc delimiter | bash quote-removes the word, so `<<\EOF` and `<<E"OF"` are closed by a plain `EOF`; storing the quoting meant the terminator never matched and the body swallowed the real command after it |
+| 35 | parsing | `--mirror` read as `--all` | it also *deletes* remote refs absent locally, so the guarded branch is written whether present or not; checking the local branch list allowed a mirror push from a repo with no local `main` |
+| 36 | parsing | function definitions | `gc() { git commit -m x; }` defines and writes nothing, but the body was read as a live command — while simply skipping it would have lost `gc() { … }; gc`, which really does commit |
+| 37 | environment | a `cd` inside an `if`/loop body | defect 33 for control flow rather than `&&` — `if false; then cd /feature; fi; git commit` commits in the original repo, but the body was applied as if it always ran |
+| 38 | parsing | config field types | `{"protected_branch": 123}` is truthy, so `123` became the guarded branch name, matched nothing, and silently unguarded a repo that looked opted in |
+| 39 | parsing | an assignment prefix before a call | `FOO=1 gc` still calls `gc`, but the function lookup used `tokens[0]`, which was the assignment |
+| 40 | parsing | function call arguments | `g() { git "$@"; }` is an ordinary wrapper, and expanding the body without the call's arguments left a subcommand of `$@` that matched nothing |
+| 41 | parsing | a variable subcommand | `git $VERB -m x` was allowed outright — the verb is as unresolvable as a refspec we can't expand, and now fails closed the same way |
+| 42 | environment | conditional-depth leak | defect 37's own bookkeeping — counting `then`/`else`/`elif`/`do` incremented once per *branch* but decremented once per `fi`, so after an `if … else … fi` a later certain `cd` still kept the old repo alive as a candidate |
+| 43 | environment | a `cd` in a condition | counting the construct instead over-denied the *condition* — `if cd ../other; then :; fi` really moves the shell, because a condition runs unconditionally |
+| 44 | environment | `GIT_DIR` in the environment | it selects the repo exactly as `--git-dir` does, but assignment prefixes were dropped, so `GIT_DIR=/repo-on-main/.git git commit` was evaluated against the session's repo |
+| 45 | parsing | quoted parens in `$( … )` | counting parens without minding quotes ended the substitution early on `echo $(printf ')')`, and the stray quote then swallowed the rest of the line, including a real `; git commit` |
+| 46 | parsing | short-option clusters on `commit` | git reads `-am` as `-a -m`, so `git commit -am --dry-run` makes `--dry-run` the *message* and really commits, but the cluster was read as an unknown option and let through as a dry run |
+| 47 | parsing | regex-masked substitutions in `_tokens` | it could not see quoting, unlike the scanner, so `git -C $(printf '(') status` came out shredded and a *read-only* command fell into the fail-closed path |
+| 48 | parsing | short-option clusters on `push` | `-vn` is `-v -n`, a dry run that writes nothing, but only the exact `-n` was recognised |
+| 49 | environment | `export GIT_DIR=…` | it persists to every later command in the shell, so a commit after it lands in that repo, but only *inline* assignments were read |
+| 50 | environment | wrapper deny checked one candidate | after a conditional `cd`, an opted-in candidate went unexamined whenever the other one was not opted in |
+| 51 | parsing | a negated dry run | git generates `--no-` forms and the last flag wins, so `git commit --dry-run --no-dry-run -m x` really commits — but True was returned at the first `--dry-run` |
+| 52 | parsing | a substitution's body runs | `out=$(git push origin main)` pushes, but the body was opaque text for the surrounding word and never evaluated as a command |
+| 53 | parsing | a definition after a reserved word | the check required a blank buffer, so `if true; then gc() { … }; fi` was parsed as live code and denied |
+| 54 | environment | `env -i` / `env -u GIT_DIR` | they stop an exported `GIT_DIR` reaching git, but the inherited value was reapplied anyway |
+| 55 | environment | a conditional `export` | it was applied unconditionally, unlike a `cd` in the same place, so `if false; then export GIT_DIR=…; fi` moved the target when bash had not |
+| 56 | environment | the hook's own environment | it inherits the agent's, so an exported `GIT_DIR` there made every probe resolve against that repo — disarming the guard for *every* command, not one |
+| 57 | environment | `env -- git …` | `--` ends env's options, but it was read as an unknown long option, so the invocation became unresolvable and even read-only git was denied |
+| 58 | parsing | the other negated push booleans | defect 51 fixed only `--dry-run`, so `git push --tags --no-tags origin` still looked tags-only and suppressed the current-branch fallback |
+| 59 | parsing | `time -p git …` | `time` is the one leading word that takes an option, and peeling only the bare word left `-p` in front of the command |
+| 60 | environment | a global function table | a definition inside `( … )` dies with the subshell, and one in an `if` body may never happen — but either could overwrite a real outer function in the model |
+| 61 | parsing | shell comments | bash ignores everything after an unquoted `#` that starts a word, but the scanner split at a `;` inside one — blocking a commit that doesn't exist |
+| 62 | parsing | an unquoted here-doc body expands | defect 30 made bodies inert, but only a *quoted* delimiter makes them literal — `cat <<EOF` … `$(git push origin main)` … `EOF` really pushes |
+| 63 | parsing | clustered `command -pv` | a `v`/`V` anywhere in the cluster makes it a lookup that runs nothing, but only the bare `-v` was recognised |
+| 64 | parsing | the same config read two ways | `pre-push` normalises `refs/heads/main` to `main`; this guard read it literally, matched no branch, and left the repo silently unguarded here while looking opted in |
+| 65 | environment | a failed `-C` | git exits on a directory it cannot enter, so nothing runs — but a later `--git-dir` was followed anyway and the command denied |
+| 66 | parsing | an array assignment read as a subshell | `args=(git commit -m x)` stores the words rather than running them, but the `(` opened a subshell and they were evaluated as a command |
+
+**`pre-push` is the actual enforcement layer** — TOM-348 is merged and ships as `templates/hooks/pre-push-branch-guard`. Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
+
+The two are **complementary, not redundant**: this hook gives an agent immediate feedback and a message naming the right route before the command runs; `pre-push` is what holds. The division is concrete: `pre-push` holds, but only for pushes — `git commit` never reaches it, and a commit is what a push then has to carry. Both read the same `.claude/git-guard.json`, so branch names are normalised identically and a test asserts the two readers agree; widen that schema in both files or neither.
+
 ### Provenance Guard (PreToolUse)
 
 Stamps an identity tag on every automated write to a shared record, so `author != reviewer` is visible without any App (ADR-0006 §6/§7). Closes the one lane server-side stamping can't reach — direct MCP writes. Fires on:
@@ -184,6 +351,7 @@ Requires `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` env v
 /guard langfuse off         # disable Langfuse tracing
 /guard secrets off          # disable secrets guard (session override)
 /guard destructive off      # disable destructive command blocking
+/guard git-workflow off     # allow direct commit/push on protected + integration branches
 /guard audit off            # disable auto pip-audit
 /guard provenance off       # disable identity-tag auto-injection
 /guard all on               # re-enable everything
@@ -335,7 +503,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 
 | Skill | Description |
 |-------|-------------|
-| `/guard` | Toggle any of the 6 security guards on/off, check status |
+| `/guard` | Toggle any of the 7 security guards on/off, check status |
 | `generating-commit-messages` | Conventional Commits guidance (auto-applied before any `git commit`) |
 | `/decision` | Record architecture decisions as ADRs with auto-numbering |
 | `/handoff` | Prepare session handoff document (captures context, ADRs, TASKS) |

@@ -402,6 +402,21 @@ gate binds it on conclude.
     yields to the deliberate one. It is not a substitute for server-side branch
     protection — it exists precisely because protection is unavailable on these
     repos' plan.
+
+- **The same file also arms the agent-side `git-workflow` guard.** One
+  `.claude/git-guard.json`, two layers, and they are not alternatives:
+
+  - `pre-push` is the one that HOLDS. Git hands it the resolved refs, so no
+    command-line parsing is involved and it covers a human's own terminal.
+  - the `git-workflow` PreToolUse hook is a SPEED BUMP in front of it: it sees
+    Claude tool calls only and infers intent from a shell string, so it has an
+    inherent tail of shapes it has never met — but it catches `git commit` too
+    (which never reaches `pre-push`) and explains the route BEFORE the command
+    runs, rather than after the work is done.
+
+  Nothing extra to install for the second layer — it ships with the plugin and
+  reads the same file. Toggle it with `/guard git-workflow off` when a
+  deliberate override is wanted; that does NOT disarm `pre-push`.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).

@@ -1,5 +1,5 @@
 {
-  "description": "Essential hooks: security guards (destructive/secrets/injection/provenance), Python formatting, dependency audit, worktree lifecycle (setup + venv reap)",
+  "description": "Essential hooks: security guards (destructive/git-workflow/secrets/injection/provenance), Python formatting, dependency audit, worktree lifecycle (setup + venv reap)",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,11 @@
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/destructive-guard.py",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/run-hook ${CLAUDE_PLUGIN_ROOT}/hooks/git-workflow-guard.py",
+            "timeout": 5
           },
           {
             "type": "command",

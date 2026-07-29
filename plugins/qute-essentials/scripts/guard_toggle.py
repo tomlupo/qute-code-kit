@@ -12,7 +12,7 @@ USAGE
     guard_toggle.py all <on|off>                # toggle all guards
 
 Where <name> is one of: lakera, langfuse, secrets, audit, destructive,
-provenance.
+git-workflow, provenance.
 
 GUARDS
 
@@ -48,6 +48,20 @@ GUARDS
                   spelling. May false-positive on legitimate cleanup
                   like 'rm -rf dist/' or 'git reset --hard' on a clean
                   feature branch — disable temporarily, then re-enable.
+
+    git-workflow  Block a direct 'git commit'/'git push' on a repo's
+                  protected branch (default 'main') and its integration
+                  branch (default 'dev', only when origin/dev exists) —
+                  work must arrive there through a PR, which is where the
+                  review gate and CI live. OPT-IN PER REPO: it only fires
+                  in repos that commit '.claude/git-guard.json'; with no
+                  such file it is a total no-op, so scratch repos and
+                  third-party clones are untouched. Every field in that
+                  file is optional ('{}' gets the defaults); an explicit
+                  '"integration_branch": null' means the repo genuinely
+                  has none. Never prompts — deny or allow only — so a
+                  backgrounded agent can never stall on it; the escape
+                  hatch is this toggle.
 
     provenance    Idempotently auto-inject the identity tag on automated
                   writes to shared records — Linear MCP (save_issue /
@@ -128,6 +142,10 @@ GUARDS = {
     "destructive": {
         "display": "Destructive Guard",
         "description": "Block destructive commands (git reset --hard, rm -rf, DROP TABLE)",
+    },
+    "git-workflow": {
+        "display": "Git Workflow",
+        "description": "Block direct commit/push on protected + integration branches (opt in per repo via .claude/git-guard.json)",
     },
     "provenance": {
         "display": "Provenance Guard",
@@ -218,7 +236,7 @@ def main() -> None:
     # Toggle commands: <guard> <on|off>
     if len(args) != 2 or args[1].lower() not in ("on", "off"):
         print(
-            "USAGE: guard_toggle.py [status | <lakera|langfuse|secrets|audit|destructive|provenance|all> <on|off>]",
+            "USAGE: guard_toggle.py [status | <lakera|langfuse|secrets|audit|destructive|git-workflow|provenance|all> <on|off>]",
             file=sys.stderr,
         )
         sys.exit(1)
