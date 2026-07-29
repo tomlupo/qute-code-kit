@@ -659,6 +659,11 @@ def _heredoc_openers(segment: str):
     return openers
 
 
+# Everything accumulated so far is itself part of a redirection operator, so a
+# `<`/`>` here CONTINUES it rather than starting a new one: `>>`, `2>&1`, `&>`.
+_IS_REDIR_PREFIX = re.compile(r"\A[0-9<>&]*\Z")
+
+
 def _has_unquoted(text: str, chars: str) -> bool:
     """Whether any of `chars` appears in `text` outside quotes/escapes."""
     i, n, quote = 0, len(text), None
@@ -688,12 +693,22 @@ def _has_unquoted(text: str, chars: str) -> bool:
 def _token_spans(text: str):
     """(start, end) of every whitespace-separated token, respecting quotes.
 
-    `str.split()` does not: it reads `FOO='x cat' bash <<'EOF'` as five words,
-    the second of which is `cat'`. `_split_command` then stripped the quote,
-    called the program `cat` — a heredoc DATA SINK — and blanked a body that
-    `bash` went on to execute. That was a live bypass in the TOM-379 surface,
-    reachable as `true && FOO='x cat' bash <<'EOF' …`; a quoted value must not
-    be able to donate a word to the parse.
+    `str.split()` does not, in two ways that both cost a bypass.
+
+    QUOTES. It reads `FOO='x cat' bash <<'EOF'` as five words, the second of
+    which is `cat'`. `_split_command` then stripped the quote, called the
+    program `cat` — a heredoc DATA SINK — and blanked a body that `bash` went
+    on to execute. A quoted value must not be able to donate a word.
+
+    REDIRECTIONS, which the shell does not require whitespace around. `echo
+    rm -rf /srv/data>/tmp/x` is four words and a redirection to bash; to
+    `str.split()` it is `/srv/data>/tmp/x`, one argument, and `_stage_writes_a_file`
+    saw no write at all — so route 3 let the text be blanked while the next
+    command ran the file. The same mis-parse read `foo>/tmp/cat <<'EOF'` as
+    the program `cat`, making an arbitrary program's heredoc look like data.
+    Splitting before a glued operator fixes both, and `cat>/tmp/f <<'EOF'` —
+    previously a false positive — starts working for the same reason.
+    (Review on #91, round 4.)
     """
     spans, i, n = [], 0, len(text)
     while i < n:
@@ -721,6 +736,8 @@ def _token_spans(text: str):
                 continue
             if c.isspace():
                 break
+            if c in "<>" and i > start and not _IS_REDIR_PREFIX.match(text[start:i]):
+                break  # a redirection glued to the end of a word: `cat>f`
             i += 1
         spans.append((start, min(i, n)))
     return spans
@@ -1290,7 +1307,10 @@ def _stage_writes_a_file(stage: str) -> bool:
         token = stage[a:b]
         if _FD_DUP.match(token):
             continue
-        if _REDIRECTS_OUTPUT.match(token):
+        # `_has_unquoted` rather than a match at the token's start: since the
+        # tokenizer splits before a glued operator the two agree, and if it
+        # ever stops agreeing this one errs toward calling it a write.
+        if _REDIRECTS_OUTPUT.match(token) or _has_unquoted(token, ">"):
             return True
     return False
 

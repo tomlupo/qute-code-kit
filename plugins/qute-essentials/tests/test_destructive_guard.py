@@ -868,6 +868,42 @@ class TestAToolThatCanRunItsOwnOptionValue:
         assert_denied("echo 'rm -rf /srv/data' |& bash", RM_ROOT)
         assert_denied("echo 'rm -rf /srv/data' |& sh -s", RM_ROOT)
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # Review finding on #91 round 4: the shell requires no whitespace
+            # around a redirection, and `str.split()`-shaped tokenization read
+            # `/srv/data>/tmp/x` as one argument — so route 3 saw no write.
+            "echo rm -rf /srv/data>/tmp/x ; bash /tmp/x",
+            "echo rm -rf /srv/data>>/tmp/x ; bash /tmp/x",
+            "echo 'rm -rf /srv/data'>/tmp/x ; bash /tmp/x",
+            "printf %s 'rm -rf /srv/data'>/tmp/x ; bash /tmp/x",
+            # …and it can be glued to a token of a LATER stage instead
+            "echo 'rm -rf /srv/data' | cat>/tmp/x ; bash /tmp/x",
+            "echo 'rm -rf /srv/data' | tr a a>/tmp/x ; bash /tmp/x",
+            "grep -o 'rm -rf /srv/data' f>/tmp/x ; bash /tmp/x",
+        ],
+    )
+    def test_a_redirection_glued_to_a_word_is_still_a_write(self, command):
+        assert_denied(command, RM_ROOT)
+
+    def test_a_glued_redirection_with_nothing_to_run_it_is_still_fine(self):
+        assert_allowed("echo rm -rf /srv/data>/tmp/x")
+        assert_allowed("echo 'rm -rf /srv/data' | cat>/tmp/x")
+
+    @pytest.mark.parametrize("sink", ["cat", "tee"])
+    def test_a_glued_redirection_does_not_rename_the_program(self, sink):
+        """The same mis-parse reached TOM-379's data-sink test: `foo>/tmp/cat`
+        was read as the program `cat`, so an arbitrary program's heredoc body
+        was blanked as if it were data bound for a file."""
+        assert_denied(f"foo>/tmp/{sink} <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    @pytest.mark.parametrize("opener", ["cat>/tmp/f", "cat >/tmp/f", "cat<<'EOF'"])
+    def test_and_a_real_data_sink_is_recognised_however_it_is_spaced(self, opener):
+        # The other half of the same mis-parse: these were FALSE POSITIVES.
+        suffix = "" if opener.endswith("'EOF'") else " <<'EOF'"
+        assert_allowed(f"{opener}{suffix}\nrm -rf /srv/data\nEOF")
+
     @pytest.mark.parametrize("dup", ["2>&1", ">&2", "2>&-"])
     def test_a_descriptor_duplication_is_not_a_write(self, dup):
         # `2>&1` opens no file, so route 3 does not apply and the executor
