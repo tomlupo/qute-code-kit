@@ -3448,6 +3448,75 @@ def test_a_quoted_paren_in_a_substitution_does_not_hide_the_next_command(
     assert "main" in hso["permissionDecisionReason"], prefix
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "out=$(git commit -m x)",
+        "echo $(git commit -m x)",
+        "echo `git commit -m x`",
+        'msg="$(git commit -m x)"',
+        "out=$(cd . && git commit -m x)",
+    ],
+)
+def test_a_substitution_body_runs_and_is_guarded(cmd, tmp_path, home):
+    """Defect 52. A substitution's body EXECUTES — `out=$(git push origin
+    main)` really pushes — but it was treated as opaque text for the
+    surrounding word and never evaluated as a command."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+def test_a_substitution_pushing_to_a_guarded_branch_is_caught(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run("out=$(git push origin main)", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_single_quotes_suppress_substitution(tmp_path, home):
+    """`'$(git commit)'` is literal text — bash runs nothing — so it must not
+    be read as a command. Double quotes are the opposite and DO substitute,
+    which is why they are handled and this is not."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("msg='$(git commit -m x)'", repo, home)
+    assert decision == "allow"
+
+
+def test_a_harmless_substitution_body_is_still_allowed(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in ("out=$(git status)", "out=$(git log --oneline)", "echo $((1+2))"):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", cmd
+
+
+def test_a_substitution_is_scoped_like_a_subshell(tmp_path, home):
+    """Its `cd` must not leak to the command after it — the property that made
+    substitutions opaque in the first place."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"echo $(cd {other} && pwd); git commit -m x", repo, home)
+    assert decision == "deny", "the commit is back in the original repo"
+
+
+def test_a_function_definition_inside_a_body_is_still_a_definition(tmp_path, home):
+    """Defect 53. The definition check required a blank buffer, so after
+    `then ` it was missed and the body was parsed as live code."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in (
+        "if true; then gc() { git commit -m x; }; fi",
+        "while x; do gc() { git commit -m x; }; done",
+        "if a; then echo 1; else gc() { git commit -m x; }; fi",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", cmd
+
+    # …and calling it inside the body is still caught.
+    decision, _ = _run("if true; then gc() { git commit -m x; }; gc; fi", repo, home)
+    assert decision == "deny"
+
+
 def test_command_substitution_does_not_disturb_the_base_dir(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     other = _make_repo(tmp_path / "other", "feat/x", STD_CFG)

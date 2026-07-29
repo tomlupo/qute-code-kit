@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48 and 51 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49 and 50 are the environment axis, and
+34-36, 38-41, 45-48 and 51-53 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49 and 50 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -297,7 +297,14 @@ the same footing — a guard that cries wolf gets turned off:
   51. a NEGATED dry run — git generates `--no-` forms and the last flag wins,
       so `git commit --dry-run --no-dry-run -m x` really commits and
       `git push -n --no-dry-run` really pushes. Returning True at the first
-      `--dry-run` allowed both.
+      `--dry-run` allowed both;
+  52. a command substitution's BODY runs — `out=$(git push origin main)`
+      pushes — but it was opaque text for the surrounding word and never
+      evaluated as a command. (Inside DOUBLE quotes too; single quotes
+      suppress it.);
+  53. a function DEFINITION after a reserved word — the check required a blank
+      buffer, so `if true; then gc() { git commit -m x; }; fi` was parsed as
+      live code and denied.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -595,7 +602,7 @@ def _dequote_word(word: str) -> str:
     return "".join(out)
 
 
-def _segments(command: str):
+def _segments(command: str, _depth: int = 0):
     """Split a shell line into events: the individual commands joined by
     `&&`, `||`, `;`, `|` and newlines, plus the SUBSHELL boundaries between
     them. Yields `("cmd", text)`, `("open", None)` and `("close", None)`.
@@ -619,12 +626,16 @@ def _segments(command: str):
     bash committed in the original repo (environment-axis defect, round 9).
 
     The scan is quote-aware, so a `)` or a separator inside `git commit -m
-    "done)"` is text, not syntax. Command substitutions — `$(…)`, `` `…` `` and
-    `$((…))` — are consumed WHOLE as opaque text rather than treated as
-    boundaries, because they are part of a word, not a command break: splitting
+    "done)"` is text, not syntax. Command substitutions — `$(…)` and
+    `` `…` `` — are consumed WHOLE as opaque text for the surrounding WORD,
+    because they are part of it rather than a command break: splitting
     `git -C $(cat path) commit` at the `(` tore the git command in half and it
-    stopped being recognised at all. Their contents are deliberately not
-    inspected; an operand containing one is unexpanded, which
+    stopped being recognised at all. But their bodies RUN, so they are also
+    emitted as commands inside an `open`/`close` pair — a substitution really
+    is a subshell — because `out=$(git push origin main)` pushes, and treating
+    it as text alone meant the guard never saw it (defect 52). `$((…))` is
+    ARITHMETIC, not a command, and stays opaque. An operand containing a
+    substitution is still unexpanded, which
     `_literal_path` already reports as unknown. An unmatched `)` (a `case` arm)
     is ignored by the caller.
 
@@ -648,6 +659,17 @@ def _segments(command: str):
         if text:
             events.append(("cmd", text))
 
+    def emit_substitution(body):
+        """A substitution's body RUNS, in a subshell — so its commands are
+        emitted between an `open`/`close` pair, before the command that
+        contains it. The depth cap stops a pathological nesting from
+        recursing without bound."""
+        if _depth >= 8 or not body.strip():
+            return
+        events.append(("open", None))
+        events.extend(_segments(body, _depth + 1))
+        events.append(("close", None))
+
     def skip_heredoc_bodies(pos, pending):
         """Consume the bodies queued by `<<` operators on the line just ended."""
         for delim, strip_tabs in pending:
@@ -669,7 +691,10 @@ def _segments(command: str):
     in_single = in_double = False
     while i < n:
         c = command[i]
-        if not in_single and not in_double and not "".join(buf).strip():
+        pending_words = "".join(buf).split() if not (in_single or in_double) else None
+        if pending_words is not None and all(
+            w in _LEADING_SHELL_WORDS for w in pending_words
+        ):
             # At a command position: a function DEFINITION defines, it does not
             # run. Capture the body and skip past it.
             match = _FUNC_DEF_RE.match(command, i)
@@ -681,6 +706,9 @@ def _segments(command: str):
                 if opener in ("{", "("):
                     end = _skip_group(command, k, opener, "}" if opener == "{" else ")")
                     if end is not None:
+                        # Flush any reserved words that led here (`then`, `do`)
+                        # so the caller still sees them open a body.
+                        flush()
                         events.append(
                             (
                                 "func",
@@ -690,7 +718,6 @@ def _segments(command: str):
                                 ),
                             )
                         )
-                        buf.clear()
                         i = end
                         continue
         if in_single:
@@ -702,6 +729,24 @@ def _segments(command: str):
                 buf.append(c)
                 buf.append(command[i + 1])
                 i += 2
+                continue
+            # Substitution happens inside DOUBLE quotes too, so
+            # `msg="$(git commit -m x)"` really commits. (Single quotes
+            # suppress it, which is why the branch above does not do this.)
+            if c == "$" and command[i + 1 : i + 2] == "(":
+                j = _skip_group(command, i + 1, "(", ")")
+                j = n if j is None else j
+                if command[i + 2 : i + 3] != "(":
+                    emit_substitution(command[i + 2 : j - 1])
+                buf.append(command[i:j])
+                i = j
+                continue
+            if c == "`":
+                j = command.find("`", i + 1)
+                j = n if j < 0 else j + 1
+                emit_substitution(command[i + 1 : max(j - 1, i + 1)])
+                buf.append(command[i:j])
+                i = j
                 continue
             buf.append(c)
             in_double = c != '"'
@@ -728,11 +773,15 @@ def _segments(command: str):
             j = _skip_group(command, i + 1, "(", ")")
             if j is None:
                 j = n  # never closes: a syntax error bash would not run either
+            # `$((…))` is arithmetic, not a command — nothing to run.
+            if command[i + 2 : i + 3] != "(":
+                emit_substitution(command[i + 2 : j - 1])
             buf.append(command[i:j])
             i = j
         elif c == "`":
             j = command.find("`", i + 1)
             j = n if j < 0 else j + 1
+            emit_substitution(command[i + 1 : max(j - 1, i + 1)])
             buf.append(command[i:j])
             i = j
         elif (
