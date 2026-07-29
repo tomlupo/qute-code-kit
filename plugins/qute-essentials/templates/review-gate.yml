@@ -17,7 +17,7 @@
 #
 # An independent review = a native review OBJECT (state COMMENTED / APPROVED /
 # CHANGES_REQUESTED) authored by a DIFFERENT identity than the PR author —
-# qute-review[bot] via /qute-reviewer, another App, or a human. A CI "comment"
+# qute-review[bot] via /qute-review, another App, or a human. A CI "comment"
 # does NOT count. NOTE (ADR-0005): the identity check is the gate's *checkable*
 # proxy; the substantive requirement is that a SEPARATE reviewing agent with
 # fresh context reviewed the change.
@@ -82,7 +82,7 @@ jobs:
             if (independent.length === 0) {
               core.setFailed(
                 `No independent review yet (PR authored by @${author}). ` +
-                `Post one with /qute-reviewer (qute-review[bot]) or have another identity review.`
+                `Post one with /qute-review (qute-review[bot]) or have another identity review.`
               );
             } else {
               const who = [...new Set(independent.map(r => r.user.login))].join(", ");

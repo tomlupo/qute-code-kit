@@ -308,10 +308,12 @@ tier-aware: `jimek-tier:trivial` passes with no review; `standard`/`complex`/no-
 independent review object. Install it into an opting-in repo on request:
 
 ```bash
-mkdir -p .github/workflows && cp "$(claude plugin path qute-essentials)/templates/review-gate.yml" .github/workflows/review-gate.yml
+mkdir -p .github/workflows && cp "${CLAUDE_PLUGIN_ROOT}/templates/review-gate.yml" .github/workflows/review-gate.yml
 ```
 
-(or copy the file from the plugin's `templates/` directory).
+`${CLAUDE_PLUGIN_ROOT}` is set inside a Claude Code session running this plugin.
+From a plain shell it is unset — copy the file from the plugin's installed
+`templates/` directory instead (`claude plugin list` shows where the plugin lives).
 
 The same workflow carries a second job, **`audit-sensitive-paths`** — on a PR that
 touches security-sensitive files (`pyproject.toml`, `uv.lock`, `requirements*.txt`,
@@ -366,9 +368,13 @@ The `audit` verb is wired to run by *change*, not by calendar (obsidian-vaults#1
 
 ```bash
 # weekly sweep, priority repos first, report to a dir
-python3 "$(claude plugin path qute-essentials)/scripts/deep_sweep.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_sweep.py" \
   --config ~/.config/qute/audit-inventory.json --report ~/audit-reports
 ```
+
+(`${CLAUDE_PLUGIN_ROOT}` resolves inside a session running this plugin; from a
+cron entry or plain shell, substitute the plugin's installed path — `claude
+plugin list` shows it.)
 
 ## Setup
 

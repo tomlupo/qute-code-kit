@@ -278,9 +278,12 @@ A concrete instantiation, for reference when adapting the knobs:
 
 - **Integration branch:** `dev` (working branches `feat/{alias}-*`,
   `research/{alias}-*`; runs before `/promote` and `/ship`).
-- **Contract docs:** `.claude/rules/methodology.md`,
-  `.claude/rules/quant-coding.md`, `.claude/rules/runbooks.md`,
-  `.claude/rules/general-rules.md`.
+- **Contract docs:** `CLAUDE.md`, plus whichever of
+  `.claude/rules/{methodology,quant-coding,runbooks,general-rules}.md` carry
+  `paths:` frontmatter. The unscoped ones load as `CLAUDE.md` sections anyway
+  (ADR-0005 §5 as amended), so they are reviewer reading either way — but they
+  are not what this field is for; only a scoped rule adds a file the reviewer
+  would otherwise miss.
 - **Custom reviewers:** `methodology-reviewer` (src + methodology drift),
   `experiment-reviewer` (research experiments), `runbook-reviewer` (pipelines +
   runbooks).

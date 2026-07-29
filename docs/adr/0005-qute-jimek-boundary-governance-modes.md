@@ -6,7 +6,9 @@
 `.claude/rules`. The reasoning is the amendment block in §5. Sites that merely *named* the old
 home (§1, §2, §3, §6) are corrected in place and tagged `[amended 2026-07-28]`; **§5's body is
 left verbatim** because the amendment quotes and rebuts it, so that text is the record of what
-was wrong. Nothing else about this ADR changed.
+was wrong — its wording is unchanged, but each retracted claim now carries an inline
+`[retracted 2026-07-28]` tag so a grep hit or a deep link into that block cannot read as current.
+Nothing else about this ADR changed.
 
 ## Supersedes
 
@@ -93,25 +95,30 @@ One template serves both modes: with jimek the label makes it tier-aware; withou
 
 > **Read the amendment at the end of this section first** *[amended 2026-07-28]* — the contract
 > below still holds, but its home is `CLAUDE.md`. Everything between here and that amendment is
-> the 2026-07-21 text, kept as the record of what was decided and what was wrong with it.
+> the 2026-07-21 text, kept as the record of what was decided and what was wrong with it. Its
+> wording is unchanged; each retracted claim carries an inline *[retracted 2026-07-28]* tag.
 
-`setup-qute-repo` stamps the repo's core behavioral rules into **`.claude/rules/`** (auto-loaded
-every session, modular, regenerable per-concern — the same additive/never-clobber pattern as the
-issue-tracker setup):
+`setup-qute-repo` stamps the repo's core behavioral rules into **`.claude/rules/`**
+*[retracted 2026-07-28 — it stamps nothing there; the core is written as `CLAUDE.md` sections]*
+(auto-loaded every session, modular, regenerable per-concern — the same additive/never-clobber
+pattern as the issue-tracker setup):
 
 - **common core** (both modes): `git-workflow.md` (branch off default, Conventional Commits,
   PR-per-change), `shipping.md` (`/ship`, version/changelog conventions), `review-expectations.md`
   (the human-readable "non-trivial changes get an independent review before merge"), tracker rules.
 - **jimek-conditional note**: with jimek — the repo is conductor-managed, tiers live in
   `conductor.yml`, autonomous work is lane-routed, *interactive work is yours and the conductor
-  stays out of your lane*; without jimek — governance is `.claude/rules` + CI, human-driven merge.
+  stays out of your lane*; without jimek — governance is `.claude/rules` + CI *[retracted
+  2026-07-28 — read: the repo's `CLAUDE.md` behavioral contract + CI]*, human-driven merge.
 
-`.claude/rules` (not `CLAUDE.md`) is the home for the stamped core: it auto-loads at session
+`.claude/rules` (not `CLAUDE.md`) is the home for the stamped core *[retracted 2026-07-28 — this
+is the exact claim the amendment below rebuts; `CLAUDE.md` is the home]*: it auto-loads at session
 start exactly like CLAUDE.md but is modular, so onboarding regenerates one concern-file at a time.
 `CLAUDE.md` stays human-authored (project overview/architecture), never clobbered by onboarding.
 
 Because both interactive Claude and autonomous workers run inside a repo checkout, **both
-auto-load the same `.claude/rules`** — one behavioral contract, two worlds. Rigor tiers add only
+auto-load the same `.claude/rules`** *[retracted 2026-07-28 — the same `CLAUDE.md`]* — one
+behavioral contract, two worlds. Rigor tiers add only
 the *automation/enforcement* layer for the autonomous case; they do not restate the rules.
 
 > **Amendment 2026-07-28 (TOM-386) — the destination is `CLAUDE.md`; the layer survives for

@@ -190,20 +190,32 @@ behavioral contract goes into **`CLAUDE.md`**, as sections.
 ### 5a — Which sections, from which source
 
 The prose sources are `templates/contract/*.md`, plugin-relative — resolve them
-with `$(claude plugin path qute-essentials)/templates/contract/`. Write four
-concerns, in this order, each as a `##` section of `CLAUDE.md`:
+with `${CLAUDE_PLUGIN_ROOT}/templates/contract/` — the plugin root this skill is
+running from, the same idiom `guard`, `audit`, `ship`, `task`, `repo-status` and
+`worktrees` use. If it is unset, resolve relative to this skill file's own
+directory instead (`../../templates/contract/`). Write these concerns, in this
+order, each as a `##` section of `CLAUDE.md`:
 
 | Concern | Prose source | Write it when |
 |---|---|---|
 | Git workflow | `templates/contract/git-workflow.md` | always |
-| Shipping | `templates/contract/shipping.md` | the shipping mode (step 1's table, confirmed in step 7) is **not** `none` |
+| Shipping | `templates/contract/shipping.md` | the **confirmed shipping mode** is **not** `none` |
 | Review expectations | `templates/contract/review-expectations.md` | always |
 | Governance | `templates/contract/governance-jimek.md` if step 4 made the repo conductor-managed, else `templates/contract/governance-standalone.md` | always — exactly one of the two, never both |
 
-**Shipping mode `none`** (quant-lab, simple): skip the Shipping section and
-instead record the one line step 7 asks for — `shipping: none`, deliverables go
-to `reports/`, no versions or tags are cut. That line and the section are
-alternatives; writing both is the contradiction to avoid.
+**Settle the shipping mode once, here.** Step 1's table proposes one per repo
+type, but step 1 also lets the user override any cell — so ask which mode this
+repo actually ships in (`/ship` commitizen · `/ship` plugin mode · `gstack
+ship` · `none`) and write it down. Step 7 branches on this **same confirmed
+answer**, not on the repo type, so an overridden repo cannot be told one thing
+here and the opposite there.
+
+**Confirmed mode `none`** (the quant-lab / simple default, and any repo
+overridden to it): skip the Shipping section and instead record the one line
+step 7 asks for — `shipping: none`, deliverables go to `reports/`, no versions
+or tags are cut. That line and the section are alternatives; writing both is the
+contradiction to avoid. So this step writes **four** sections normally, and
+**three** sections plus the `shipping: none` line when the mode is `none`.
 
 These are **prose sources, not files to copy**: drop the
 `<!-- prose source: … -->` header, fit the heading depth to the host `CLAUDE.md`,
@@ -277,17 +289,26 @@ the local pattern only governs human/interactive worktrees). Verify
 
 ## Step 7 — Shipping
 
-- **Plugin repo** (marketplace.json) → `/ship` plugin mode, nothing to stamp.
-- **Python package / production** → run `/ship --dry-run` once so its
-  idempotent first-time setup lands (commitizen dev-dep, `[tool.commitizen]`
-  with version reconciliation, CHANGELOG.md). `/ship` is the **only** version
-  writer — if a `release.yml` workflow bumps versions, warn and neuter it
-  (see the ship skill's "Who owns the version").
-- **Webapp** → `gstack ship`; stamp nothing.
-- **quant-lab / simple** → no releases; deliverables go to `reports/`
-  (lab) or nowhere. Record "shipping: none" explicitly in CLAUDE.md — step 5
-  already wrote that line in place of the Shipping section, so confirm it is
-  there rather than adding a second one.
+**Branch on the mode step 5a confirmed, not on the repo type.** Step 1's table
+only proposes a mode and the user may have overridden it, so a type-keyed bullet
+here can contradict the section step 5a actually wrote. Take the confirmed mode
+from step 5a and act on it:
+
+- **`/ship` plugin mode** (repo carries `marketplace.json`) → nothing to stamp.
+- **`/ship` commitizen** (the Python package / production default) → run
+  `/ship --dry-run` once so its idempotent first-time setup lands (commitizen
+  dev-dep, `[tool.commitizen]` with version reconciliation, CHANGELOG.md).
+  `/ship` is the **only** version writer — if a `release.yml` workflow bumps
+  versions, warn and neuter it (see the ship skill's "Who owns the version").
+- **`gstack ship`** (the webapp default) → stamp nothing.
+- **`none`** (the quant-lab / simple default) → no releases; deliverables go to
+  `reports/` (lab) or nowhere. Step 5a wrote `shipping: none` into `CLAUDE.md`
+  in place of the Shipping section, so **confirm that line is there** rather
+  than adding a second one.
+
+For every mode other than `none`, step 5a wrote the Shipping **section** and
+there is no `shipping: none` line to look for — do not add one, and do not run
+commitizen setup for a repo whose confirmed mode is `none`.
 
 ## Step 8 — Research regime (quant-lab only)
 
@@ -325,7 +346,7 @@ gate binds it on conclude.
   installs, and then *measures* the result:
 
   ```bash
-  python3 "$(claude plugin path qute-essentials)/scripts/install_pre_push_guard.py" \
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_pre_push_guard.py" \
       --repo . [--opt-in] [--adopt-existing]
   ```
 
@@ -455,11 +476,14 @@ Two of the remaining criteria are mechanical; the rest are a read.
 - **The behavioral contract is a HUMAN CHECK.** "Carries the contract with the
   mode-correct governance section" is not mechanized by anything: no script
   knows whether a `CLAUDE.md` section actually says what step 5's source says,
-  and a repo may legitimately word it its own way. Open `CLAUDE.md`, confirm the
-  four concerns of step 5a are each covered exactly once and that the governance
-  section matches the mode step 4 chose, and say in the report that you read it.
-  Do not report this criterion as verified on the strength of the two commands
-  above.
+  and a repo may legitimately word it its own way. Open `CLAUDE.md` and confirm
+  that the concerns of step 5a **that apply to this repo** are each covered
+  exactly once — **four** sections normally, or **three** sections plus a
+  `shipping: none` line when the confirmed shipping mode is `none` — and that the
+  governance section matches the mode step 4 chose. Then say in the report that
+  you read it. Do not report this criterion as verified on the strength of the
+  two commands above, and do not fail a `shipping: none` repo for the Shipping
+  section step 5a told you to skip.
 
 ## Policy (unchanged from adopt-matt-workflow)
 
