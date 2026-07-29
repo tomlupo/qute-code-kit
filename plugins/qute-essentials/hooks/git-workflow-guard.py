@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53 and 58 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50 and 54-57 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58 and 59 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50 and 54-57 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -321,7 +321,10 @@ the same footing — a guard that cries wolf gets turned off:
       `git push --tags --no-tags origin` still looked tags-only, suppressed
       the current-branch fallback, and let a push of the guarded branch
       through. `--no-all`, `--no-branches`, `--no-mirror` and
-      `--no-follow-tags` were equally ignored.
+      `--no-follow-tags` were equally ignored;
+  59. `time -p git …` — `time` is the one leading word that takes an option,
+      and peeling only the bare word left `-p` in front of the command, which
+      then did not look like git at all.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -977,6 +980,10 @@ _LEADING_SHELL_WORDS = frozenset(
     }
 )
 _TRAILING_SHELL_WORDS = frozenset({"}"})
+
+# `time` is the one leading word that takes an option: `-p` selects POSIX
+# output. `--` also ends its options.
+_TIME_FLAGS = frozenset({"-p", "--"})
 
 # A `cd` in a body that may not run is conditional, so it adds a candidate
 # directory rather than replacing the current one. Tracked as a STACK of
@@ -2300,11 +2307,19 @@ def main():
         # there ADDS a possibility rather than replacing the current one, the
         # same way a `cd` after an unevaluated `&&` does (defect 37).
         while tokens and tokens[0] in _LEADING_SHELL_WORDS:
-            if tokens[0] in _CONSTRUCT_OPEN_WORDS:
+            word = tokens[0]
+            if word in _CONSTRUCT_OPEN_WORDS:
                 construct_stack.append(False)  # in its CONDITION, which runs
-            elif tokens[0] in _BODY_OPEN_WORDS and construct_stack:
+            elif word in _BODY_OPEN_WORDS and construct_stack:
                 construct_stack[-1] = True  # now in a body, which may not
             tokens = tokens[1:]
+            if word == "time":
+                # `time` takes `-p` (POSIX output). Peeling only the bare word
+                # left `-p` in front of the command, which then did not look
+                # like git at all — `time -p git commit -m x` really commits
+                # (defect 59).
+                while tokens and tokens[0] in _TIME_FLAGS:
+                    tokens = tokens[1:]
         while tokens and tokens[-1] in _TRAILING_SHELL_WORDS:
             tokens = tokens[:-1]
         if tokens and tokens[0] in _CONSTRUCT_OPEN_HEADS:

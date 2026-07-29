@@ -3711,6 +3711,27 @@ def test_control_flow_push_to_protected_denied_from_feature_branch(cmd, tmp_path
     assert "main" in hso["permissionDecisionReason"], cmd
 
 
+@pytest.mark.parametrize("form", ["time -p", "time -p --", "time --", "time"])
+def test_time_options_do_not_hide_the_command(form, tmp_path, home):
+    """Defect 59. `time` takes `-p`, and bash still runs git — verified.
+    Peeling only the bare word left `-p` in front, which stopped looking like
+    a git command at all."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"{form} git commit -m x", repo, home)
+    assert decision == "deny", form
+    assert "main" in hso["permissionDecisionReason"], form
+
+    decision, _ = _run(f"{form} git status", repo, home)
+    assert decision == "allow", form
+
+
+def test_time_options_do_not_hide_a_push(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run("time -p git push origin main", repo, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
 def test_control_flow_condition_is_read_too(tmp_path, home):
     """`if git …` / `while git …` put a real git command in the condition."""
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
