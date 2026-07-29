@@ -14,7 +14,10 @@ halves of the job are the kind that goes wrong quietly:
   2. **Unwiring it is a surgical edit, not a rewrite.** `.claude/settings.json`
      in those repos is not dedicated to this hook — other hooks live in the same
      event lists. So exactly the entries whose command names the legacy script
-     are removed; every sibling entry keeps its bytes, key order and indentation,
+     are removed; every sibling entry keeps its structure and key order, and —
+     because the file is re-emitted at its own detected indent — its bytes too,
+     for the canonically formatted JSON the house writes (an unusual layout
+     would be normalised; parse-and-reindent cannot preserve one),
      and containers that go empty are pruned rather than left as `[]` / `{}`
      litter that later reads as "a hook used to be here".
 
@@ -317,7 +320,18 @@ def migrate(
 
     # ---- config stamp
     cfg_path = repo / CONFIG
-    if cfg_path.is_file():
+    if not _inside(repo, cfg_path):
+        # The one write that CREATES a path rather than editing one that exists,
+        # and therefore the one that needs the containment check most: with
+        # `.claude` symlinked out of the tree, `mkdir(parents=True)` +
+        # `write_text` would follow it and stamp a config into some other repo,
+        # which then looks opted in to a guard nobody armed there. Checked
+        # against the RESOLVED path, so it holds whether the symlink is
+        # `.claude` itself or an ancestor of it.
+        problems.append(
+            f"{CONFIG} resolves outside {repo} (a symlinked .claude?); refusing to stamp it"
+        )
+    elif cfg_path.is_file():
         result["config_existing"] = cfg_path.read_text(encoding="utf-8")
         notes.append(f"{CONFIG} already present — left as the repo wrote it")
     elif stamp:

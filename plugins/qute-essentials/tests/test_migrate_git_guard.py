@@ -311,6 +311,29 @@ def test_existing_config_is_never_rewritten(tmp_path):
     assert cfg.read_text() == body
 
 
+def test_refuses_to_stamp_through_a_symlinked_claude_dir(tmp_path):
+    """`.claude` pointing out of the tree must not become a write to elsewhere.
+
+    The stamp is the one write that CREATES its path (`mkdir(parents=True)` +
+    `write_text`), so it follows a symlink by default — and the damage is
+    silent: another repo ends up with a `git-guard.json` arming a guard nobody
+    opted it into. Caught on the RESOLVED path, so an outside `.claude` and an
+    outside ancestor are the same case.
+    """
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    repo = tmp_path / "symlinked"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / ".claude").symlink_to(outside, target_is_directory=True)
+
+    out = run_script(repo)
+    assert out.returncode == 1
+    # The write did not happen anywhere: not in the repo, not at the target.
+    assert not (outside / "git-guard.json").exists()
+    assert list(outside.iterdir()) == []
+
+
 def test_stamper_default_detection_matches_the_guard(tmp_path):
     """The stamper's "this is the default anyway" must be the guard's default."""
     for dev in (True, False):

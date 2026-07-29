@@ -360,7 +360,8 @@ gate binds it on conclude.
     own tickets).
   - **Unwires it from `.claude/settings.json` / `settings.local.json`,
     surgically.** Only the entries whose `command` names that script go; sibling
-    hooks keep their bytes and their order, and containers left empty are pruned
+    hooks keep their structure and order — and their bytes, since the file is
+    re-emitted at its own detected indent — and containers left empty are pruned
     rather than left as `[]`. A settings file that is not valid JSON is reported
     and left alone, never rewritten.
   - **Stamps `.claude/git-guard.json` when absent, minimally.** The guard
