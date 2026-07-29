@@ -1093,22 +1093,50 @@ def _blank_python_c_payloads(command: str, chars: list, segments) -> None:
 # becomes `rm -rf /srv/ ob sidian`, which still matches nothing. That is the
 # adversary again, and the note at the top of this file applies unchanged — the
 # text was not contiguous before quote removal either, so nothing regressed.
+#
+# QUOTE STATE MUST NOT CROSS A DATA REGION (review on #92). An unbalanced quote
+# inside a heredoc body left the scanner believing the REST OF THE COMMAND was
+# quoted, so the real quotes after it were not removed and the protection above
+# silently switched itself off:
+#
+#     cat > /tmp/f <<'EOF'
+#     it's fine                 ← one apostrophe, in ordinary English
+#     EOF
+#     rm -rf "/srv/data"        ← quotes kept, so no pattern matched
+#
+# That is not an adversary; it is a contraction. Two defences, and mutation
+# testing says plainly which one does the work:
+#
+#   * LOAD-BEARING — every heredoc body is scanned as its OWN region, its state
+#     discarded at the end. Remove it and four tests fail. It is also the more
+#     correct reading: a heredoc body is literal text to the shell that
+#     collects it, so its quotes are not delimiters of the surrounding command.
+#     It covers a body that is not blanked (`bash <<'EOF'`) as well as one that
+#     is — and the body still has its own quotes removed, which is right too,
+#     since `bash` unquotes it when it runs it.
+#   * BELT-AND-BRACES — the scan runs over the SURFACE built so far rather than
+#     the raw command, so a region already blanked as data holds spaces and
+#     cannot open a quote at all. Remove it and NO test moves: for heredoc
+#     bodies the region rule already covers it, and the other blanked regions
+#     (a `python -c` payload, a data-only stage's arguments) are cut on
+#     quote-aware token boundaries and so cannot leave an odd quote behind.
+#     Kept for the reason the `<<<` skip in `_heredoc_openers` is kept: a new
+#     kind of blanked region added later must not be able to reintroduce the
+#     leak, and this is the reading that will not need revisiting when one is.
+#
+# With state confined, a mis-parse in one region cannot reach another, and
+# within a region it can only blank a quote that should have stayed (harmless,
+# monotone) or keep one that should have gone (the status quo before any of
+# this). No character that is not a quote is ever touched.
 
 
-def _blank_quote_delimiters(command: str, chars: list) -> None:
-    """Overwrite shell quote delimiters with spaces (quote removal).
-
-    Walks the command tracking quote state exactly as `_has_unquoted` does: a
-    backslash escapes the next character outside quotes and inside double
-    quotes, and is a literal inside single quotes.
-
-    A mis-tracked state (an unbalanced quote inside a heredoc body, say) can
-    only ever blank the wrong QUOTE character — no other character is touched
-    — so the worst case stays on the one-directional side described above.
-    """
-    i, n, quote = 0, len(command), None
-    while i < n:
-        c = command[i]
+def _blank_quotes_in_span(chars: list, start: int, end: int) -> None:
+    """Quote removal within ONE region, tracking state exactly as
+    `_has_unquoted` does: a backslash escapes the next character outside quotes
+    and inside double quotes, and is a literal inside single quotes."""
+    i, quote = start, None
+    while i < end:
+        c = chars[i]
         if quote:
             if c == "\\" and quote == '"':
                 i += 2
@@ -1127,6 +1155,25 @@ def _blank_quote_delimiters(command: str, chars: list) -> None:
             i += 2
             continue
         i += 1
+
+
+def _blank_quote_delimiters(chars: list, data_regions=()) -> None:
+    """Overwrite shell quote delimiters with spaces (quote removal).
+
+    Operates on `chars` — the surface built so far — and gives each region in
+    `data_regions` (heredoc bodies) its own quote-scanning region, so no quote
+    state crosses one. See "Quote removal" above for why both matter.
+    """
+    spans, cursor = [], 0
+    for start, end in sorted(data_regions):
+        start, end = max(start, cursor), max(end, cursor)
+        if start > cursor:
+            spans.append((cursor, start))
+        spans.append((start, end))
+        cursor = end
+    spans.append((cursor, len(chars)))
+    for start, end in spans:
+        _blank_quotes_in_span(chars, start, end)
 
 
 def execution_surface(command: str) -> str:
@@ -1166,10 +1213,11 @@ def execution_surface(command: str) -> str:
         # Arguments of a data-only stage (`grep …`, `echo …`). Gated per
         # stage rather than per call — see "Data-only stages" below.
         _blank_data_only_stages(command, chars, segments, bodies)
-        # Last, because it reads the ORIGINAL command and only ever overwrites
-        # quote characters: what is already blank stays blank, and no earlier
-        # decision can be affected by it.
-        _blank_quote_delimiters(command, chars)
+        # Last, and over the surface rather than the original: a region already
+        # blanked as data must not be able to open a quote (review on #92).
+        # Heredoc bodies are handed over as their own scanning regions for the
+        # same reason, which matters for the bodies that stay unblanked.
+        _blank_quote_delimiters(chars, [(bs, be) for _q, _s, _e, bs, be in heredocs])
         return "".join(chars)
     except Exception:
         return command

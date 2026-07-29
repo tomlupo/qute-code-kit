@@ -1576,8 +1576,52 @@ class TestQuotedOperandsAreMatched:
     @pytest.mark.parametrize(
         "command",
         [
+            # Review finding on #92. An unbalanced quote inside a heredoc body
+            # left the scanner believing everything after it was quoted, so the
+            # real quotes were kept and quote removal switched itself off for
+            # the rest of the command. The second case is the one that matters:
+            # an apostrophe in ordinary English, in a body that is BLANKED —
+            # nothing adversarial anywhere in the command.
+            'cat <<EOF\n\'\nEOF\nrm -rf "/srv/data"',
+            "cat > /tmp/f <<'EOF'\nit's fine\nEOF\nrm -rf \"/srv/data\"",
+            # …and one where the body is NOT blanked, so blanking alone would
+            # not have fixed it: the body text is really on the surface, and
+            # only scanning it as its own region keeps its state out of the
+            # command that follows.
+            "bash <<'EOF'\n'\nEOF\nrm -rf \"/srv/data\"",
+            "wc -l <<'EOF'\ndon't\nEOF\nrm -rf \"/srv/data\"",
+        ],
+    )
+    def test_a_stray_quote_in_a_heredoc_cannot_disarm_quote_removal(self, command):
+        assert_denied(command, RM_ROOT)
+
+    def test_the_body_region_rule_is_the_load_bearing_half(self):
+        """Stated because mutation testing measured it: scanning the surface
+        instead of the raw command is belt-and-braces (removing it moves no
+        test), while treating each heredoc body as its own region is what
+        actually closes the hole. Asserted at the function so the split is
+        visible without reading the mutation log."""
+        command = "cat > /tmp/f <<'EOF'\nit's fine\nEOF\nrm -rf \"/srv/data\""
+        body = (command.index("it's"), command.index("\nEOF\nrm"))
+        leaky = list(command)
+        guard._blank_quote_delimiters(leaky, ())
+        assert '"' in "".join(leaky), "no region rule: the later quotes survive"
+        confined = list(command)
+        guard._blank_quote_delimiters(confined, [body])
+        assert '"' not in "".join(confined)
+
+    def test_an_unblanked_heredoc_body_has_its_own_quotes_removed_too(self):
+        """The other half of scanning a body as its own region: `bash` will
+        unquote the body when it runs it, so the surface should too."""
+        assert_denied("bash <<'EOF'\nrm -rf \"/srv/data\"\nEOF", RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
             "echo 'rm -rf /srv/data' | bash",
             "cat > /tmp/f <<'EOF'\nrm -rf /srv/data\nEOF",
+            "cat > /tmp/f <<'EOF'\nit's fine\nEOF",
+            "bash <<'EOF'\nit's fine\nEOF",
             "python3 -c \"open('/tmp/f','w').write('x')\"",
             "grep 'rm -rf /srv/data' notes.txt > /tmp/out",
             "git -c alias.x='!bash /tmp/x' x",
