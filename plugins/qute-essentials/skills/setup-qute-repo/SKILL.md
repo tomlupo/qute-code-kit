@@ -211,9 +211,10 @@ answer**, not on the repo type, so an overridden repo cannot be told one thing
 here and the opposite there.
 
 **Confirmed mode `none`** (the quant-lab / simple default, and any repo
-overridden to it): skip the Shipping section and instead record the one line
-step 7 asks for — `shipping: none`, deliverables go to `reports/`, no versions
-or tags are cut. That line and the section are alternatives; writing both is the
+overridden to it): skip the Shipping section and instead write the one-line
+alternative into `CLAUDE.md` here — `shipping: none`, deliverables go to
+`reports/`, no versions or tags are cut. Step 7 only confirms that line is
+present. That line and the section are alternatives; writing both is the
 contradiction to avoid. So this step writes **four** sections normally, and
 **three** sections plus the `shipping: none` line when the mode is `none`.
 
