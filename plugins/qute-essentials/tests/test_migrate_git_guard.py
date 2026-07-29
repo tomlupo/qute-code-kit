@@ -311,6 +311,21 @@ def test_existing_config_is_never_rewritten(tmp_path):
     assert cfg.read_text() == body
 
 
+def test_no_stamp_with_no_config_says_the_repo_is_not_opted_in(tmp_path):
+    """`--no-stamp` must not let the summary imply a config exists.
+
+    The report is the only thing anyone reads afterwards, and "config already in
+    place" over an ABSENT config is the one sentence that would stop a reader
+    looking for why both guard layers are inert in that repo.
+    """
+    repo = make_repo(tmp_path, "nostamp")
+    out = run_script(repo, "--no-stamp")
+    assert out.returncode == 0
+    assert not (repo / ".claude" / "git-guard.json").exists()
+    assert "already present" not in out.stdout
+    assert "NOT opted in" in out.stdout
+
+
 def test_refuses_to_stamp_through_a_symlinked_claude_dir(tmp_path):
     """`.claude` pointing out of the tree must not become a write to elsewhere.
 

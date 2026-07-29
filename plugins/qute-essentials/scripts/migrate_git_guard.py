@@ -344,6 +344,14 @@ def migrate(
         if not check:
             cfg_path.parent.mkdir(parents=True, exist_ok=True)
             cfg_path.write_text(rendered, encoding="utf-8")
+    else:
+        # `--no-stamp` and no config: the repo is NOT opted in, and saying
+        # nothing here let the summary claim "config already in place" — the one
+        # sentence that would make a reader stop looking for the reason both
+        # guard layers are inert in that repo.
+        notes.append(
+            f"{CONFIG} absent and --no-stamp given — this repo is NOT opted in; both guard layers are a no-op here"
+        )
 
     result["changed"] = bool(
         result["legacy_hook_removed"]
@@ -357,7 +365,7 @@ def render(result: dict, check: bool) -> str:
     lines = [f"repo: {result['repo']}"]
     if not result["changed"] and not result["problems"]:
         lines.append(
-            "nothing to do — no legacy guard copy, no legacy wiring, config already in place"
+            "nothing to do — no legacy guard copy, no legacy wiring, nothing to stamp"
         )
     verb = "would " if check else ""
     for action in result["actions"]:
