@@ -73,6 +73,44 @@ These are not style guidance. Every false blocker on record broke one of them.
 - **Scope is the change.** Review what this diff does. A defect that predates
   the branch may be NOTED — it is useful — but it is not this branch's blocker.
   Do not hold a change hostage to the state it inherited.
+- **Name the ref; never trust a working tree.** The absence rule above says
+  WHICH CONTENT to check. This says WHERE TO READ IT. Resolve every existence
+  claim against an explicit ref — `git show <ref>:<path>`,
+  `git ls-tree origin/<default-branch>` — never `ls`, and never the checkout you
+  happen to be standing in. A working tree sits on somebody's feature branch,
+  and it is often not yours. Three wrong "facts" in one session (2026-07-29)
+  were the right file read from the wrong tree, not a file missed: `ls docs/adr/`
+  on a feature branch reported an ADR number free that had landed on `main`
+  hours earlier; a clone fetched but never pulled reported a merged module
+  absent; a grep hit a main clone parked on an unrelated branch and reported a
+  test present that does not exist on `master`. Confirm the default branch name
+  as well — it is `main` in some of these repos and `master` in others, so
+  `origin/master` can silently resolve to nothing.
+  **Counts are existence claims about a set:** measure at the moment of
+  asserting. Five wrong numbers in that same session came from recalling rather
+  than counting, one of them a test-suite size off by 5×.
+
+## What to recommend — reduce rounds, don't add them
+
+A review that is right but points at the wrong altitude still costs a round.
+
+- **Prefer the generator to the instance.** Before accepting a fix, ask what
+  PRODUCED the defect and whether the fix reaches it. A repaired instance leaves
+  the generator emitting more. `cli/install.sh` missing `pip install -e` was the
+  generator; the stale non-editable venv was the instance — fixing the venv
+  would have held until the next install. `claude-git-guards/deploy.py` writing
+  `.claude/rules/git-workflow.md` was the generator; every stamped rule file was
+  an instance. One generator fix collapses N instance fixes, and it is usually
+  the smaller diff.
+- **A third round on the same artifact is a shape signal, not a third bug.**
+  If an artifact was wrong in the two previous rounds, do not review a third
+  patch — recommend deleting or restructuring it. Worked example: a path→runtime
+  table in `CLAUDE.md` was wrong in round 1 (one row), round 2 (a different
+  row), and round 3 (three rows, two of them new — in the commit that had just
+  fixed round 2's). It was replaced with three commands that derive the answer
+  from live state, and that should have been the call at round 2. **Prefer a
+  derivation to an inventory:** a list of paths, repos or counts rots between
+  the writing and the reading; a command that reads live state cannot.
 
 ## Severity — use all three levels
 
