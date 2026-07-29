@@ -2974,6 +2974,45 @@ def test_env_clearing_git_dir_restores_the_current_repo(clear, tmp_path, home):
     assert decision == "allow", clear
 
 
+@pytest.mark.parametrize(
+    "form", ["env --", "env -i --", "env -- FOO=1", "env -u FOO --"]
+)
+def test_env_end_of_options_is_not_unresolvable(form, tmp_path, home):
+    """Defect 57. `--` ends `env`'s options and `env -- git status` is
+    ordinary and valid — verified. Reading it as an unknown long option made
+    the whole invocation unresolvable, denying even read-only git."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(f"{form} git status", repo, home)
+    assert decision == "allow", form
+
+    decision, hso = _run(f"{form} git commit -m x", repo, home)
+    assert decision == "deny", form
+    assert "main" in hso["permissionDecisionReason"], form
+
+
+def test_the_hook_environment_cannot_select_the_repo(tmp_path, home):
+    """Defect 56. The hook inherits the agent's environment, so an exported
+    `GIT_DIR` there made every probe — repo root, branch, config — resolve
+    against that repo instead of the one under review, disarming the guard
+    for EVERY command. The probes now run with those variables stripped."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    elsewhere = _make_repo(tmp_path / "elsewhere", "feat/data", STD_CFG)
+    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+        value = f"{elsewhere}/.git" if var != "GIT_WORK_TREE" else str(elsewhere)
+        decision, hso = _run("git commit -m x", repo, home, extra_env={var: value})
+        assert decision == "deny", var
+        assert "main" in hso["permissionDecisionReason"], var
+
+
+def test_a_modelled_export_still_selects_the_repo(tmp_path, home):
+    """The control: stripping the AMBIENT variables must not break the ones
+    parsed out of the command itself."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"export GIT_DIR={other}/.git; git commit -m x", session, home)
+    assert decision == "allow"
+
+
 def test_env_clearing_something_else_leaves_git_dir_alone(tmp_path, home):
     """The control: `-u FOO` clears FOO, not GIT_DIR."""
     session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)

@@ -137,6 +137,8 @@ The remote is read from `--repo <r>` / `--repo=<r>` when given, so every positio
 
 **`--all` pushes every local branch** and overrides `push.default`, so its destinations are the local branch list — denied when a guarded branch is in it, allowed when it isn't, and denied if the list can't be read. **`--mirror` is different**: it makes the remote *match* this repo, deleting remote refs that are absent locally, so the guarded branch is written either way and it fails closed. (This used to be a "deliberate gap", caught only from a guarded branch. It isn't one: it's an ordinary invocation that writes the protected branch from anywhere.)
 
+The guard's own `git` probes run with git's repo-selection variables (`GIT_DIR`, `GIT_WORK_TREE`, …) stripped from the environment, so an exported one in the agent's shell can't quietly point every check at the wrong repo — those variables are modelled from the *command*, never inherited.
+
 Fail-open by design: no config, malformed config, a non-git directory, or any internal error all allow. One deliberate gap remains: a switch-then-act chain (`git checkout main && git commit`) reads the *current* branch and isn't caught. `/ship` needs no exemption — its git calls run inside a Python subprocess no PreToolUse hook observes, and its tag push carries a tag refspec, not a branch.
 
 #### What this covers — and the line that decides it
@@ -165,7 +167,7 @@ Two limits are structural rather than defects, and neither has a fix in this hoo
 - **Its opt-in gate needs a repo it can name.** When a `cd` leaves the location unknown, the fail-closed deny is gated on the *last known* directory being opted in — so `cd "$MAIN_REPO" && git commit` started from a scratch repo that never opted in stays a no-op even if `$MAIN_REPO` expands into a guarded one. Closing that would mean denying on every unexpandable `cd` in every repo on the machine, ending the opt-in contract that keeps this hook out of scratch repos and third-party clones. `pre-push` is installed *in* the guarded repo, so it has no such gap.
 - **Its knowledge of git's option arity is a table, and git's surface grows.** A *future* value-taking `git push` option would shift the positionals the way `--recurse-submodules` did. The global-option case has a backstop; the push-option case has none, because the only available one — re-arming the current-branch fallback whenever an unknown option appears — would false-block ordinary pushes of an unguarded refspec from a guarded branch.
 
-Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21, 23, 24, 27–32, 34–36, 38–41, 45–48 and 51–53 are parsing; 10–13, 16–18, 22, 25, 26, 33, 37, 42–44, 49, 50, 54 and 55 are the environment axis, and are why that axis is written down at all. Most let something *through*; 24, 27, 29–32, 36, 42 and 43 **blocked** something they shouldn't have, which is a defect on the same footing — a guard that cries wolf gets turned off:
+Defects review has found, **all now handled** — kept as evidence the tail is real, not as a checklist that's complete. 1–9, 14, 15, 19–21, 23, 24, 27–32, 34–36, 38–41, 45–48 and 51–53 are parsing; 10–13, 16–18, 22, 25, 26, 33, 37, 42–44, 49, 50 and 54–57 are the environment axis, and are why that axis is written down at all. Most let something *through*; 24, 27, 29–32, 36, 42 and 43 **blocked** something they shouldn't have, which is a defect on the same footing — a guard that cries wolf gets turned off:
 
 | # | Axis | Defect | What went wrong |
 |---|---|---|---|
@@ -224,6 +226,8 @@ Defects review has found, **all now handled** — kept as evidence the tail is r
 | 53 | parsing | a definition after a reserved word | the check required a blank buffer, so `if true; then gc() { … }; fi` was parsed as live code and denied |
 | 54 | environment | `env -i` / `env -u GIT_DIR` | they stop an exported `GIT_DIR` reaching git, but the inherited value was reapplied anyway |
 | 55 | environment | a conditional `export` | it was applied unconditionally, unlike a `cd` in the same place, so `if false; then export GIT_DIR=…; fi` moved the target when bash had not |
+| 56 | environment | the hook's own environment | it inherits the agent's, so an exported `GIT_DIR` there made every probe resolve against that repo — disarming the guard for *every* command, not one |
+| 57 | environment | `env -- git …` | `--` ends env's options, but it was read as an unknown long option, so the invocation became unresolvable and even read-only git was denied |
 
 **`pre-push` is the actual enforcement layer** (TOM-348, being built in parallel). Git invokes `pre-push` with the real local/remote refs it's about to send — after alias expansion, after `env`, after every shell trick, and regardless of who or what ran the command. It needs no command-line parser, it is handed the repo it is running in rather than inferring it, so neither axis exists at that layer, and it covers a human's own pushes too.
 

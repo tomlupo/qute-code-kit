@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48 and 51-53 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54 and 55 are the environment axis, and
+34-36, 38-41, 45-48 and 51-53 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50 and 54-57 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -309,7 +309,14 @@ the same footing — a guard that cries wolf gets turned off:
       git, but the inherited value was reapplied anyway;
   55. an `export` inside a CONDITIONAL body was applied unconditionally,
       unlike a `cd` there — so `if false; then export GIT_DIR=…; fi` moved the
-      target when bash had not.
+      target when bash had not;
+  56. the HOOK's own environment — it inherits the agent's, so an exported
+      `GIT_DIR` there made every probe resolve against that repo instead of
+      the one under review, disarming the guard for every command rather than
+      one. The probes now run with git's repo-selection variables stripped;
+  57. `env -- git …` — `--` ends env's options, but it was read as an unknown
+      long option, so the invocation became unresolvable and even read-only
+      git was denied.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -415,6 +422,34 @@ def _base_dir(hook_input: dict) -> Path:
     return Path.cwd()
 
 
+# Environment variables that select a repo for git. The hook INHERITS the
+# agent's environment, so if any of these are exported there, every probe below
+# would resolve against that repo instead of the one being reviewed — silently
+# disarming the guard for every command, not just one. Verified: with `GIT_DIR`
+# pointing elsewhere, a direct commit on the protected branch was allowed. The
+# hook models these from the COMMAND (see `env_git_dir` / `exported_git_dir`);
+# inheriting them as ambient state is never right (defect 56).
+_REPO_SELECTING_ENV = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_NAMESPACE",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_PREFIX",
+)
+
+
+def _probe_env():
+    """The hook's environment with git's repo-selection variables removed."""
+    env = dict(os.environ)
+    for name in _REPO_SELECTING_ENV:
+        env.pop(name, None)
+    return env
+
+
 def _git(cwd: Path, *args: str):
     """Run a read-only git query in `cwd`; return stdout or None on any failure."""
     try:
@@ -424,6 +459,7 @@ def _git(cwd: Path, *args: str):
             text=True,
             cwd=str(cwd),
             timeout=5,
+            env=_probe_env(),
         )
     except Exception:
         return None
@@ -1099,6 +1135,12 @@ def _strip_env(tokens):
             clears_git_dir = True
             i += 1
             continue
+        if tok == "--":
+            # End of options — `env -- git status` is ordinary and valid.
+            # Treating it as an unknown long option made the whole invocation
+            # unresolvable, which denied even read-only git (defect 57).
+            i += 1
+            break
         if not tok.startswith("-"):
             break  # first non-option: assignments or the command itself
         if tok.startswith("--"):
