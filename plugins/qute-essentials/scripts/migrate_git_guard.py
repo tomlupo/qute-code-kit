@@ -57,6 +57,8 @@ Exit code is 0 when the repo ends in the migrated state, 1 otherwise.
 from __future__ import annotations
 
 import argparse
+import importlib.machinery
+import importlib.util
 import json
 import os
 import shlex
@@ -67,6 +69,14 @@ from pathlib import Path, PurePosixPath
 
 LEGACY_HOOK = Path(".claude/hooks/git-workflow-guard.py")
 CONFIG = Path(".claude/git-guard.json")
+# The enforcement layer, imported rather than mirrored: it owns what a branch
+# field may say, and the stamper must not be able to write a config it refuses.
+PRE_PUSH_GUARD = (
+    Path(__file__).resolve().parent.parent
+    / "templates"
+    / "hooks"
+    / "pre-push-branch-guard"
+)
 SETTINGS_FILES = ("settings.json", "settings.local.json")
 
 # House defaults, kept in lockstep with the plugin guard + `pre-push` (both read
@@ -235,6 +245,46 @@ def strip_legacy_wiring(data):
 # ------------------------------------------------------------- stamping
 
 
+class BranchRejected(Exception):
+    """A branch argument the enforcement layer would refuse. Carries its words."""
+
+
+def _pre_push_module():
+    """The `pre-push` guard script itself, imported — NOT a reimplementation.
+
+    Same reasoning as `install_pre_push_guard._guard_module`. A stamper that
+    validated branch names with its own copy of the rules would drift from the
+    reader the moment either side learned something, and the drift's shape is
+    always the same: this script exits 0 having written a config that makes
+    every push in the repo fail. So the validation IS the reader's validation.
+    """
+    spec = importlib.util.spec_from_loader(
+        "qute_pre_push_guard_for_migrate",
+        importlib.machinery.SourceFileLoader(
+            "qute_pre_push_guard_for_migrate", str(PRE_PUSH_GUARD)
+        ),
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def normalise_branch_arg(repo: Path, key: str, value: str) -> str:
+    """`value` as the guard would read it, or `BranchRejected` with its message.
+
+    `--integration-branch refs/remotes/origin/dev` used to be stamped verbatim:
+    exit 0, "migrated", and then `pre-push` raising `ConfigError` on every push.
+    `refs/heads/dev` is the mirror case — legal, but it must be normalised here
+    so the file says what both layers agree it says.
+    """
+    try:
+        guard = _pre_push_module()
+        normalised = guard._branch_field(repo, {key: value}, key, allow_null=False)
+    except Exception as exc:  # ConfigError, or the import itself failing
+        raise BranchRejected(f"--{key.replace('_', '-')}: {exc}") from exc
+    return normalised
+
+
 def desired_config(
     repo: Path,
     protected: str | None,
@@ -250,6 +300,14 @@ def desired_config(
     default silently becomes a per-repo decision nobody made.
     """
     cfg: dict = {}
+    # Normalise BEFORE the "is this the default anyway?" comparison, so
+    # `--protected-branch refs/heads/main` is recognised as `main` and omitted
+    # rather than stamped as a qualified ref nobody asked for.
+    if protected:
+        protected = normalise_branch_arg(repo, "protected_branch", protected)
+    if integration_mode == "name" and integration:
+        integration = normalise_branch_arg(repo, "integration_branch", integration)
+
     if protected and protected != DEFAULT_PROTECTED:
         cfg["protected_branch"] = protected
 
@@ -423,15 +481,22 @@ def migrate(
         result["config_existing"] = cfg_path.read_text(encoding="utf-8")
         notes.append(f"{CONFIG} already present — left as the repo wrote it")
     elif stamp:
-        cfg = desired_config(
-            repo, protected, integration, integration_mode, release_tool
-        )
-        rendered = json.dumps(cfg, indent=2) + "\n"
-        result["config_stamped"] = rendered
-        actions.append(f"stamp {CONFIG} = {json.dumps(cfg)}")
-        if not check:
-            cfg_path.parent.mkdir(parents=True, exist_ok=True)
-            cfg_path.write_text(rendered, encoding="utf-8")
+        try:
+            cfg = desired_config(
+                repo, protected, integration, integration_mode, release_tool
+            )
+        except BranchRejected as exc:
+            # Refusing beats stamping: a config `pre-push` rejects makes EVERY
+            # push in the repo fail, and it would have been written by the step
+            # whose report says the repo is now migrated.
+            problems.append(f"nothing stamped — {exc}")
+        else:
+            rendered = json.dumps(cfg, indent=2) + "\n"
+            result["config_stamped"] = rendered
+            actions.append(f"stamp {CONFIG} = {json.dumps(cfg)}")
+            if not check:
+                cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                cfg_path.write_text(rendered, encoding="utf-8")
     else:
         # `--no-stamp` and no config: the repo is NOT opted in, and saying
         # nothing here let the summary claim "config already in place" — the one

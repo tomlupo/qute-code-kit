@@ -337,6 +337,66 @@ def test_explicitly_requested_house_defaults_are_still_omitted(tmp_path):
     assert json.loads((repo / ".claude" / "git-guard.json").read_text()) == {}
 
 
+@pytest.mark.parametrize(
+    "flag,value",
+    [
+        ("--integration-branch", "refs/remotes/origin/dev"),
+        ("--integration-branch", "bad..name"),
+        ("--integration-branch", "trailing "),
+        ("--protected-branch", "refs/tags/v1"),
+        ("--protected-branch", "feat//x"),
+    ],
+)
+def test_branch_arguments_the_enforcement_layer_would_refuse_are_not_stamped(
+    tmp_path, flag, value
+):
+    """A stamped config `pre-push` rejects breaks EVERY push in the repo.
+
+    And it would be written by the step whose report says "migrated" — the same
+    failure shape as the symlink and lstat cases. So the CLI value goes through
+    the reader's own validation (imported, not mirrored) and a refusal stamps
+    nothing.
+    """
+    repo = make_repo(tmp_path, f"badbranch-{abs(hash((flag, value)))}")
+    out = run_script(repo, flag, value)
+    assert out.returncode == 1
+    assert not (repo / ".claude" / "git-guard.json").exists()
+
+    # The refusal is the reader's own, so a repo could not have been left in a
+    # state the reader accepts-but-we-rejected or vice versa.
+    pre_push = ROOT / "templates" / "hooks" / "pre-push-branch-guard"
+    pspec = importlib.util.spec_from_loader(
+        "qute_pre_push_branchcheck",
+        importlib.machinery.SourceFileLoader(
+            "qute_pre_push_branchcheck", str(pre_push)
+        ),
+    )
+    pmod = importlib.util.module_from_spec(pspec)
+    pspec.loader.exec_module(pmod)
+    key = flag.lstrip("-").replace("-", "_")
+    with pytest.raises(pmod.ConfigError):
+        pmod._branch_field(repo, {key: value}, key, allow_null=False)
+
+
+def test_qualified_branch_argument_is_normalised_not_stamped_verbatim(tmp_path):
+    """`refs/heads/dev` is legal but must be written as `dev`.
+
+    Both layers normalise it that way, so a file that keeps the qualified form
+    says something neither reader will echo back — and the "is this the default
+    anyway?" comparison would miss, stamping a field nobody asked for.
+    """
+    repo = make_repo(tmp_path, "qualified")  # no origin/dev
+    assert run_script(repo, "--integration-branch", "refs/heads/dev").returncode == 0
+    assert json.loads((repo / ".claude" / "git-guard.json").read_text()) == {
+        "integration_branch": "dev"
+    }
+
+    # And the qualified spelling of a HOUSE DEFAULT is still recognised as one.
+    repo2 = make_repo(tmp_path, "qualified-default", origin_dev=True)
+    assert run_script(repo2, "--protected-branch", "refs/heads/main").returncode == 0
+    assert json.loads((repo2 / ".claude" / "git-guard.json").read_text()) == {}
+
+
 def test_existing_config_is_never_rewritten(tmp_path):
     repo = make_repo(tmp_path, "hasconfig", origin_dev=True)
     cfg = repo / ".claude" / "git-guard.json"
