@@ -303,6 +303,34 @@ def test_malformed_settings_is_reported_not_mangled(tmp_path):
     assert settings.read_text() == "{ not json\n"
 
 
+def test_malformed_settings_aborts_before_any_removal(tmp_path):
+    """A problem in ONE file must not leave the repo half-migrated.
+
+    Deleting the hook and stamping the config while an unparseable
+    `settings.json` keeps its legacy wiring is the worst of both: the wiring
+    points at nothing, and the report says the run failed — after changing the
+    repo. Planning every file before touching any is what makes the refusal
+    whole.
+    """
+    repo = make_repo(tmp_path, "brokenlegacy")
+    (repo / ".claude" / "hooks").mkdir()
+    hook = repo / ".claude" / "hooks" / "git-workflow-guard.py"
+    hook.write_text(LEGACY_HOOK_BODY)
+    settings = repo / ".claude" / "settings.json"
+    settings.write_text("{ not json\n")
+    # A second, VALID settings file carrying the wiring: it must not be edited
+    # either, since the run as a whole is refused.
+    local = repo / ".claude" / "settings.local.json"
+    local.write_text(SETTINGS_ONLY_LEGACY)
+
+    out = run_script(repo)
+    assert out.returncode == 1
+    assert hook.read_text() == LEGACY_HOOK_BODY
+    assert settings.read_text() == "{ not json\n"
+    assert local.read_text() == SETTINGS_ONLY_LEGACY
+    assert not (repo / ".claude" / "git-guard.json").exists()
+
+
 # ------------------------------------------------------------ stamping
 
 

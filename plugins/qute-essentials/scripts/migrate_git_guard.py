@@ -516,6 +516,22 @@ def _plan_config(
     return cfg_path, rendered
 
 
+def _abort(result: dict) -> dict:
+    """Return a result describing work that will NOT happen.
+
+    Planned actions are cleared: a report that lists "remove …" next to a
+    PROBLEM reads as a partial migration, which is exactly the state this
+    refusal exists to prevent. Notes and problems stay — they are what the
+    reader has to act on.
+    """
+    result["actions"] = []
+    result["legacy_hook_removed"] = False
+    result["wiring_removed"] = []
+    result["config_stamped"] = None
+    result["changed"] = False
+    return result
+
+
 def migrate(
     repo: Path,
     *,
@@ -561,32 +577,29 @@ def migrate(
         release_tool=release_tool,
     )
     if problems:
-        return result
+        return _abort(result)
 
-    # ---- legacy hook file
+    # ---- PLAN the removals. Still nothing written.
+    #
+    # Parsing every settings file up front is the other half of the same rule: a
+    # malformed `settings.json` discovered mid-pass used to abort AFTER the hook
+    # file was deleted, leaving the legacy wiring in that unparseable file
+    # pointing at nothing and the repo half-migrated. A problem anywhere means
+    # the repo is left exactly as it was found.
     hook = repo / LEGACY_HOOK
+    remove_hook = False
     if hook.is_file():
         if not _inside(repo, hook):
             problems.append(
                 f"{LEGACY_HOOK} resolves outside {repo}; refusing to remove it"
             )
         else:
-            result["legacy_hook_removed"] = True
+            remove_hook = True
             actions.append(
                 f"remove {LEGACY_HOOK} (2026-06-18 hand copy, superseded by the plugin guard)"
             )
-            if not check:
-                hook.unlink()
-                parent = hook.parent
-                try:
-                    next(parent.iterdir())
-                except StopIteration:
-                    parent.rmdir()
-                    actions.append(f"remove now-empty {parent.relative_to(repo)}/")
-                except OSError:
-                    pass
 
-    # ---- settings wiring
+    pending_settings: list = []
     for name in SETTINGS_FILES:
         path = repo / ".claude" / name
         if not path.is_file():
@@ -608,8 +621,7 @@ def migrate(
             actions.append(
                 f"unwire {len(removed)} legacy hook entr{'y' if len(removed) == 1 else 'ies'} from .claude/{name}"
             )
-            if not check:
-                path.write_text(dump_like(data, original), encoding="utf-8")
+            pending_settings.append((path, dump_like(data, original)))
         if LEGACY_BASENAME in json.dumps(data):
             # The matcher is deliberately conservative — it will not delete an
             # entry that merely MENTIONS the script — so anything still naming it
@@ -621,6 +633,26 @@ def migrate(
                 f".claude/{name} still mentions {LEGACY_BASENAME} after unwiring — check it by hand; "
                 "if it is an invocation, that entry now points at a deleted file"
             )
+
+    if problems:
+        return _abort(result)
+
+    result["legacy_hook_removed"] = remove_hook
+
+    # ---- APPLY, in the order that leaves nothing dangling
+    if remove_hook and not check:
+        hook.unlink()
+        parent = hook.parent
+        try:
+            next(parent.iterdir())
+        except StopIteration:
+            parent.rmdir()
+            actions.append(f"remove now-empty {parent.relative_to(repo)}/")
+        except OSError:
+            pass
+    if not check:
+        for path, text in pending_settings:
+            path.write_text(text, encoding="utf-8")
 
     # ---- config: the write planned above, performed last
     if pending_stamp and not check:
