@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48 and 51-53 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49 and 50 are the environment axis, and
+34-36, 38-41, 45-48 and 51-53 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54 and 55 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -304,7 +304,12 @@ the same footing — a guard that cries wolf gets turned off:
       suppress it.);
   53. a function DEFINITION after a reserved word — the check required a blank
       buffer, so `if true; then gc() { git commit -m x; }; fi` was parsed as
-      live code and denied.
+      live code and denied;
+  54. `env -i` / `env -u GIT_DIR` — they stop an EXPORTED `GIT_DIR` reaching
+      git, but the inherited value was reapplied anyway;
+  55. an `export` inside a CONDITIONAL body was applied unconditionally,
+      unlike a `cd` there — so `if false; then export GIT_DIR=…; fi` moved the
+      target when bash had not.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1055,8 +1060,14 @@ _ENV_LONG_WITH_VALUE = frozenset({"--unset", "--chdir"})
 
 
 def _strip_env(tokens):
-    """Consume a leading `env` invocation, returning (rest_tokens, chdirs), or
-    None when the wrapper cannot be resolved.
+    """Consume a leading `env` invocation, returning
+    `(rest_tokens, chdirs, clears_git_dir)`, or None when the wrapper cannot
+    be resolved.
+
+    `clears_git_dir` reports `-i`/`--ignore-environment` and
+    `-u GIT_DIR`/`--unset=GIT_DIR`, because those stop an EXPORTED `GIT_DIR`
+    reaching git — verified, `export GIT_DIR=../lab/.git; env -u GIT_DIR git
+    rev-parse --abbrev-ref HEAD` reports the CURRENT repo (defect 54).
 
     `env [OPTION]... [-] [NAME=VALUE]... [COMMAND [ARG]...]` — the command we
     care about hides after the options and the assignments, so `env
@@ -1080,10 +1091,12 @@ def _strip_env(tokens):
     """
     tokens = tokens[1:]  # drop `env` itself
     chdirs = []
+    clears_git_dir = False
     i, n = 0, len(tokens)
     while i < n:
         tok = tokens[i]
         if tok == "-":  # bare `-` is a synonym for `-i`
+            clears_git_dir = True
             i += 1
             continue
         if not tok.startswith("-"):
@@ -1091,6 +1104,8 @@ def _strip_env(tokens):
         if tok.startswith("--"):
             name, eq, attached = tok.partition("=")
             if name in _ENV_LONG_FLAGS:
+                if name == "--ignore-environment":
+                    clears_git_dir = True
                 i += 1
             elif name in _ENV_LONG_WITH_VALUE:
                 if eq:
@@ -1101,6 +1116,8 @@ def _strip_env(tokens):
                     return None
                 if name == "--chdir":
                     chdirs.append(value)
+                elif name == "--unset" and value == "GIT_DIR":
+                    clears_git_dir = True
                 i += step
             else:
                 return None
@@ -1110,6 +1127,8 @@ def _strip_env(tokens):
         while j < len(tok):
             c = tok[j]
             if c in "iv0":
+                if c == "i":
+                    clears_git_dir = True
                 j += 1
                 continue
             if c not in "uCS":
@@ -1125,9 +1144,11 @@ def _strip_env(tokens):
                 return None
             if c == "C":
                 chdirs.append(value)
+            elif c == "u" and value == "GIT_DIR":
+                clears_git_dir = True
             break
         i += step
-    return tokens[i:], chdirs
+    return tokens[i:], chdirs, clears_git_dir
 
 
 # Shell prefixes that mean "run the following command": `command git push`,
@@ -1252,6 +1273,7 @@ def _git_subcommand(tokens):
     original = list(tokens)
     env_chdirs = []
     env_git_dir = None
+    env_clears_git_dir = False
     # Peel inline env-var assignments and run-wrappers, in any order and any
     # number: `FOO=1 git push`, `env FOO=1 git push`, `command git push`,
     # `FOO=1 env BAR=2 exec git push`. Note an inline
@@ -1276,8 +1298,9 @@ def _git_subcommand(tokens):
             stripped = _strip_env(tokens)
             if stripped is None:
                 return (_WRAPPER_UNRESOLVABLE, original, {"wrapper": "env"})
-            tokens, chdirs = stripped
+            tokens, chdirs, clears = stripped
             env_chdirs.extend(chdirs)
+            env_clears_git_dir = env_clears_git_dir or clears
             continue
         if head in _RUN_WRAPPERS:
             stripped = _strip_run_wrapper(tokens)
@@ -1336,6 +1359,7 @@ def _git_subcommand(tokens):
         "work_tree": work_tree,
         "aliases": cli_aliases,
         "unknown_global": unknown_global,
+        "clears_git_dir": env_clears_git_dir,
     }
     return tokens[i], tokens[i + 1 :], opts
 
@@ -1813,6 +1837,19 @@ def _commit_is_dry_run(args) -> bool:
     return dry_run
 
 
+def _apply_export(states, value, uncertain: bool):
+    """Set the exported `GIT_DIR` on every candidate state.
+
+    Under an uncertain condition — an `if` body, an unevaluated `&&` — the
+    export MIGHT not happen, so both the old and the new value stay live, the
+    same way a conditional `cd` keeps both directories (defect 55).
+    """
+    updated = [(d, u, value) for d, u, _ in states]
+    if uncertain:
+        updated = list(dict.fromkeys(list(states) + updated))
+    return updated
+
+
 def _local_branches(target_dir: Path):
     """Every local branch name, or None if they could not be enumerated (which
     the caller must treat as "cannot verify" rather than "none")."""
@@ -2075,12 +2112,12 @@ def main():
     # direction — `git add -A && cd subdir && git commit` has both candidates
     # inside the SAME repo, so denying it would be pure noise. Checking each
     # candidate is exact either way (environment-axis defect, round 15).
-    states = [(base_dir, False)]
+    states = [(base_dir, False, None)]
     prev_dir = None
-    # `GIT_DIR` as a shell variable, and the value git actually sees. Only the
-    # EXPORTED one reaches a child process.
+    # `GIT_DIR` as a shell VARIABLE. The exported value — the one git actually
+    # sees — rides along in each candidate state instead, so an `export` inside
+    # a conditional body branches exactly like a `cd` there does (defect 55).
     shell_git_dir = None
-    exported_git_dir = None
     # Above this many possibilities, stop enumerating and fail closed instead.
     max_states = 8
 
@@ -2145,7 +2182,7 @@ def main():
             # element's process — so roll the shell back to where that element
             # started. `;`, `&&`, `||` and newlines keep the same shell.
             if state_before is not None and (seg in _SUBSHELL_SEPARATORS or after_pipe):
-                states, prev_dir, shell_git_dir, exported_git_dir = state_before
+                states, prev_dir, shell_git_dir = state_before
             after_pipe = seg == "|"
             if seg == "&&":
                 run_next = last_status is not False
@@ -2161,7 +2198,7 @@ def main():
             if not run_next:
                 skip_depth = 1
                 continue
-            dir_stack.append((list(states), prev_dir, shell_git_dir, exported_git_dir))
+            dir_stack.append((list(states), prev_dir, shell_git_dir))
             continue
         if kind == "close":
             # A subshell's status is its own; we cannot compute it.
@@ -2169,7 +2206,7 @@ def main():
             # A subshell's `cd` dies with the subshell. An unmatched `)` (a
             # `case` arm, say) has nothing to restore and is ignored.
             if dir_stack:
-                states, prev_dir, shell_git_dir, exported_git_dir = dir_stack.pop()
+                states, prev_dir, shell_git_dir = dir_stack.pop()
             continue
 
         if not run_next:
@@ -2178,7 +2215,7 @@ def main():
             # keeps `a && b && c` and `a && b || c` both correct.
             continue
 
-        state_before = (list(states), prev_dir, shell_git_dir, exported_git_dir)
+        state_before = (list(states), prev_dir, shell_git_dir)
 
         tokens = _tokens(seg)
         # Redirections can sit anywhere, including before the command word.
@@ -2235,20 +2272,26 @@ def main():
         # `rev-parse` reports the current repo. It is tracked only so that a
         # later `export GIT_DIR` (no value) can promote it.
         if tokens and tokens[0] in ("export", "unset"):
+            new_export, touched = None, False
             for tok in tokens[1:]:
                 name, eq, value = tok.partition("=")
                 if name == "-n" or tok == "-n":
                     continue
                 if name != "GIT_DIR":
                     continue
+                touched = True
                 if tokens[0] == "unset":
-                    shell_git_dir = exported_git_dir = None
+                    shell_git_dir, new_export = None, None
                 elif eq:
-                    shell_git_dir = exported_git_dir = value
+                    shell_git_dir, new_export = value, value
                 elif "-n" in tokens[1:]:
-                    exported_git_dir = None  # `export -n` un-exports it
+                    new_export = None  # `export -n` un-exports it
                 else:
-                    exported_git_dir = shell_git_dir
+                    new_export = shell_git_dir
+            if touched:
+                states = _apply_export(
+                    states, new_export, run_uncertain or any(construct_stack)
+                )
             last_status = None
             continue
         if tokens and all(_ASSIGN_RE.fullmatch(t) for t in tokens):
@@ -2256,9 +2299,11 @@ def main():
                 name, _, value = tok.partition("=")
                 if name == "GIT_DIR":
                     shell_git_dir = value
-                    if exported_git_dir is not None:
+                    if any(s[2] is not None for s in states):
                         # Already exported: assigning updates what git sees.
-                        exported_git_dir = value
+                        states = _apply_export(
+                            states, value, run_uncertain or any(construct_stack)
+                        )
             last_status = None
             continue
 
@@ -2270,26 +2315,26 @@ def main():
             was = states[0]
             moved = []
             statuses = set()
-            for cur_dir, cur_unknown in states:
+            for cur_dir, cur_unknown, cur_export in states:
                 if operand is None:
                     # Bare `cd` goes to $HOME, and the hook runs as the same user.
                     home_dir = Path.home()
-                    moved.append((home_dir, False))
+                    moved.append((home_dir, False, cur_export))
                     statuses.add(home_dir.is_dir())
                 elif operand == "-":
                     # `cd -` returns to the previous directory. We know it only
                     # if we saw the `cd` that set it.
                     if prev_dir is None:
-                        moved.append((cur_dir, True))
+                        moved.append((cur_dir, True, cur_export))
                         statuses.add(None)
                     else:
-                        moved.append((prev_dir, False))
+                        moved.append((prev_dir, False, cur_export))
                         statuses.add(True)
                 else:
                     new_dir, new_unknown, ok = _resolve_cd(
                         cur_dir, cur_unknown, operand
                     )
-                    moved.append((new_dir, new_unknown))
+                    moved.append((new_dir, new_unknown, cur_export))
                     statuses.add(ok)
             # A `cd` bash only MIGHT have run leaves the shell in either
             # place — whether the doubt comes from an unevaluated `&&`/`||`
@@ -2300,7 +2345,7 @@ def main():
             if len(deduped) > max_states:
                 # Too many branches to enumerate — collapse to "unknown", which
                 # the guarded-verb check fails closed on.
-                deduped = [(deduped[0][0], True)]
+                deduped = [(deduped[0][0], True, deduped[0][2])]
             states = deduped
             # One agreed status, or none at all.
             last_status = statuses.pop() if len(statuses) == 1 else None
@@ -2332,7 +2377,7 @@ def main():
             # `states[0]` let an opted-in candidate go unexamined whenever the
             # other one was not opted in (defect 50). Same rule as
             # `_check_git_command` already follows for a real git invocation.
-            for cand_dir, _cand_unknown in states:
+            for cand_dir, _cand_unknown, _cand_export in states:
                 cfg = _cfg_for(cand_dir)
                 if cfg is None:
                     continue  # not opted in -> total no-op, as everywhere else
@@ -2356,13 +2401,25 @@ def main():
         # but one of these is a singleton loop; the exception is a `cd` gated
         # on a condition we could not evaluate. `_deny` exits, so the first
         # candidate that violates wins.
-        if exported_git_dir and not opts.get("git_dir"):
+        for _cand_dir, _cand_unknown, _cand_export in states:
             # An exported `GIT_DIR` selects the repo just like `--git-dir`,
-            # which overrides it.
-            opts = dict(opts, git_dir=exported_git_dir)
-        for _cand_dir, _cand_unknown in states:
+            # which overrides it — unless `env -i`/`env -u GIT_DIR` cleared it
+            # out of the child's environment.
+            cand_opts = opts
+            if (
+                _cand_export
+                and not opts.get("git_dir")
+                and not opts.get("clears_git_dir")
+            ):
+                cand_opts = dict(opts, git_dir=_cand_export)
             _check_git_command(
-                _cand_dir, _cand_unknown, sub, args, opts, _cfg_for, cfgmap_cache
+                _cand_dir,
+                _cand_unknown,
+                sub,
+                args,
+                cand_opts,
+                _cfg_for,
+                cfgmap_cache,
             )
         continue
 

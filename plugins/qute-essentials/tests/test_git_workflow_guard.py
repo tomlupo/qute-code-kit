@@ -2959,6 +2959,66 @@ def test_an_exported_git_dir_also_points_away_from_a_guarded_repo(tmp_path, home
     assert decision == "allow"
 
 
+@pytest.mark.parametrize(
+    "clear", ["env -u GIT_DIR", "env -i", "env --unset=GIT_DIR", "env -iu FOO"]
+)
+def test_env_clearing_git_dir_restores_the_current_repo(clear, tmp_path, home):
+    """Defect 54. `env -i` and `env -u GIT_DIR` stop an EXPORTED value reaching
+    git — verified, the same `rev-parse` reports the CURRENT repo — so the
+    commit lands here, not in the exported one."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(
+        f"export GIT_DIR={other}/.git; {clear} git commit -m x", session, home
+    )
+    assert decision == "allow", clear
+
+
+def test_env_clearing_something_else_leaves_git_dir_alone(tmp_path, home):
+    """The control: `-u FOO` clears FOO, not GIT_DIR."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(
+        f"export GIT_DIR={other}/.git; env -u FOO git commit -m x", session, home
+    )
+    assert decision == "deny"
+
+
+def test_env_clearing_git_dir_also_re_exposes_a_guarded_current_repo(tmp_path, home):
+    """The direction that matters most: clearing it puts the commit back on
+    the guarded branch we are standing on."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(
+        f"export GIT_DIR={other}/.git; env -i git commit -m x", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_conditional_export_keeps_both_possibilities(tmp_path, home):
+    """Defect 55. `if false; then export GIT_DIR=…; fi` may not export at all,
+    so the commit may land in the CURRENT repo — which is guarded here."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, hso = _run(
+        f"if false; then export GIT_DIR={other}/.git; fi; git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_an_unconditional_export_replaces_rather_than_branching(tmp_path, home):
+    """The control: outside a conditional it definitely happened, so the old
+    value is not kept as a candidate and no spurious denial appears."""
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"export GIT_DIR={other}/.git; git commit -m x", session, home)
+    assert decision == "allow"
+
+
 def test_an_unresolvable_wrapper_checks_every_candidate_directory(tmp_path, home):
     """Defect 50: the wrapper path looked only at `states[0]`, so after a
     conditional `cd` an opted-in candidate went unexamined whenever the other
