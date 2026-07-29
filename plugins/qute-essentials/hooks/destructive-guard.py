@@ -1040,9 +1040,12 @@ def execution_surface(command: str) -> str:
 #     dry-run flag can also be made to run something, and every spelling of
 #     that carries the command in an OPTION VALUE — which needs quoting,
 #     whitespace, or an `=`.
-#   * a stage that is only assignments and redirections (`FOO=bar`). Nothing
-#     runs. A value expanded LATER (`FOO='rm -rf /'; $FOO`) is the documented,
-#     unfixable limitation at the top of this file, unchanged either way.
+#   * a stage that is only assignments and redirections (`FOO=bar`) — nothing
+#     runs — but only when nothing in the call can execute, because a shell
+#     variable is a channel to a later stage exactly as a file is:
+#     `foo='rm -rf /srv/data'; bash -c "$foo"` is scanned, not blanked. A value
+#     assembled ACROSS the expansion (`X="rm -rf"; $X /`) remains the
+#     documented, unfixable limitation at the top of this file.
 #   * a comment stage.
 #
 # …and the gate over all of it. Blanking a stage hides its text, so it is
@@ -1277,13 +1280,22 @@ def _is_a_bare_word(token: str) -> bool:
     return not any(c.isspace() or c in "'\"`=" for c in token)
 
 
-def _data_spans(stage: str):
+def _data_spans(stage: str, variables_are_visible_later: bool = False):
     """Ranges inside a data-only `stage` that are DATA, relative to it.
 
     The program word stays visible (no pattern matches a bare `grep`), and so
     does every redirection operator and target: `> /etc/passwd` is an action
     whichever program performs it, so it stays on the surface where the old
     `^(echo|printf)` prefix rule removed the whole line from the scan.
+
+    `variables_are_visible_later` is route 3 again, for the fourth channel out
+    of a stage. A STANDALONE assignment sets a shell variable that every later
+    stage can expand — `foo='rm -rf /srv/data'; bash -c "$foo"` — so its value
+    is only data when nothing in the call can execute. A PREFIX assignment
+    (`FOO=1 grep …`) is that one command's environment and does not persist,
+    so it is data regardless. (Review on #91, round 8. The distinction matters:
+    without it `FOO=1 git clean -fd --dry-run` would stop being exempt, `git`
+    being an executor.)
     """
     stripped = stage.strip()
     if not stripped:
@@ -1293,11 +1305,11 @@ def _data_spans(stage: str):
 
     spans = _token_spans(stage)
     tokens = [stage[a:b] for a, b in spans]
-    data, i, n = [], 0, len(tokens)
+    assignments, data, i, n = [], [], 0, len(tokens)
 
     while i < n and _NOT_A_COMMAND_WORD.match(tokens[i]):
         if _ASSIGNMENT.match(tokens[i]):
-            data.append(spans[i])  # an assigned value is data
+            assignments.append(spans[i])  # an assigned value is data…
             i += 1
             continue
         if _REDIR_OP.match(tokens[i]):
@@ -1305,7 +1317,9 @@ def _data_spans(stage: str):
             continue
         i += 1  # redirection with the target attached, e.g. `2>&1`
     if i >= n:
-        return data
+        # …unless it is a standalone assignment and something here can run it.
+        return [] if variables_are_visible_later else assignments
+    data = assignments
 
     i += 1  # the program word itself stays on the surface
     while i < n:
@@ -1391,7 +1405,7 @@ def _blank_data_only_stages(command: str, chars: list, segments, bodies: dict) -
                 for text in onward
             ):
                 continue  # route 3: written to disk, and something here runs
-            for a, b in _data_spans(stage):
+            for a, b in _data_spans(stage, call_can_execute):
                 _blank(chars, start + a, start + b)
 
 

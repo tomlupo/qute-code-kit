@@ -627,10 +627,40 @@ class TestAnEnvAssignmentPrefixNoLongerDisarmsTheGuard:
         assert_denied("FOO=1 \\\nrm -rf /srv/data", RM_ROOT)
 
     def test_an_assignment_on_its_own_is_still_not_a_command(self):
-        # Nothing runs, so nothing is blocked. A value expanded LATER
-        # (`FOO='rm -rf /'; $FOO`) is the documented limitation at the top of
-        # the hook, and is unchanged in both directions by this fix.
+        # Nothing runs, so nothing is blocked.
         assert_allowed("MSG='rm -rf /srv/data is dangerous'")
+        assert_allowed("MSG='rm -rf /srv/data' ; echo done")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "foo='rm -rf /srv/data'; bash -c \"$foo\"",
+            "FOO='rm -rf /srv/data'; bash -c \"$FOO\"",
+            "foo='rm -rf /srv/data'; eval $foo",
+            "foo='rm -rf /srv/data'\nsome-runner",
+        ],
+    )
+    def test_a_standalone_assignment_is_data_only_if_nothing_can_run_it(self, command):
+        """Review finding on #91 round 8: a shell variable is a channel to a
+        later stage exactly as a file is, so the value takes route 3's gate.
+        Both cases are listed because widening the assignment parse to any
+        case is what put the lowercase one in reach — under `^[A-Z_]+=` it
+        was blocked, by accident rather than by design."""
+        assert_denied(command, RM_ROOT)
+
+    def test_a_prefix_assignment_does_not_persist_so_it_is_always_data(self):
+        # `FOO=1 grep …` is that one command's environment, not a shell
+        # variable. Gating it on the call would cost the dry-run exemption
+        # every time, `git` being an executor.
+        assert_allowed("FOO='rm -rf /srv/data' git clean -fd --dry-run")
+        assert_allowed("FOO='rm -rf /srv/data' grep x .")
+
+    def test_the_value_assembled_across_the_expansion_is_still_the_limitation(
+        self,
+    ):
+        # `X="rm -rf"; $X /` — the documented, unfixable case at the top of the
+        # hook. No pattern matches the text, with or without any exemption.
+        assert_allowed("X='rm -rf'; $X /srv/data")
 
     def test_an_assignment_before_a_text_search_is_still_fine(self):
         assert_allowed("FOO=1 BAR=2 grep 'rm -rf /srv/data' .")
