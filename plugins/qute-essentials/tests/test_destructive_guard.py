@@ -1,4 +1,4 @@
-"""Tests for the destructive-command guard: TOM-379 and TOM-394.
+"""Tests for the destructive-command guard: TOM-379, TOM-394, TOM-400, TOM-395.
 
 Two layers:
 
@@ -15,6 +15,14 @@ pattern description that fired, not merely that the word "BLOCKED" appears
 somewhere. A substring assertion against the reason text would pass for the
 wrong pattern, which is precisely the class of test that measures nothing.
 
+TOM-400 added a third rule, because a pattern that had a test still shipped
+broken for months: `\\b>\\s*/etc/` was only ever exercised by `foo>/etc/passwd`,
+the one spelling its stray word-boundary accepted, so the test passed while the
+guard missed `> /etc/passwd`. A test written to fit the regex measures the
+regex. `TestEveryPatternMatchesTheSpellingAPersonWouldType` is the standing
+answer: one realistic invocation per pattern, and a coverage assertion that
+fails when a pattern is added without one.
+
 DO NOT remove the sandboxing in `_HOOK_ENV`. Every "block" the hook decides
 has two live side effects: it appends to `~/.claude/permission-audit/` and it
 POSTs a high-priority ntfy alert. This file provokes ~90 blocks per run, so an
@@ -26,6 +34,7 @@ and instantly.
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -92,12 +101,43 @@ def assert_allowed(command: str) -> None:
     assert decision == "allow", f"unexpectedly denied: {reason}"
 
 
-def assert_denied(command: str, description: str) -> None:
-    """Deny, *and* for the stated reason — the description identifies which
-    pattern fired, so a different pattern matching by accident still fails."""
+# What each severity is required to produce. TOM-395: these were the SAME
+# verdict until this release — `warn` denied, with the same "🛑 BLOCKED" text —
+# so a test could not tell the levels apart and the table's middle rung was a
+# fiction. Now `block` denies and `warn` asks.
+_VERDICT = {"block": ("deny", "🛑 BLOCKED: "), "warn": ("ask", "⚠️ WARNING: ")}
+
+
+def assert_verdict(command: str, description: str, severity: str) -> None:
+    """The exact decision AND the exact pattern — the description identifies
+    which pattern fired, so a different pattern matching by accident still
+    fails, and the decision pins the severity that pattern carries."""
+    expected_decision, prefix = _VERDICT[severity]
     decision, reason = decide(command)
-    assert decision == "deny", f"expected a deny for: {command!r}"
-    assert reason.startswith(f"🛑 BLOCKED: {description}\n"), reason
+    assert decision == expected_decision, (
+        f"expected {expected_decision} for {command!r}, got {decision}: {reason}"
+    )
+    assert reason.startswith(f"{prefix}{description}\n"), reason
+
+
+def assert_denied(command: str, description: str) -> None:
+    """Hard deny: severity `block`."""
+    assert_verdict(command, description, "block")
+
+
+def assert_flagged(command: str, description: str) -> None:
+    """Flagged but NOT denied: severity `warn` → permissionDecision "ask"."""
+    assert_verdict(command, description, "warn")
+
+
+def dequoted(word: str) -> str:
+    """One WORD with its quote delimiters removed and the width made up on the
+    right — what quote removal does to a command it blanks nothing else in
+    (TOM-395). Spelled out per word rather than as a `.replace()` over the
+    whole string, because removing a delimiter must not split the word: that
+    was the #92 finding."""
+    stripped = word.replace("'", "").replace('"', "")
+    return stripped + " " * (len(word) - len(stripped))
 
 
 # Descriptions, copied from the pattern table. Kept as constants so a typo
@@ -112,6 +152,8 @@ PRUNE = "docker system prune -a removes all unused data"
 KILLALL = "killall terminates all matching processes"
 MKFS = "mkfs formats a filesystem"
 DROPDB = "dropdb removes entire database"
+ETC = "writing to a system config file in /etc"
+BRANCH_D = "git branch -D force-deletes branch without merge check"
 
 
 # ------------------------------------------------------- TOM-379: literals
@@ -850,15 +892,18 @@ class TestAToolThatCanRunItsOwnOptionValue:
         assert_denied(command, RM_ROOT)
 
     @pytest.mark.parametrize(
-        "command,description",
+        "command,description,severity",
         [
-            ("git -c alias.x=!killall x -- --dry-run", KILLALL),
-            ("git -c core.pager=mkfs clean -fd --dry-run", MKFS),
-            ("git -c alias.x=!dropdb x mydb --dry-run", DROPDB),
+            # `killall` is a warn, so what this asserts is "ask", not "deny" —
+            # the point is that the stage is not data-only and the text was
+            # SEEN, and after TOM-395 seeing it no longer means denying it.
+            ("git -c alias.x=!killall x -- --dry-run", KILLALL, "warn"),
+            ("git -c core.pager=mkfs clean -fd --dry-run", MKFS, "block"),
+            ("git -c alias.x=!dropdb x mydb --dry-run", DROPDB, "block"),
         ],
     )
     def test_an_unquoted_option_value_is_not_a_bare_word_either(
-        self, command, description
+        self, command, description, severity
     ):
         """Review finding on #91 round 6: an unquoted alias value is a single
         token with no whitespace, and git hands it the arguments that follow —
@@ -868,7 +913,7 @@ class TestAToolThatCanRunItsOwnOptionValue:
         These are the four single-word patterns, deliberately: a one-word
         command is exactly what fits in a bare option value, and round 3
         documented that as a residual. It is now closed."""
-        assert_denied(command, description)
+        assert_verdict(command, description, severity)
 
     def test_the_reported_shape_itself_is_no_longer_data_only(self):
         """The shape as reported. It is asserted at the predicate rather than
@@ -1112,6 +1157,565 @@ class TestWhereADataOnlyStagesOutputEndsUp:
         assert_allowed("echo 'rm -rf /srv/data' | tee /tmp/x")
 
 
+# -------------------------------------------------- TOM-400: pattern anchors
+
+
+class TestTheEtcRedirectAnchor:
+    """The pattern was `\\b>\\s*/etc/`. `\\b` before `>` asserts a WORD
+    CHARACTER immediately to the left of the operator, so it fired on
+    `foo>/etc/passwd` — which nobody writes — and missed `> /etc/passwd` and
+    `echo x > /etc/passwd`, which is how the redirect is actually spelled.
+
+    It had a test. The test used the unspaced form."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # The spellings the old anchor missed. Every one of these is a
+            # write to a system config file.
+            "echo 'nameserver 1.1.1.1' > /etc/resolv.conf",
+            "echo '1.2.3.4 host' >> /etc/hosts",
+            "printf '%s\\n' 'x' > /etc/environment",
+            "cat /tmp/new > /etc/fstab",
+            "cat /tmp/new >/etc/fstab",
+            "cat /tmp/new >>/etc/fstab",
+            "cat /tmp/new >    /etc/fstab",
+            "sudo cat /tmp/new > /etc/sudoers.d/x",
+            # …and the one it did catch, which must not regress.
+            "cat /tmp/new>/etc/passwd",
+        ],
+    )
+    def test_every_spelling_of_the_redirect_is_caught(self, command):
+        assert_denied(command, ETC)
+
+    def test_the_old_pattern_would_have_missed_the_ordinary_spelling(self):
+        """The bug, pinned as an executable statement rather than a story: the
+        pattern as it was, run against the same surface, matches the fixture
+        spelling and nothing else. If someone reintroduces the `\\b`, the
+        parametrized test above goes red — this one explains why."""
+        import re
+
+        old = re.compile(r"\b>\s*/etc/")
+        surface = guard.execution_surface("echo x > /etc/passwd")
+        assert old.search(surface) is None
+        assert old.search("cat /tmp/new>/etc/passwd") is not None
+        # The pattern in force today catches both.
+        new = dict((d, p) for p, d, _s in guard.ALL_PATTERNS)[ETC]
+        assert new.search(surface) is not None
+        assert new.search("cat /tmp/new>/etc/passwd") is not None
+
+    def test_the_redirect_survives_on_the_surface_of_a_data_only_stage(self):
+        """Why this is fixable only now. `echo`'s ARGUMENTS are data, but its
+        redirection is an action — TOM-394 is what keeps `> /etc/passwd` on the
+        surface. Under the old `^(echo|printf)` prefix rule the whole line was
+        exempt, so a corrected pattern would have had nothing to match."""
+        surface = guard.execution_surface("echo secret > /etc/passwd")
+        assert surface == "echo        > /etc/passwd"
+        assert_denied("echo secret > /etc/passwd", ETC)
+
+    def test_a_read_from_etc_is_not_a_write(self):
+        assert_allowed("cat /etc/hosts")
+        assert_allowed("grep nameserver /etc/resolv.conf")
+        assert_allowed("diff /etc/hosts /tmp/hosts")
+        assert_allowed("wc -l < /etc/passwd")
+
+
+# One realistic invocation per pattern: the spelling a person would actually
+# type, not the fixture that made the regex pass. `severity` is asserted too,
+# so the table doubles as the record of which rung each pattern sits on.
+REALISTIC_INVOCATIONS = [
+    # ── git
+    ("git reset --hard HEAD~1", RESET_HARD, "block"),
+    ("git clean -fd", CLEAN, "block"),
+    ("git push --force origin main", PUSH_FORCE, "block"),
+    ("git push -f origin main", "git push -f overwrites remote history", "block"),
+    (
+        "git stash drop stash@{0}",
+        "git stash clear/drop permanently deletes stashed work",
+        "block",
+    ),
+    ("git checkout -- .", "git checkout -- . discards all working changes", "block"),
+    ("git restore .", "git restore . discards all working changes", "block"),
+    (
+        "git branch -D feature/old",
+        "git branch -D force-deletes branch without merge check",
+        "warn",
+    ),
+    ("git rebase --force-rebase main", "forced rebase rewrites history", "block"),
+    # ── filesystem
+    ("rm -rf /srv/data", RM_ROOT, "block"),
+    ("rm -fr /srv/data", "rm -fr on non-tmp root path", "block"),
+    ("rm -rf ~/Downloads/old", "rm -rf in home directory", "block"),
+    ("rm -rf .", "rm -rf . deletes current directory", "block"),
+    ("rm -rf ../build", "rm -rf with parent traversal", "block"),
+    (
+        "find /var/log -name '*.log' -delete",
+        "find -delete permanently removes matched files",
+        "warn",
+    ),
+    (
+        "find . -name '*.tmp' -exec rm {} \\;",
+        "find -exec rm removes matched files",
+        "warn",
+    ),
+    ("echo 'nameserver 1.1.1.1' > /etc/resolv.conf", ETC, "block"),
+    ("mkfs.ext4 /dev/sdb1", MKFS, "block"),
+    ("dd if=/dev/zero of=/dev/sdb bs=1M count=100", "dd writing to device", "block"),
+    (
+        r"rmdir /s /q C:\temp",
+        "rmdir /s recursively deletes directory",
+        "block",
+    ),
+    (r"del /s /q C:\temp", "del /s recursively deletes files", "block"),
+    (r"rd /s /q C:\build", "rd /s recursively deletes directory", "block"),
+    (
+        r"Remove-Item C:\temp -Recurse -Force",
+        "Remove-Item -Recurse deletes directory tree",
+        "block",
+    ),
+    (
+        r"Remove-Item C:\temp\notes.txt -Force",
+        "Remove-Item -Force bypasses safety checks",
+        "warn",
+    ),
+    ("format D: /fs:ntfs", "format drive command", "block"),
+    # ── database (through the client a person would really use)
+    ('psql -d prod -c "DROP TABLE users"', DROP, "block"),
+    (
+        'mysql -e "TRUNCATE TABLE sessions"',
+        "TRUNCATE deletes all rows without logging",
+        "block",
+    ),
+    (
+        'psql -d prod -c "DELETE FROM sessions;"',
+        "DELETE without WHERE clause deletes all rows",
+        "block",
+    ),
+    ("dropdb production", DROPDB, "block"),
+    ("dropuser deploy", "dropuser removes database user", "block"),
+    # ── docker
+    ("docker system prune -a -f", PRUNE, "block"),
+    (
+        "docker volume prune -f",
+        "docker volume prune deletes all unused volumes",
+        "block",
+    ),
+    ("docker rm -f $(docker ps -aq)", "mass-removing running containers", "block"),
+    # ── system
+    ("sudo rm -rf ./node_modules", "sudo rm -rf as root", "block"),
+    (
+        "chmod -R 777 /var/www",
+        "chmod -R 777 makes everything world-writable",
+        "block",
+    ),
+    ("sudo chown -R www-data /", "chown -R on root filesystem", "block"),
+    ("killall node", KILLALL, "warn"),
+    ("pkill -9 -u deploy", "pkill -9 -u kills all user processes", "block"),
+    ("taskkill /F /IM *", "taskkill mass-killing all processes", "block"),
+    (
+        "Stop-Process -Name node -Force",
+        "Stop-Process -Force kills processes",
+        "warn",
+    ),
+    ("net stop W3SVC", "net stop disables a Windows service", "warn"),
+    ("sc delete MyAgent", "sc delete removes a Windows service", "block"),
+    (
+        r"reg delete HKLM\Software\MyApp /f",
+        "reg delete /f force-deletes registry keys",
+        "block",
+    ),
+    # ── custom
+    (
+        "crontab -r",
+        "crontab -r removes ALL cron jobs including live trading",
+        "block",
+    ),
+    ("crontab /dev/null", "crontab /dev/null wipes all cron jobs", "block"),
+    ("rm -r /srv/obsidian", VAULT, "block"),
+    (
+        "rm /srv/data/.stfolder",
+        "removing Syncthing folder marker breaks sync",
+        "block",
+    ),
+    ("rm -r ./prod/quantlab", "removing production trading code", "block"),
+]
+
+
+class TestEveryPatternMatchesTheSpellingAPersonWouldType:
+    """The property that would have caught TOM-400 at the time.
+
+    A pattern's own test is written by whoever wrote the pattern, from the same
+    mental model — so it reproduces the model's blind spots. `\\b>\\s*/etc/` was
+    tested with `foo>/etc/passwd`: a string that exists nowhere except in that
+    test, chosen (unconsciously) because it made the regex pass.
+
+    So: one REALISTIC invocation per pattern, and a coverage assertion below
+    that fails when a pattern has none. Each case asserts the description, so a
+    command caught by some *other* pattern does not count as covered."""
+
+    @pytest.mark.parametrize(
+        "command,description,severity",
+        REALISTIC_INVOCATIONS,
+        ids=[c for c, _d, _s in REALISTIC_INVOCATIONS],
+    )
+    def test_the_realistic_spelling_is_caught(self, command, description, severity):
+        assert_verdict(command, description, severity)
+
+    def test_every_pattern_has_a_realistic_case(self):
+        """The anti-drift half: a new pattern without a realistic invocation
+        fails here, rather than shipping with a fixture-shaped test."""
+        covered = {(d, s) for _c, d, s in REALISTIC_INVOCATIONS}
+        declared = {(d, s) for _p, d, s in guard.ALL_PATTERNS}
+        assert declared - covered == set(), "pattern with no realistic invocation"
+        assert covered - declared == set(), "case for a pattern that no longer exists"
+
+    def test_the_descriptions_in_the_table_are_the_hooks_own(self):
+        """Guards the assertion above against a typo'd description silently
+        matching nothing: every description used here must exist in the hook."""
+        hook_descriptions = {d for _p, d, _s in guard.ALL_PATTERNS}
+        for _command, description, _severity in REALISTIC_INVOCATIONS:
+            assert description in hook_descriptions, description
+
+
+# ------------------------------------- TOM-395: severity, and quoted operands
+
+
+class TestWarnIsNotABlock:
+    """`warn` and `block` both emitted permissionDecision "deny" with a
+    "🛑 BLOCKED" reason; severity decided only whether an ntfy alert fired. So
+    the table advertised a middle rung that did not exist — and it cost a real
+    decision: downgrading a pattern to `warn` was considered as the fix for
+    TOM-379 and rejected partly because it would have changed nothing.
+
+    `warn` now means "ask": flagged, explained, and left to the human."""
+
+    def test_a_warn_pattern_asks_rather_than_denying(self):
+        decision, reason = decide("killall node")
+        assert decision == "ask"
+        assert reason.startswith(f"⚠️ WARNING: {KILLALL}\n")
+
+    def test_a_warn_reason_does_not_claim_to_have_blocked_anything(self):
+        _decision, reason = decide("git branch -D feature/old")
+        assert "BLOCKED" not in reason
+        assert "Not blocked" in reason
+
+    def test_a_block_pattern_still_denies(self):
+        decision, reason = decide("rm -rf /srv/data")
+        assert decision == "deny"
+        assert reason.startswith(f"🛑 BLOCKED: {RM_ROOT}\n")
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            # A warn pattern that matches EARLIER in ALL_PATTERNS than the
+            # block it is chained with. First-match-wins was correct only while
+            # both levels denied; keeping it would have turned these into
+            # prompts, which is a regression dressed as a feature.
+            ("git branch -D old && rm -rf /srv/data", RM_ROOT),
+            ("git branch -D old ; docker system prune -a", PRUNE),
+            ("killall node && rm -rf /srv/data", RM_ROOT),
+            ("find . -name '*.tmp' -delete ; rm -rf /srv/data", RM_ROOT),
+        ],
+    )
+    def test_a_block_anywhere_outranks_a_warn_earlier_in_the_table(
+        self, command, description
+    ):
+        assert_denied(command, description)
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            (
+                'psql -d prod -c "DELETE FROM sessions;"',
+                "DELETE without WHERE clause deletes all rows",
+            ),
+            (
+                "docker volume prune -f",
+                "docker volume prune deletes all unused volumes",
+            ),
+        ],
+    )
+    def test_the_two_patterns_re_levelled_for_this_change_still_deny(
+        self, command, description
+    ):
+        """Both carried `warn` while `warn` meant deny, so leaving them there
+        would have downgraded a hard block to a prompt for two operations with
+        no undo — the sibling of `TRUNCATE TABLE` and of `docker system prune
+        -a`, which both block."""
+        assert_denied(command, description)
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            ("git branch -D feature/old", BRANCH_D),
+            ("killall node", KILLALL),
+            (
+                "find /var/log -name '*.log' -delete",
+                "find -delete permanently removes matched files",
+            ),
+        ],
+    )
+    def test_what_stayed_at_warn_stayed_on_purpose(self, command, description):
+        """Reflog-recoverable, destroys no data, or the guard's most routine
+        false positive. A prompt is the right rung; a deny was not."""
+        assert_flagged(command, description)
+
+    def _run_in_process(self, monkeypatch, capsys, command):
+        """The hook's own `main()`, in this process, with the same PreToolUse
+        payload the subprocess tests use.
+
+        In-process because the assertion is about a SIDE EFFECT that a
+        subprocess cannot report: whether the ntfy POST was attempted at all.
+        `_log` and `_alert` are replaced by recorders, which also keeps the
+        sandbox promise — no audit file outside the temp HOME, no POST tried.
+        """
+        calls = {"log": [], "alert": []}
+        monkeypatch.setattr(guard, "_log", lambda *a: calls["log"].append(a))
+        monkeypatch.setattr(guard, "_alert", lambda *a: calls["alert"].append(a))
+        monkeypatch.setattr(guard, "is_enabled", lambda: True)
+        payload = json.dumps(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": {"command": command},
+            }
+        )
+        monkeypatch.setattr("sys.stdin", io.StringIO(payload))
+        guard.main()
+        return calls, json.loads(capsys.readouterr().out)
+
+    def test_only_a_block_pages_a_phone(self, monkeypatch, capsys):
+        calls, out = self._run_in_process(monkeypatch, capsys, "rm -rf /srv/data")
+        assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert [c[0] for c in calls["alert"]] == [RM_ROOT]
+        assert calls["log"][0][:2] == ("block", "deny")
+
+    def test_a_warn_is_recorded_but_never_alerted(self, monkeypatch, capsys):
+        calls, out = self._run_in_process(monkeypatch, capsys, "killall node")
+        assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert calls["alert"] == [], (
+            "a prompt the user is already reading must not page"
+        )
+        assert calls["log"][0][:2] == ("warn", "ask")
+
+    def test_an_allow_records_nothing(self, monkeypatch, capsys):
+        calls, out = self._run_in_process(monkeypatch, capsys, "ls -la")
+        assert out == {}
+        assert calls == {"log": [], "alert": []}
+
+    def test_the_audit_log_carries_the_severity_and_the_decision(self):
+        """Through the real hook, into the sandbox HOME: the log is how a
+        `warn` that the user approved is reconstructable afterwards."""
+        log = (
+            Path(_SANDBOX_HOME)
+            / ".claude"
+            / "permission-audit"
+            / "destructive-blocks.jsonl"
+        )
+        assert_flagged("killall node", KILLALL)
+        entry = json.loads(log.read_text().splitlines()[-1])
+        assert entry["severity"] == "warn"
+        assert entry["decision"] == "ask"
+        assert entry["description"] == KILLALL
+
+
+class TestQuotedOperandsAreMatched:
+    """Every pattern spells its operands unquoted (`\\s+/srv/obsidian`), so a
+    quoted path slipped through while the bare one was caught. Quoting is
+    ordinary hygiene — more likely in a careful script than a careless one —
+    which inverted the protection.
+
+    Handled once, on the execution surface (the shell removes quotes before any
+    program sees an argument), rather than by adding `['\\"]?` to forty patterns
+    and to every pattern anyone adds later."""
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            ('rm -rf "/srv/data"', RM_ROOT),
+            ("rm -rf '/srv/data'", RM_ROOT),
+            ('rm -rf "/srv/data" "/srv/other"', RM_ROOT),
+            ("rm -r '/srv/obsidian'", VAULT),
+            ('rm -r "/srv/obsidian"', VAULT),
+            ("rm -rf '~/Downloads'", "rm -rf in home directory"),
+            ('cat /tmp/new > "/etc/fstab"', ETC),
+            ("cat /tmp/new > '/etc/fstab'", ETC),
+            ('dd if=/dev/zero "of=/dev/sdb"', "dd writing to device"),
+            (
+                'rm "/srv/data/.stfolder"',
+                "removing Syncthing folder marker breaks sync",
+            ),
+            ('rm -r "./prod/quantlab"', "removing production trading code"),
+        ],
+    )
+    def test_the_quoted_spelling_is_caught_like_the_bare_one(
+        self, command, description
+    ):
+        assert_denied(command, description)
+
+    def test_the_surface_removes_the_delimiters_and_keeps_the_word_whole(self):
+        # The width is made up on the RIGHT, in the gap between words, so the
+        # operand stays contiguous and the surface stays the same length.
+        cmd = 'rm -rf "/srv/data"'
+        assert guard.execution_surface(cmd) == "rm -rf /srv/data  "
+        assert len(guard.execution_surface(cmd)) == len(cmd)
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            # Review finding on #92: quote removal is only half of what the
+            # shell does — the other half is that the remainder stays ONE WORD.
+            # Replacing a delimiter with a space did the first and undid the
+            # second, so a quote INSIDE a word left the operand split and
+            # unmatched. `of="/dev/sdb"` is the ordinary spelling, not a trick.
+            ('dd if=/tmp/x of="/dev/sdb" bs=1M', "dd writing to device"),
+            ("dd if=/tmp/x of='/dev/sdb' bs=1M", "dd writing to device"),
+            ('dd if=/tmp/x "of=/dev/sdb" bs=1M', "dd writing to device"),
+            ('git push --"force" origin main', PUSH_FORCE),
+            ('rm -rf "/srv"/data', RM_ROOT),
+            ('chmod -R 777 "/var/www"', "chmod -R 777 makes everything world-writable"),
+        ],
+    )
+    def test_a_quote_inside_a_word_does_not_split_the_operand(
+        self, command, description
+    ):
+        assert_denied(command, description)
+
+    def test_the_word_is_joined_the_way_the_shell_joins_it(self):
+        cmd = 'dd if=/tmp/x of="/dev/sdb" bs=1M'
+        assert guard.execution_surface(cmd) == "dd if=/tmp/x of=/dev/sdb   bs=1M"
+
+    def test_quoted_text_in_a_data_only_stage_is_still_data(self):
+        """Quote removal must not undo the exemptions: `echo`'s arguments are
+        blanked before any of this, so there is nothing left to unquote."""
+        assert_allowed('grep -r "rm -rf /srv/data" .')
+        assert_allowed("echo 'rm -rf /srv/data'")
+        assert_allowed('echo "rm -rf /srv/data"')
+
+    def test_a_quoted_heredoc_delimiter_is_not_a_quoted_operand(self):
+        assert_allowed("cat > /tmp/f <<'EOF'\nrm -rf \"/srv/data\"\nEOF")
+
+    def test_quoting_used_to_split_a_word_is_joined_back(self):
+        """Word joining closes this as a side effect, so the limitation this
+        PR originally documented is gone: `/srv/"ob"sidian` is one word to the
+        shell and one word on the surface. Pinned because it was a stated limit
+        — if joining is ever weakened back to substitution, this says so."""
+        assert_denied('rm -r /srv/"ob"sidian', VAULT)
+        assert_denied("rm -r /srv/'ob'sidian", VAULT)
+
+    def test_what_quoting_still_cannot_reach_is_the_variable(self):
+        """The limit that remains, and it is the one at the top of the hook:
+        a value assembled across an expansion. No quoting is involved, so no
+        amount of quote handling touches it."""
+        assert_allowed("X='rm -rf'; $X /srv/data")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # Review finding on #92. An unbalanced quote inside a heredoc body
+            # left the scanner believing everything after it was quoted, so the
+            # real quotes were kept and quote removal switched itself off for
+            # the rest of the command. The second case is the one that matters:
+            # an apostrophe in ordinary English, in a body that is BLANKED —
+            # nothing adversarial anywhere in the command.
+            'cat <<EOF\n\'\nEOF\nrm -rf "/srv/data"',
+            "cat > /tmp/f <<'EOF'\nit's fine\nEOF\nrm -rf \"/srv/data\"",
+            # …and one where the body is NOT blanked, so blanking alone would
+            # not have fixed it: the body text is really on the surface, and
+            # only scanning it as its own region keeps its state out of the
+            # command that follows.
+            "bash <<'EOF'\n'\nEOF\nrm -rf \"/srv/data\"",
+            "wc -l <<'EOF'\ndon't\nEOF\nrm -rf \"/srv/data\"",
+        ],
+    )
+    def test_a_stray_quote_in_a_heredoc_cannot_disarm_quote_removal(self, command):
+        assert_denied(command, RM_ROOT)
+
+    def test_the_body_region_rule_is_the_load_bearing_half(self):
+        """Stated because mutation testing measured it: scanning the surface
+        instead of the raw command is belt-and-braces (removing it moves no
+        test), while treating each heredoc body as its own region is what
+        actually closes the hole. Asserted at the function so the split is
+        visible without reading the mutation log."""
+        command = "cat > /tmp/f <<'EOF'\nit's fine\nEOF\nrm -rf \"/srv/data\""
+        body = (command.index("it's"), command.index("\nEOF\nrm"))
+        leaky = list(command)
+        guard._blank_quote_delimiters(leaky, ())
+        assert '"' in "".join(leaky), "no region rule: the later quotes survive"
+        confined = list(command)
+        guard._blank_quote_delimiters(confined, [body])
+        assert '"' not in "".join(confined)
+
+    def test_an_unblanked_heredoc_body_has_its_own_quotes_removed_too(self):
+        """The other half of scanning a body as its own region: `bash` will
+        unquote the body when it runs it, so the surface should too."""
+        assert_denied("bash <<'EOF'\nrm -rf \"/srv/data\"\nEOF", RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo 'rm -rf /srv/data' | bash",
+            "cat > /tmp/f <<'EOF'\nrm -rf /srv/data\nEOF",
+            "cat > /tmp/f <<'EOF'\nit's fine\nEOF",
+            "bash <<'EOF'\nit's fine\nEOF",
+            "python3 -c \"open('/tmp/f','w').write('x')\"",
+            "grep 'rm -rf /srv/data' notes.txt > /tmp/out",
+            "git -c alias.x='!bash /tmp/x' x",
+            "cat > /tmp/f 2>&1 <<'EOF'\ngit push --force-with-lease\nEOF",
+            "echo 'a\\' $(rm -rf /srv/data)",
+            "true && FOO='x cat' bash <<'EOF'\nrm -rf /srv/data\nEOF",
+            "find . -name '*.tmp' -exec rm {} \\;",
+            "rsync -e 'rm -rf /srv/data' --dry-run src dst",
+        ],
+    )
+    def test_removing_quotes_can_only_add_matches_never_remove_one(
+        self, command, monkeypatch
+    ):
+        """The safety argument, executed rather than asserted in a comment.
+
+        Quote removal deletes only quote characters and makes the width up on
+        the right, so the only text it moves stays inside its own word and the
+        gap between words only grows — and every pattern spells that gap `\\s+`
+        or `.*`. Nothing that matched before may stop matching, and the two
+        invariants the rest of the surface depends on — total length and where
+        the newlines are — must hold exactly."""
+        with_removal = guard.execution_surface(command)
+        monkeypatch.setattr(guard, "_blank_quote_delimiters", lambda *_a: None)
+        without_removal = guard.execution_surface(command)
+        before = {d for p, d, _s in guard.ALL_PATTERNS if p.search(without_removal)}
+        after = {d for p, d, _s in guard.ALL_PATTERNS if p.search(with_removal)}
+        assert before <= after, f"quote removal lost {before - after}"
+        assert len(with_removal) == len(without_removal)
+        newlines = [i for i, c in enumerate(with_removal) if c == "\n"]
+        assert newlines == [i for i, c in enumerate(without_removal) if c == "\n"]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # A quoted string spanning lines, inside a heredoc body that is
+            # SCANNED — the only place a word on the surface really contains a
+            # newline, because `_scan_layout` splits the outer command by
+            # physical line before any of this. (A `grep "a<NL>b" f` at the top
+            # level does NOT exercise this: the first line's argument is
+            # blanked, so the surviving quote opens a word that begins after
+            # the newline. Checked, rather than assumed — an earlier version of
+            # this test used exactly that command and measured nothing.)
+            "bash <<'EOF'\necho \"a\nb\"\nrm -rf /srv/data\nEOF",
+            "wc -l <<'EOF'\n\"a\nb\"\nEOF\nrm -rf /srv/data",
+        ],
+    )
+    def test_a_quoted_string_spanning_lines_is_not_compacted(self, command):
+        """The one shape word joining declines: moving a newline would move the
+        line structure the `$`-anchored patterns read. Its delimiters are
+        blanked in place instead, so every newline stays exactly where it was."""
+        surface = guard.execution_surface(command)
+        assert len(surface) == len(command)
+        assert [i for i, c in enumerate(surface) if c == "\n"] == [
+            i for i, c in enumerate(command) if c == "\n"
+        ]
+        assert_denied(command, RM_ROOT)
+
+
 # ------------------------------------------------------- unit: the surface
 
 
@@ -1146,8 +1750,12 @@ class TestDataOnlyStagesOnTheSurface:
         assert guard.execution_surface(cmd) == " " * len(cmd)
 
     def test_nothing_is_blanked_when_the_call_can_execute(self):
+        # Nothing *blanked*: the quoted argument is dequoted and stays one word
+        # (TOM-395), because that is what bash hands to the program.
         cmd = "echo 'rm -rf /srv/data' | bash"
-        assert guard.execution_surface(cmd) == cmd
+        assert guard.execution_surface(cmd) == (
+            "echo " + dequoted("'rm -rf /srv/data'") + " | bash"
+        )
 
 
 class TestIsSafeContextIsAStrictSubsetOfTheSurface:
@@ -1217,7 +1825,7 @@ class TestExecutionSurface:
         cmd = "cat > /tmp/f <<'EOF'\nrm -rf /srv/data\nEOF"
         assert (
             guard.execution_surface(cmd)
-            == "cat > /tmp/f <<'EOF'\n" + " " * 16 + "\nEOF"
+            == "cat > /tmp/f <<EOF  \n" + " " * 16 + "\nEOF"
         )
 
     def test_newlines_inside_a_multiline_body_are_kept(self):
@@ -1226,12 +1834,14 @@ class TestExecutionSurface:
         cmd = "cat > /tmp/f <<'EOF'\nfirst line\nsecond line\nEOF"
         assert (
             guard.execution_surface(cmd)
-            == "cat > /tmp/f <<'EOF'\n" + " " * 10 + "\n" + " " * 11 + "\nEOF"
+            == "cat > /tmp/f <<EOF  \n" + " " * 10 + "\n" + " " * 11 + "\nEOF"
         )
 
     def test_nothing_is_blanked_for_an_unlisted_consumer(self):
         cmd = "bash <<'EOF'\nrm -rf /srv/data\nEOF"
-        assert guard.execution_surface(cmd) == cmd
+        assert guard.execution_surface(cmd) == (
+            "bash " + dequoted("<<'EOF'") + "\nrm -rf /srv/data\nEOF"
+        )
 
     def test_an_unquoted_body_with_a_substitution_is_not_blanked_at_all(self):
         # Not "blanked except the substitution span": finding where a
@@ -1248,7 +1858,7 @@ class TestExecutionSurface:
     def test_unterminated_heredoc_body_runs_to_end_of_input(self):
         # bash never executes an unterminated heredoc body either.
         cmd = "cat > /tmp/f <<'EOF'\nrm -rf /srv/data"
-        assert guard.execution_surface(cmd) == "cat > /tmp/f <<'EOF'\n" + " " * 16
+        assert guard.execution_surface(cmd) == "cat > /tmp/f <<EOF  \n" + " " * 16
 
     def test_a_command_with_no_data_region_is_returned_unchanged(self):
         # Inert programs on purpose: a non-inert one would short-circuit at the
@@ -1256,13 +1866,18 @@ class TestExecutionSurface:
         cmd = "cat /tmp/notes && rm -rf /srv/data"
         assert guard.execution_surface(cmd) == cmd
 
-    def test_python_payload_is_blanked_only_between_the_quotes(self):
+    def test_python_payload_is_blanked_only_up_to_the_quotes(self):
+        # The invocation survives, the payload does not. The quotes themselves
+        # go the way every quote goes (TOM-395), which is why this is not
+        # `"python3 -c '" + " " * 8 + "'"` any more.
         cmd = "python3 -c 'print(1)'"
-        assert guard.execution_surface(cmd) == "python3 -c '" + " " * 8 + "'"
+        assert guard.execution_surface(cmd) == "python3 -c" + " " * 11
 
     def test_python_payload_mentioning_subprocess_is_left_alone(self):
         cmd = "python3 -c 'import subprocess as s'"
-        assert guard.execution_surface(cmd) == cmd
+        assert guard.execution_surface(cmd) == (
+            "python3 -c " + dequoted("'import subprocess as s'")
+        )
 
 
 class TestFailOpenAndScope:

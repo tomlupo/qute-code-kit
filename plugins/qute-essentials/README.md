@@ -64,14 +64,38 @@ Blocks `Write`/`Edit`/`NotebookEdit` on files that leak secrets or target creden
 
 Blocks dangerous commands before they execute. Context-aware: won't block `grep "rm -rf"` or dry-run flags.
 
-| Category | Examples |
-|----------|----------|
-| Git | `reset --hard`, `push --force`, `clean -f`, `stash clear`, `branch -D` |
-| Filesystem | `rm -rf /`, `rm -rf ~/`, `find -delete`, `mkfs`, `dd of=/dev/` |
-| Database | `DROP TABLE`, `TRUNCATE`, `DELETE FROM x;` (no WHERE), `dropdb` |
-| Docker | `system prune -a`, mass container removal |
-| System | `sudo rm -rf`, `chmod -R 777`, `crontab -r`, `pkill -9 -u` |
-| Custom | Obsidian vault paths, production quantlab, trading crons |
+| Category | Blocked — denied | Flagged — prompted |
+|----------|------------------|--------------------|
+| Git | `reset --hard`, `push --force`, `clean -f`, `stash clear`, `checkout -- .`, forced rebase | `branch -D` |
+| Filesystem | `rm -rf /`, `rm -rf ~/`, `rm -rf .`, `> /etc/…`, `mkfs`, `dd of=/dev/`, `rmdir /s`, `Remove-Item -Recurse` | `find -delete`, `find -exec rm`, `Remove-Item -Force` |
+| Database | `DROP TABLE`, `TRUNCATE`, `DELETE FROM x;` (no WHERE), `dropdb`, `dropuser` | — |
+| Docker | `system prune -a`, `volume prune`, mass container removal | — |
+| System | `sudo rm -rf`, `chmod -R 777`, `pkill -9 -u`, `sc delete`, `reg delete /f` | `killall`, `Stop-Process -Force`, `net stop` |
+| Custom | Obsidian vault paths, production quantlab, trading crons | — |
+
+**Two severities, two outcomes.** They used to be one outcome: `warn` and
+`block` both denied, with the same "🛑 BLOCKED" text, and severity decided only
+whether an alert fired — so the table advertised a middle rung that did not
+exist, and "downgrade it to warn" was not a fix available to anyone.
+
+| Severity | `permissionDecision` | Effect |
+|----------|----------------------|--------|
+| `block` | `deny` | The command does not run. High-priority ntfy alert. |
+| `warn` | `ask` | **Not denied** — you are shown the reason and decide. No alert. |
+
+`warn` is `ask` rather than `allow` deliberately: a hook that returns `allow`
+auto-approves, overriding the permission rules that would otherwise have
+prompted — so a warn-level pattern would leave a command *less* supervised than
+one the guard has never heard of. Severity, not table order, decides: a `block`
+anywhere outranks a `warn` earlier in the table, so `git branch -D x && rm -rf
+/srv/data` is still a deny.
+
+**Quoted paths count.** `rm -rf "/srv/data"`, `dd of="/dev/sdb"` and
+`rm -r /srv/"ob"sidian` are all caught exactly as their bare spellings are: the
+execution surface performs quote removal *and* keeps what is left as one word,
+the way the shell does before a program sees an argument. Patterns stay written
+in one spelling each. What quoting cannot reach is still what it always was — a
+value assembled across an expansion, `X="rm -rf"; $X /`.
 
 **Writing a destructive command is not running one.** Patterns match the
 *execution surface* — regions the shell hands to a program as data are excluded,
@@ -110,7 +134,9 @@ This is a text matcher over one tool call — it stops the accident, not the
 adversary (`X="rm -rf"; $X /` defeats it, and always did). Use `pre-push` +
 `.claude/git-guard.json` for branch protection that git itself enforces.
 
-Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert on every block.
+Logs every match to `~/.claude/permission-audit/destructive-blocks.jsonl` with
+its `severity` and the resulting `decision`. Sends an ntfy alert on every
+`block`, and on no `warn` — a prompt already has somebody reading it.
 
 ### Provenance Guard (PreToolUse)
 
