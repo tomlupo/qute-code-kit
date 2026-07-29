@@ -354,9 +354,22 @@ def test_a_ref_that_is_not_a_branch_is_unusable(value, tmp_path, home):
     assert "main" in hso["permissionDecisionReason"], value
 
 
-@pytest.mark.skipif(
-    not PRE_PUSH_GUARD.is_file(), reason="pre-push guard template not present"
-)
+def test_the_pre_push_guard_template_is_packaged():
+    """The docs say `pre-push` is the enforcement layer and ships as this
+    template, so its absence is a packaging failure, not a reason to skip.
+
+    This used to be a `skipif` on the parity test below. That was wrong for
+    exactly the reason the installer's own docs give: a hook that silently is
+    not there is worse than no hook, because it manufactures confidence — and
+    a parity test that silently stops asserting does the same thing one level
+    up. Move or rename the template and this fails loudly instead.
+    """
+    assert PRE_PUSH_GUARD.is_file(), (
+        f"{PRE_PUSH_GUARD} is missing. The README and setup-qute-repo both "
+        "promise it; either restore it or stop making the claim."
+    )
+
+
 @pytest.mark.parametrize(
     "cfg",
     [
