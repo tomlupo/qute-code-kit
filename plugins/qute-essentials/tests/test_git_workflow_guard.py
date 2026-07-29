@@ -1098,6 +1098,48 @@ def test_a_variable_subcommand_is_a_noop_without_config(tmp_path, home):
     assert decision == "allow"
 
 
+# Defect 66: an ARRAY ASSIGNMENT is not a subshell. `args=(git commit -m x)`
+# stores the words — verified, it assigns and runs nothing — so treating the
+# `(` as a subshell opener denied a command that writes nothing.
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "args=(git commit -m x)",
+        "args+=(git commit -m x)",
+        "declare -a args=(git commit -m x)",
+        "args=(git push origin main)",
+        "map[k]=(git commit -m x)",
+    ],
+)
+def test_an_array_assignment_does_not_run_its_words(cmd, tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    ["args=($(git commit -m x))", "args=(a `git commit -m x` b)"],
+)
+def test_a_substitution_inside_an_array_still_runs(cmd, tmp_path, home):
+    """The other half, and why the body is not simply discarded: bash expands
+    inside an array literal — verified, `arr=($(echo SUBST-RAN))` runs it."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+def test_a_real_subshell_is_still_a_subshell(tmp_path, home):
+    """The control: only an assignment's `(` is an array literal."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"(cd {other} && git commit -m x)", session, home)
+    assert decision == "deny"
+
+
 def test_parentheses_that_are_not_a_definition_still_subshell(tmp_path, home):
     """`(cd x && git commit)` must keep its subshell meaning — the definition
     pattern needs a NAME in front of the parens."""

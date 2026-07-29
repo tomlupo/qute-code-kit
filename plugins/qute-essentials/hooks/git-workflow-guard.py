@@ -127,9 +127,9 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58, 59, 61-63 and 64 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57, 60 and 65 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58, 59, 61-64 and 66 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57, 60 and 65 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27, 29-32, 36, 42, 43, 61, 63 and 65 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32, 36, 42, 43, 61, 63, 65 and 66 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -345,7 +345,10 @@ the same footing — a guard that cries wolf gets turned off:
       in. Found by merging TOM-348, not by review;
   65. a FAILED `-C` — git exits on a directory it cannot enter, so nothing
       runs, but a later `--git-dir` was followed anyway and the command was
-      denied.
+      denied;
+  66. an ARRAY ASSIGNMENT read as a subshell — `args=(git commit -m x)` stores
+      the words rather than running them, but the `(` opened a subshell and
+      the stored words were evaluated as a command.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER, and it EXISTS — TOM-348 merged, and
 it ships as `templates/hooks/pre-push-branch-guard` with an installer that
@@ -993,6 +996,18 @@ def _segments(command: str, _depth: int = 0):
                 # The line that queued them has ended; its bodies are data.
                 i = skip_heredoc_bodies(i, pending_heredocs)
                 pending_heredocs = []
+        elif c == "(" and _ARRAY_ASSIGN_RE.search("".join(buf)):
+            # `args=(git commit -m x)` is an ARRAY ASSIGNMENT, not a subshell:
+            # the words are stored, not run — verified, it assigns and executes
+            # nothing — so opening a subshell here denied a command that writes
+            # nothing (defect 66). The words are data; a substitution among
+            # them still RUNS (`args=($(git commit))` really commits), so the
+            # body gets exactly the treatment a here-doc body gets.
+            end = _skip_group(command, i, "(", ")")
+            end = n if end is None else end
+            emit_body_substitutions(command[i + 1 : max(end - 1, i + 1)])
+            buf.append(command[i:end])
+            i = end
         elif c in "()":
             flush()
             events.append(("open" if c == "(" else "close", None))
@@ -1176,6 +1191,13 @@ def _tokens(segment: str):
         _SUBST_HOLE_RE.sub(lambda m: holes[int(m.group(1))], word) for word in words
     ]
 
+
+# An array assignment's `(` — `args=(…)`, `args+=(…)`, `map[k]=(…)` — sitting
+# at the very end of what has been scanned so far. Its words are DATA, not a
+# subshell's commands.
+_ARRAY_ASSIGN_RE = re.compile(
+    r"(?:^|[\s;&|])[A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?\+?=$"
+)
 
 _ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 
