@@ -3218,6 +3218,31 @@ def test_pipeline_inside_a_chain_only_rolls_back_its_own_elements(tmp_path, home
     assert "main" in hso["permissionDecisionReason"]
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "echo $(printf ')')",
+        'echo $(printf ")")',
+        "echo $(echo 'a;b')",
+        'echo $(echo "x && y")',
+        "echo $(echo '(')",
+        "echo $((1+2))",
+        "echo `printf ')'`",
+    ],
+)
+def test_a_quoted_paren_in_a_substitution_does_not_hide_the_next_command(
+    prefix, tmp_path, home
+):
+    """Defect 45. Counting parens without minding quotes read the `)` inside
+    `$(printf ')')` as the closing one; the scan ended early, the stray quote
+    then opened a string, and everything after it — including a real
+    `git commit` — was swallowed as text."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"{prefix} ; git commit -m x", repo, home)
+    assert decision == "deny", prefix
+    assert "main" in hso["permissionDecisionReason"], prefix
+
+
 def test_command_substitution_does_not_disturb_the_base_dir(tmp_path, home):
     repo = _make_repo(tmp_path / "r", "main", STD_CFG)
     other = _make_repo(tmp_path / "other", "feat/x", STD_CFG)

@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
+34-36, 38-41 and 45 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -272,7 +272,11 @@ the same footing — a guard that cries wolf gets turned off:
   44. `GIT_DIR` in the environment — it selects the repo exactly as
       `--git-dir` does, but assignment prefixes were dropped, so
       `GIT_DIR=/repo-on-main/.git git commit` was evaluated against the
-      session's repo.
+      session's repo;
+  45. quoted parens inside `$( … )` — counting parens without minding quotes
+      ended the substitution early on `echo $(printf ')')`, and the stray
+      quote then swallowed the rest of the line, including a real
+      `; git commit`.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -695,16 +699,14 @@ def _segments(command: str):
             i += 2
         elif c == "$" and i + 1 < n and command[i + 1] == "(":
             # `$( … )` / `$(( … ))` — opaque, balanced, part of the word.
-            depth, j = 0, i + 1
-            while j < n:
-                if command[j] == "(":
-                    depth += 1
-                elif command[j] == ")":
-                    depth -= 1
-                    if depth == 0:
-                        j += 1
-                        break
-                j += 1
+            # Balanced QUOTE-AWARE: a bare paren counter treated the `)` in
+            # `echo $(printf ')')` as the closing one, so the scan ended early,
+            # the stray `'` then opened a quote, and everything after it —
+            # including a real `; git commit` — was swallowed as text
+            # (defect 45).
+            j = _skip_group(command, i + 1, "(", ")")
+            if j is None:
+                j = n  # never closes: a syntax error bash would not run either
             buf.append(command[i:j])
             i = j
         elif c == "`":
