@@ -40,7 +40,7 @@ defaults in brackets.
 | **Working-branch rule** | any branch ≠ integration branch | current branch if ≠ integration |
 | **Routing table** | project layout — map changed paths to reviewers (see template below) | the generic table below |
 | **Custom reviewers** | subagent types the repo defines (e.g. `methodology-reviewer`); skip if none | none → built-ins only |
-| **Contract docs** | review-rule files the reviewers must read (`.claude/rules/*.md`, `CONTRIBUTING.md`, style guides) | none → reviewers use their own judgment |
+| **Contract docs** | the files the reviewers must read (`CLAUDE.md`, any `paths:`-scoped `.claude/rules/*.md` the repo happens to carry, `CONTRIBUTING.md`, style guides) | none → reviewers use their own judgment |
 | **Hot-paths list** | perf-critical modules where naive time-loops are BLOCKER | infer from the routing table's model/pipeline lanes |
 
 A worked dm-evo example is in the **Reference: example project mapping** section
@@ -278,9 +278,12 @@ A concrete instantiation, for reference when adapting the knobs:
 
 - **Integration branch:** `dev` (working branches `feat/{alias}-*`,
   `research/{alias}-*`; runs before `/promote` and `/ship`).
-- **Contract docs:** `.claude/rules/methodology.md`,
-  `.claude/rules/quant-coding.md`, `.claude/rules/runbooks.md`,
-  `.claude/rules/general-rules.md`.
+- **Contract docs:** `CLAUDE.md`, plus whichever of
+  `.claude/rules/{methodology,quant-coding,runbooks,general-rules}.md` carry
+  `paths:` frontmatter. The unscoped ones load as `CLAUDE.md` sections anyway
+  (ADR-0005 §5 as amended), so they are reviewer reading either way — but they
+  are not what this field is for; only a scoped rule adds a file the reviewer
+  would otherwise miss.
 - **Custom reviewers:** `methodology-reviewer` (src + methodology drift),
   `experiment-reviewer` (research experiments), `runbook-reviewer` (pipelines +
   runbooks).

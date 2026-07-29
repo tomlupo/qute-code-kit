@@ -73,6 +73,43 @@ Blocks dangerous commands before they execute. Context-aware: won't block `grep 
 | System | `sudo rm -rf`, `chmod -R 777`, `crontab -r`, `pkill -9 -u` |
 | Custom | Obsidian vault paths, production quantlab, trading crons |
 
+**Writing a destructive command is not running one.** Patterns match the
+*execution surface* — regions the shell hands to a program as data are excluded,
+so a fixture string inside a heredoc no longer trips the guard:
+
+```bash
+cat > patch.sh <<'EOF'          # allowed — the body is data
+git push --force-with-lease
+EOF
+git push --force-with-lease     # still blocked — this one runs
+```
+
+Only two region kinds are exempt: heredoc bodies into `cat`/`tee`, and
+`python -c` / `python - <<EOF` payloads whose parsed AST provably cannot reach a
+shell (no imports; every call an allowlisted builtin or method). Three conditions
+gate them — no pipe or substitution in the segment, python must be reading that
+region as its own source, and **nothing anywhere in the same call may be able to
+run a program**, since writing a file and executing it fit in one Bash call:
+
+```bash
+cat > /tmp/x <<'EOF'      # still blocked: `bash /tmp/x` below
+rm -rf /srv/data
+EOF
+bash /tmp/x
+```
+
+Everything else keeps its text scanned — `bash <<EOF`, `psql <<EOF`, `sudo tee`,
+`perl -e`, `node -e`, `cat <<EOF | bash`, `python3 runner.py <<EOF`. The inert
+list is strict about exec escapes, so `git` (`-c alias.x='!…'`), `sort`
+(`--compress-program`) and `rg` (`--pre`) are deliberately **not** on it. Every
+list involved is an allowlist, so an unrecognised program or an unparseable
+payload resolves toward blocking; the route for a genuinely-blocked write is the
+Write tool (never screened) or `/guard destructive off`.
+
+This is a text matcher over one tool call — it stops the accident, not the
+adversary (`X="rm -rf"; $X /` defeats it, and always did). Use `pre-push` +
+`.claude/git-guard.json` for branch protection that git itself enforces.
+
 Logs to `~/.claude/permission-audit/destructive-blocks.jsonl`. Sends ntfy alert on every block.
 
 ### Git Workflow Guard (PreToolUse)
@@ -302,8 +339,128 @@ effect immediately.
 |------|-------|---------|
 | `format_python.py` | PostToolUse (Edit/Write) | Auto-format Python with `ruff format` (cosmetic only — `ruff check --fix` deliberately omitted so per-edit F401 doesn't strip imports mid-task) |
 | `auto_audit.py` | PostToolUse (Bash) | Runs `/audit` after `uv add` / `pip install` |
-| `worktree_create.py` | WorktreeCreate | Creates native worktrees with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); setup failures fail creation loudly |
+| `worktree_create.py` | WorktreeCreate | Creates native worktrees (`--worktree`, `/worktree`, agent `isolation: "worktree"`) with the worktrees skill's `.claude/worktree.json` setup (shared_dirs, copy_files, venv, post-worktree.sh); picks path + branch from the suggested `name` and the session `cwd`, resumes an existing worktree, and fails creation loudly on setup errors |
 | `worktree_remove.py` | WorktreeRemove | Reaps the per-worktree venv (`$HOME/.venvs/<name>`) on worktree removal; refuses anything that isn't provably an unused venv strictly inside `~/.venvs` (logged to `~/.claude/qute-worktree-reap.log`) |
+
+## `pre-push` branch guard (a git hook, not a Claude hook)
+
+`templates/hooks/pre-push-branch-guard` refuses a push whose destination is a
+guarded branch. `/setup-qute-repo` stamps it into opted-in repos via
+`scripts/install_pre_push_guard.py`.
+
+It sits at the git layer on purpose. An agent-side `PreToolUse` guard reads a
+shell command string, so it never sees a human at a terminal or a script, and
+inferring a push destination from a command line has an unbounded tail of shapes
+(`git push origin HEAD`, `--repo=origin`, git aliases, `env VAR=x git push …` —
+all real bypasses found in review). Git runs `pre-push` after alias expansion,
+after `env`, after option parsing, and hands it the refs it is about to send.
+Nothing to parse, nothing to infer, and it fires for humans, scripts and agents
+alike.
+
+- **Opt-in and config are shared with the agent-side guard** —
+  `.claude/git-guard.json` in the repo root, same fields, same defaults, so the
+  two layers can never disagree about which branches are guarded. No file = both
+  are a no-op for that repo.
+- **Install:** `python3 scripts/install_pre_push_guard.py --repo . [--opt-in]
+  [--adopt-existing]`. It resolves the path git will actually use
+  (`git rev-parse --git-path hooks/pre-push`, which honours `core.hooksPath`),
+  installs there, never clobbers an existing `pre-push` — with
+  `--adopt-existing` it chains it from `pre-push.d/` instead — and then drives
+  the installed hook through that same path with synthetic ref lines to prove it
+  is reachable. `--check` verifies without installing.
+- **It always takes the native hook path, never the pre-commit framework's
+  `pre-push` stage.** The framework drops ref lines whose local sha is all zeros
+  before running any hook (so branch *deletions* never reach the guard) and
+  exposes only the first pushable ref of a multi-ref push. That is a fine
+  tradeoff for a convenience hook and not for the layer whose whole job is that
+  it holds, so `auto` never selects it. A repo that already uses pre-commit
+  keeps working: its generated shim is relocated to `pre-push.d/50-pre-commit`
+  and runs behind the guard with the ref lines replayed to it.
+  `--mechanism pre-commit` remains for a repo that genuinely cannot take the
+  native slot — and there verification **fails** on the coverage it cannot
+  provide rather than warning, so nobody is told they are protected when they
+  are not.
+- **A later `pre-commit install --hook-type pre-push` reclaims the slot** and
+  moves the dispatcher to `<slot>.legacy` — which pre-commit's shim runs first
+  with the raw stdin, ORing its exit code into its own, so full coverage
+  survives (measured, not assumed; see the test suite).
+- **Residual risk you should know about: `pre-commit install -f --hook-type
+  pre-push` DELETES `<slot>.legacy`, which silently uninstalls this guard.**
+  Nothing here can prevent that — pre-commit owns the `-f` semantics and it runs
+  long after onboarding. What the installer can do is detect it, so **re-run
+  `--check` after any forced pre-commit install**, and treat a `NOT OK` there as
+  "the safety net is gone", not as a cosmetic warning. This is exactly the kind
+  of thing that quietly stops protecting a repo months later.
+- **A hook path that resolves outside the repository is refused by default** —
+  judged on the resolved path, never on which config scope named it. A
+  repo-local `core.hooksPath = /home/me/.githooks` or `../shared-hooks` is
+  exactly as shared as a global one: every repo pointed at that directory gets
+  the same file, and the second repo "installed" silently inherits the first
+  one's hook. `--allow-shared-hooks-path` accepts that deliberately; the refusal
+  names the path, the repo it is not inside, the config file that set it, and
+  anything already sitting in that directory. `--check` applies the same rule:
+  a shared hook file does not get a clean bill of health until someone
+  acknowledges it — and the row that says so states plainly that the guard *is*
+  working, because the point is that another repo's install can change that
+  file under you, not that you are unprotected.
+- **`git push --no-verify` bypasses it.** That is the contract of a client-side
+  hook and it is what makes it safe to install: it catches the accidental push
+  and yields to the deliberate one. It is **not** a substitute for server-side
+  branch protection — it exists because protection is unavailable on these
+  repos' plan.
+- **A missing guard fails CLOSED too.** The dispatcher lives in the hooks dir
+  (untracked); the guard script lives in `.claude/` (tracked). Check out a
+  branch from before the guard was added, or lose the exec bit, and the
+  dispatcher would keep running with nothing behind it. If the repo is opted in
+  and the guard is absent or not executable, the push is refused with the fix
+  spelled out — a broken install is not permission to proceed. A repo with no
+  config stays a silent no-op, as always.
+- **A malformed `git-guard.json` fails CLOSED.** Committing that file is
+  somebody stating they want the repo protected, so a config the guard cannot
+  understand stops the push instead of waving it through — a guard that
+  silently is not guarding is worse than no guard, because the repo looks
+  protected and nobody re-checks. Both branch fields must be strings (or an
+  explicit `null` for `integration_branch`); `{"protected_branch": 123}` or
+  `["main","dev"]` is refused by name, with the value, the expected type, and
+  the supported way to guard two branches (the two slots — there is no list
+  form, because the sibling guard reads the same two slots and a third guarded
+  branch in one layer only would be worse than either alone). Unknown keys warn
+  rather than refuse, so the other layer can grow a field first.
+  `"refs/heads/main"` and `"main"` are the same thing — the qualified form is
+  normalised to the short name so the guarded set always holds exactly what the
+  push comparison produces; a qualified ref that is *not* a branch
+  (`refs/tags/v1`) is refused, since it could never match. **Opt-in is detected
+  with `lstat`**, so a `git-guard.json` that is a broken symlink or a directory
+  fails closed rather than reading as "not opted in" — a repo that carries a
+  tracked config must never be quietly unguarded.
+- **An internal error fails OPEN, loudly.** A `QUTE_PRE_PUSH_GUARD: internal
+  error …` warning is printed and the push proceeds — a bug in the guard must
+  not wedge every push in a repo. Note the asymmetry with the previous bullet:
+  a malformed config is *your* statement of intent unmet, so it stops the push;
+  a crash is *our* fault, so it steps aside — but says so.
+- **The installer will not write outside the repo it was pointed at.** One
+  enforcement point covers every escape review found: a `core.hooksPath`
+  from global config, a repo-local one naming an outside directory, and a
+  destination the repo checked in as a symlink. Every write descends from an
+  approved root with `O_NOFOLLOW` on each path component, so a symlink cannot
+  be traversed and `..` cannot escape — and the approved roots are fixed before
+  the first byte is written, so the rule cannot be outrun by ordering. Every
+  path comparison is **lexical**: the hook slot is never `resolve()`d, because
+  resolving collapsed a repo-controlled `.githooks/pre-push -> /elsewhere` into
+  its target and the installer then treated the target's parent as "the hooks
+  directory". A symlinked hook slot is refused outright, and
+  `--allow-shared-hooks-path` does **not** override that — the flag accepts a
+  directory the operator was shown, not a destination the repository picked.
+  The check covers **every** component of the hook path at or below a repo
+  boundary, not just the final file: `core.hooksPath = .githooks` with
+  `.githooks` itself a symlink outward is a redirect too, and it is classified
+  as such (`hook_path_location: symlinked`) rather than as an in-repo install.
+  Writes go to a fresh inode and are `rename`d into place rather than
+  truncating what is already there, so a hard link at the destination cannot
+  corrupt the file's other name (git cannot deliver a hard link — it does not
+  preserve them on checkout — but truncating a shared inode is the wrong shape
+  regardless, and the rename also makes each install atomic for anything about
+  to exec the hook).
 
 ## Notifications
 
@@ -334,7 +491,7 @@ The guards resolve the endpoint from `ntfy.json`; leave `topic` empty to auto-de
 | `/wtf` | Activated on frustration/pushback — captures failure, applies three guardrail tiers (feedback memory + CLAUDE.md rule + hook), proposes smallest fix |
 | `/qute-review` | The shared review core (ADR-0005): Matt-review-base + quant layer, adversarial failure-class framing (`review-core.md`), cross-model via codex; posts the native GitHub review verdict the gate requires. Same core drives jimek's autonomous reviewer |
 
-## PR governance (ADR-0005: tier or rules, no policy file)
+## PR governance (ADR-0005: tier or `CLAUDE.md`, no policy file)
 
 There is **no per-repo PR policy file and no blocking client hook** — `.github/qute-pr.yml` and
 `pr-flow-guard.py` were deleted (qute-code-kit ADR-0005). Merge/PR governance is:
@@ -342,7 +499,7 @@ There is **no per-repo PR policy file and no blocking client hook** — `.github
 - **Jimek-managed repos** — the rigor **tier** in `conductor.yml` is the sole merge authority
   (trivial = auto-merge, standard = self-merge on SHIP, complex = human merges). The conductor
   stamps `jimek-tier:*` labels on managed PRs; the review-gate CI reads them.
-- **Standalone repos** — `.claude/rules` (stamped by `/setup-qute-repo`) states the expectations;
+- **Standalone repos** — `CLAUDE.md` (written by `/setup-qute-repo`) states the expectations;
   the review-gate CI enforces "get an independent review"; a human merges.
 
 ### Optional CI gate (tier-aware)
@@ -353,10 +510,17 @@ tier-aware: `jimek-tier:trivial` passes with no review; `standard`/`complex`/no-
 independent review object. Install it into an opting-in repo on request:
 
 ```bash
-mkdir -p .github/workflows && cp "$(claude plugin path qute-essentials)/templates/review-gate.yml" .github/workflows/review-gate.yml
+mkdir -p .github/workflows && cp "${CLAUDE_PLUGIN_ROOT}/templates/review-gate.yml" .github/workflows/review-gate.yml
 ```
 
-(or copy the file from the plugin's `templates/` directory).
+`${CLAUDE_PLUGIN_ROOT}` is set inside a Claude Code session running this plugin.
+From a plain shell it is unset — copy the file from the plugin's installed
+`templates/` directory instead, at
+`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` — here,
+`~/.claude/plugins/cache/qute-marketplace/qute-essentials/<version>/`. **No
+`claude plugin` subcommand prints that path**: `list` gives
+name/Version/Scope/Status and `details` gives a marketplace ref, so read the
+version from `claude plugin details qute-essentials` and build the path.
 
 The same workflow carries a second job, **`audit-sensitive-paths`** — on a PR that
 touches security-sensitive files (`pyproject.toml`, `uv.lock`, `requirements*.txt`,
@@ -411,9 +575,14 @@ The `audit` verb is wired to run by *change*, not by calendar (obsidian-vaults#1
 
 ```bash
 # weekly sweep, priority repos first, report to a dir
-python3 "$(claude plugin path qute-essentials)/scripts/deep_sweep.py" \
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/deep_sweep.py" \
   --config ~/.config/qute/audit-inventory.json --report ~/audit-reports
 ```
+
+(`${CLAUDE_PLUGIN_ROOT}` resolves inside a session running this plugin; from a
+cron entry or plain shell, substitute the plugin's installed path,
+`~/.claude/plugins/cache/qute-marketplace/qute-essentials/<version>/`. No
+`claude plugin` subcommand prints it — see above.)
 
 ## Setup
 

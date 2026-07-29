@@ -6,7 +6,7 @@ description: >-
   (webapp / quant package / quant lab / quant production / simple tool / peer
   product), Matt
   spine, task tracker (Linear default, TASKS.md for simple repos), Jimek
-  management (conductor.yml), behavioral rules (.claude/rules), worktree
+  management (conductor.yml), behavioral contract (CLAUDE.md), worktree
   config, shipping mode, research regime, guards + CI posture, and root files — each step defaulted by repo type,
   diff-first, idempotent, never clobbering. Use when onboarding or re-aligning
   a repo: "set up this repo", "setup qute repo", "adopt matt workflow",
@@ -19,9 +19,11 @@ argument-hint: "[webapp|quant-package|quant-lab|quant-production|simple|peer] [-
 One wizard to take a repo from "pile of files" to a clean single regime
 (ADR-0001..0004 in qute-code-kit). It supersedes `adopt-matt-workflow` and
 keeps its contract: **defer, don't duplicate** — Matt's
-`setup-matt-pocock-skills` owns planning-spine configuration; `/jimek-onboard`
-owns the conductor contract; this wizard sequences them and stamps only the
-qute deltas.
+`setup-matt-pocock-skills` owns planning-spine configuration; jimek owns the
+conductor contract and ships its canonical `conductor.yml` template (step 4
+renders from it — there is no separate `/jimek-onboard` skill; ADR-0006 folded
+its job into step 4); this wizard sequences them and stamps only the qute
+deltas.
 
 Every step: detect current state → propose (showing a diff for anything it
 would write) → apply on confirmation. Re-running is safe; identical files are
@@ -66,8 +68,8 @@ Defaults are proposals — the user can override any cell.
 own conventions and workflow (e.g. atlas): don't pull it under the regime, just
 bind it so fleet tooling can interoperate. Runs ONLY step 3 (tracker binding +
 repo label) and the `docs/adr/` part of step 10, then jumps to step 11. No
-conductor.yml, no `.claude/rules/`, no worktree/shipping/research stamping, and
-CLAUDE.md is left alone. (TOM-59 is the reference example.)
+conductor.yml, no behavioral-contract sections, no worktree/shipping/research
+stamping, and CLAUDE.md is left alone. (TOM-59 is the reference example.)
 
 ## Step 2 — Matt spine
 
@@ -180,27 +182,89 @@ standalone; ADR-0006 folds its job into this step):
 Not Jimek-managed → skip; note it in the final report so it's a decision,
 not an omission.
 
-## Step 5 — Behavioral rules (`.claude/rules/`) — ADR-0005 §5
+## Step 5 — Behavioral contract → `CLAUDE.md` (ADR-0005 §5, narrowed)
 
-Stamp the repo's core behavioral contract into **`.claude/rules/`** (auto-loaded
-every session like CLAUDE.md, but modular — regenerable one concern-file at a
-time). Both interactive Claude AND autonomous jimek workers load these, so it is
-ONE contract for two worlds; rigor tiers only add enforcement on top.
+**Stamp nothing into `.claude/rules/`. Do not create the directory.** The repo's
+behavioral contract goes into **`CLAUDE.md`**, as sections.
 
-From `templates/rules/` stamp, idempotent per-file (write if absent; if present
-and differing, show the diff and ask — never silently clobber):
+### 5a — Which sections, from which source
 
-- `git-workflow.md` — branch off default, Conventional Commits, PR-per-change
-- `shipping.md` — `/ship` is the only version writer (skip/adapt when the
-  repo's shipping mode is "none")
-- `review-expectations.md` — non-trivial changes get an independent review
-  (a separate reviewing agent, not an identity trick)
-- `governance.md` — mode-conditional: copy `governance-jimek.md` if step 4 made
-  the repo conductor-managed, else `governance-standalone.md`
+The prose sources are `templates/contract/*.md`, plugin-relative — resolve them
+with `${CLAUDE_PLUGIN_ROOT}/templates/contract/` — the plugin root this skill is
+running from, the same idiom `guard`, `audit`, `ship`, `task`, `repo-status` and
+`worktrees` use. If it is unset, resolve relative to this skill file's own
+directory instead (`../../templates/contract/`). Write these concerns, in this
+order, each as a `##` section of `CLAUDE.md`:
 
-Each file carries a `<!-- qute-rule: <name> vN -->` marker so re-runs can tell a
-stamped file from a hand-authored one. `CLAUDE.md` stays human-authored
-(overview/architecture) — onboarding never writes rules into it.
+| Concern | Prose source | Write it when |
+|---|---|---|
+| Git workflow | `templates/contract/git-workflow.md` | always |
+| Shipping | `templates/contract/shipping.md` | the **confirmed shipping mode** is **not** `none` |
+| Review expectations | `templates/contract/review-expectations.md` | always |
+| Governance | `templates/contract/governance-jimek.md` if step 4 made the repo conductor-managed, else `templates/contract/governance-standalone.md` | always — exactly one of the two, never both |
+
+**Settle the shipping mode once, here.** Step 1's table proposes one per repo
+type, but step 1 also lets the user override any cell — so ask which mode this
+repo actually ships in (`/ship` commitizen · `/ship` plugin mode · `gstack
+ship` · `none`) and write it down. Step 7 branches on this **same confirmed
+answer**, not on the repo type, so an overridden repo cannot be told one thing
+here and the opposite there.
+
+**Confirmed mode `none`** (the quant-lab / simple default, and any repo
+overridden to it): skip the Shipping section and instead write the one-line
+alternative into `CLAUDE.md` here — `shipping: none`, deliverables go to
+`reports/`, no versions or tags are cut. Step 7 only confirms that line is
+present. That line and the section are alternatives; writing both is the
+contradiction to avoid. So this step writes **four** sections normally, and
+**three** sections plus the `shipping: none` line when the mode is `none`.
+
+These are **prose sources, not files to copy**: drop the
+`<!-- prose source: … -->` header, fit the heading depth to the host `CLAUDE.md`,
+and otherwise keep the wording — it is the wording the rest of the regime cites.
+
+### 5b — Per-concern, never clobbering
+
+Same additive discipline as the tracker binding in step 3, applied one concern at
+a time:
+
+- **Concern absent** → propose the section, show the diff, write on confirmation.
+- **Concern already documented, equivalently** → no-op. Report it as "already
+  covered", naming the section that covers it.
+- **Concern already documented, differently** → show the diff and **ask**. Never
+  silently overwrite, and never append a second section for the same concern —
+  a repo that documents a concern better than the template does keeps its own
+  wording, and two sections on one concern is exactly the drift this step exists
+  to prevent.
+- Always edit `CLAUDE.md` **in place**. Never create a second boot file, and
+  never split the contract across `CLAUDE.md` and `AGENTS.md`.
+
+Re-running the step on an already-onboarded repo must be a no-op.
+
+### 5c — Why `CLAUDE.md` and not the `.claude/rules` layer
+
+A `.claude/rules/*.md` file with no `paths:` frontmatter loads as the same
+project-memory object as a `CLAUDE.md` section, from the same ancestor walk, at
+the same session cost. It is a `CLAUDE.md` section with a second place to look.
+The mechanism stays sanctioned — ADR-0005 §5 still stands, as amended — but
+**only for `paths:`-scoped rules**, whose one real capability is not loading
+until an accessed file matches the glob.
+
+**A scoped rule is discovered, never stamped.** It is justified when you have a
+specific set of files whose instructions should be absent the rest of the time,
+which you learn during work, not at onboarding. This step used to stamp four
+files: the evidence is that its `<!-- qute-rule: <name> vN -->` marker headed
+every one of the five templates and matched **zero** files anywhere on the box —
+the step prescribed rules before anyone had a reason for one. Those headers are
+now `<!-- prose source: … -->`, and the marker is retired: nothing writes it and
+nothing reads it.
+
+Two further traps if you do reach for a scoped rule:
+
+- The matcher resolves the project root as `dirname(dirname(rulesDir))` and
+  rejects any accessed file outside it, so globs pointing at a sibling tree
+  **never fire**. Three such rules sat unreachable in an agent home for weeks.
+- Never move an invariant out of `CLAUDE.md` into a scoped rule. If it must hold
+  every session, scoping it is how it silently stops holding.
 
 ## Step 6 — Worktrees
 
@@ -226,15 +290,26 @@ the local pattern only governs human/interactive worktrees). Verify
 
 ## Step 7 — Shipping
 
-- **Plugin repo** (marketplace.json) → `/ship` plugin mode, nothing to stamp.
-- **Python package / production** → run `/ship --dry-run` once so its
-  idempotent first-time setup lands (commitizen dev-dep, `[tool.commitizen]`
-  with version reconciliation, CHANGELOG.md). `/ship` is the **only** version
-  writer — if a `release.yml` workflow bumps versions, warn and neuter it
-  (see the ship skill's "Who owns the version").
-- **Webapp** → `gstack ship`; stamp nothing.
-- **quant-lab / simple** → no releases; deliverables go to `reports/`
-  (lab) or nowhere. Record "shipping: none" explicitly in CLAUDE.md.
+**Branch on the mode step 5a confirmed, not on the repo type.** Step 1's table
+only proposes a mode and the user may have overridden it, so a type-keyed bullet
+here can contradict the section step 5a actually wrote. Take the confirmed mode
+from step 5a and act on it:
+
+- **`/ship` plugin mode** (repo carries `marketplace.json`) → nothing to stamp.
+- **`/ship` commitizen** (the Python package / production default) → run
+  `/ship --dry-run` once so its idempotent first-time setup lands (commitizen
+  dev-dep, `[tool.commitizen]` with version reconciliation, CHANGELOG.md).
+  `/ship` is the **only** version writer — if a `release.yml` workflow bumps
+  versions, warn and neuter it (see the ship skill's "Who owns the version").
+- **`gstack ship`** (the webapp default) → stamp nothing.
+- **`none`** (the quant-lab / simple default) → no releases; deliverables go to
+  `reports/` (lab) or nowhere. Step 5a wrote `shipping: none` into `CLAUDE.md`
+  in place of the Shipping section, so **confirm that line is there** rather
+  than adding a second one.
+
+For every mode other than `none`, step 5a wrote the Shipping **section** and
+there is no `shipping: none` line to look for — do not add one, and do not run
+commitizen setup for a repo whose confirmed mode is `none`.
 
 ## Step 8 — Research regime (quant-lab only)
 
@@ -262,13 +337,86 @@ gate binds it on conclude.
 
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
-- **Branch-workflow guard opt-in.** Offer `.claude/git-guard.json` — its
-  presence is what arms the `git-workflow` guard for this repo (no file = the
-  guard ignores the repo entirely). Every field is optional: commit `{}` for
-  the house defaults (protect `main`; also `dev` when `origin/dev` exists), or
-  set `protected_branch` / `integration_branch` / `release_tool` explicitly.
-  Write `"integration_branch": null` when the repo genuinely has none
-  (feature → PR → `main`). Skip for scratch repos and third-party clones.
+- **`pre-push` branch guard** (TOM-348) — the deterministic stand-in for
+  server-side branch protection, which is unavailable on these repos' plan.
+  Opt-in is `.claude/git-guard.json` in the repo root: its **presence** arms the
+  guard, all fields are optional (`{}` = protect `main`, plus `dev` when
+  `origin/dev` exists; `"integration_branch": null` = this repo genuinely has
+  none). Skip scratch repos and third-party clones. Do NOT hand-copy files or
+  hand-run `pre-commit install`; run the installer, which detects the world,
+  installs, and then *measures* the result:
+
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/install_pre_push_guard.py" \
+      --repo . [--opt-in] [--adopt-existing]
+  ```
+
+  Read the report it prints, and put its `verification:` block in the step's
+  summary — "ran the installer" is not evidence, and a hook that silently is
+  not installed is worse than no hook because it manufactures confidence.
+  Things to get right:
+
+  - **The hook path is git's answer, not a guess.** The installer resolves it
+    with `git rev-parse --git-path hooks/pre-push`, which honours
+    `core.hooksPath` — and a repo with `core.hooksPath` set makes git ignore
+    `.git/hooks` entirely, so anything dropped there would never run.
+  - **Always the native path; never the pre-commit framework's `pre-push`
+    stage.** The framework drops ref lines whose local sha is all zeros (branch
+    *deletions* never reach any hook it runs) and exposes only the first
+    pushable ref of a multi-ref push. Fine for a convenience hook, not for the
+    enforcement layer — so a repo that uses pre-commit still gets the native
+    install, and pre-commit's generated shim is relocated to
+    `pre-push.d/50-pre-commit` where it runs behind the guard with the ref lines
+    replayed to it. If you ever pass `--mechanism pre-commit`, expect
+    verification to FAIL on the coverage it cannot provide; do not "fix" that by
+    ignoring it.
+  - **An existing hand-authored `pre-push` is never clobbered.** Without
+    `--adopt-existing` the installer reports `BLOCKED` and stops. With it, the
+    old hook moves to `<hooks dir>/pre-push.d/00-legacy-pre-push` and the qute
+    dispatcher runs in front of it, replaying the ref lines so the adopted hook
+    still gets its stdin.
+  - **A hook path resolving outside the repo is refused by default** — judged on
+    the path, not on which config scope set it, because a repo-local
+    `core.hooksPath = /home/me/.githooks` or `../shared-hooks` is exactly as
+    shared as a global one. Read the refusal: it names the resolved path, the
+    repo it is not inside, the config file that set it, and what is already in
+    that directory. Fix the path, or pass `--allow-shared-hooks-path`
+    deliberately — do not pass it just to make the message go away.
+  - **Re-check after any `pre-commit install`.** It reclaims the hook slot and
+    moves the dispatcher to `<slot>.legacy`, where coverage survives intact —
+    **but `pre-commit install -f` deletes that file and silently uninstalls the
+    guard.** Nothing prevents that; only `--check` detects it. Say so in the
+    onboarding report, because it is the kind of thing that quietly stops
+    protecting a repo months after anyone remembers this step.
+  - **A malformed `.claude/git-guard.json` stops pushes, on purpose.** Both
+    branch fields must be strings (`integration_branch` may be an explicit
+    `null`); `{"protected_branch": ["main","dev"]}` or `123` is refused by name
+    rather than silently guarding nothing. If a user hits this, read them the
+    message — it names the field, the value, and the two-slot shape — and do NOT
+    "fix" it by deleting the config, which disarms the guard entirely.
+  - **The installer will not write outside the repo**, including through a
+    symlink checked into the repo. If it reports a symlinked destination, that
+    is worth understanding before overriding anything.
+  - **`git push --no-verify` bypasses it**, as it does every client-side hook.
+    That is the design, not a defect: this catches the accidental push and
+    yields to the deliberate one. It is not a substitute for server-side branch
+    protection — it exists precisely because protection is unavailable on these
+    repos' plan.
+
+- **The same file also arms the agent-side `git-workflow` guard.** One
+  `.claude/git-guard.json`, two layers, and they are not alternatives:
+
+  - `pre-push` is the one that HOLDS. Git hands it the resolved refs, so no
+    command-line parsing is involved and it covers a human's own terminal.
+  - the `git-workflow` PreToolUse hook is a SPEED BUMP in front of it: it sees
+    Claude tool calls only and infers intent from a shell string, so it has an
+    inherent tail of shapes it has never met — but it catches `git commit` too
+    (which never reaches `pre-push`) and explains the route BEFORE the command
+    runs, rather than after the work is done.
+
+  Nothing extra to install for the second layer — it ships with the plugin and
+  reads the same file. Toggle it with `/guard git-workflow off` when a
+  deliberate override is wanted; that does NOT disarm `pre-push`.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).
@@ -319,8 +467,39 @@ a silent pass in repos they don't apply to, so stamping them is cheap:
 Re-run the `/check-agent-regime` checks. Report: stamped / skipped /
 needs-human (tracker choice, Linear project mapping, docs/decisions/
 migration, review-gate adoption). The repo passes when there is exactly one
-task store, one boot file, one ADR location, a stamped `.claude/rules/` with a
-mode-correct `governance.md`, and every binding carries its machine marker.
+task store, one boot file, one ADR location, a `CLAUDE.md` carrying the
+behavioral contract with the mode-correct governance section, no unscoped
+`.claude/rules` file anywhere, and every binding carrying its machine marker.
+
+**`peer` repos are exempt from most of that** — step 1 runs only the tracker
+binding and the `docs/adr/` part of step 10, so a peer repo passes on those two
+criteria alone. Do not report a peer repo as failing for a `CLAUDE.md` contract
+it was deliberately never given.
+
+Two of the remaining criteria are mechanical; the rest are a read.
+
+- **No unscoped rule file** — `.claude/rules` need not be absent, only free of
+  files that would be `CLAUDE.md` sections. Run this; empty output passes:
+
+  ```bash
+  find .claude/rules -name '*.md' 2>/dev/null | while read -r f; do
+    grep -qE '^paths:' "$f" || echo "UNSCOPED (belongs in CLAUDE.md): $f"
+  done
+  ```
+
+- **Machine markers present** — `grep -rn 'qute-tracker:' docs/agents/` must
+  find the tracker binding from step 3.
+- **The behavioral contract is a HUMAN CHECK.** "Carries the contract with the
+  mode-correct governance section" is not mechanized by anything: no script
+  knows whether a `CLAUDE.md` section actually says what step 5's source says,
+  and a repo may legitimately word it its own way. Open `CLAUDE.md` and confirm
+  that the concerns of step 5a **that apply to this repo** are each covered
+  exactly once — **four** sections normally, or **three** sections plus a
+  `shipping: none` line when the confirmed shipping mode is `none` — and that the
+  governance section matches the mode step 4 chose. Then say in the report that
+  you read it. Do not report this criterion as verified on the strength of the
+  two commands above, and do not fail a `shipping: none` repo for the Shipping
+  section step 5a told you to skip.
 
 ## Policy (unchanged from adopt-matt-workflow)
 

@@ -344,10 +344,9 @@ def test_setup_post_worktree_failure_is_error(tmp_path):
     assert "post-worktree.sh" in proc.stderr and "exited 7" in proc.stderr
 
 
-def test_hook_mode_creates_worktree_and_prints_path(tmp_path):
-    """End-to-end WorktreeCreate contract against a throwaway git repo."""
-    repo = tmp_path / "repo"
-    repo.mkdir()
+def _mk_repo(tmp_path: Path, name: str = "repo") -> Path:
+    repo = tmp_path / name
+    repo.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     subprocess.run(
         [
@@ -365,6 +364,32 @@ def test_hook_mode_creates_worktree_and_prints_path(tmp_path):
         cwd=repo,
         check=True,
     )
+    return repo
+
+
+def _hook(home: Path, payload: dict, path_dir: Path | None = None):
+    return subprocess.run(
+        [sys.executable, str(CREATE)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=_env(home, path_dir),
+    )
+
+
+def _branch_of(worktree: Path) -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(worktree), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return proc.stdout.strip()
+
+
+def test_hook_mode_creates_worktree_and_prints_path(tmp_path):
+    """End-to-end WorktreeCreate contract against a throwaway git repo."""
+    repo = _mk_repo(tmp_path)
     wt_path = tmp_path / "wts" / "repo-feat-y"
     payload = json.dumps(
         {
@@ -395,3 +420,280 @@ def test_hook_mode_missing_fields_fail_creation(tmp_path):
     )
     assert proc.returncode == 1
     assert "missing worktree_path/branch_name/base_path" in proc.stderr
+
+
+# ── worktree_create: the `name`-only payload Claude Code actually sends ──────
+#
+# `claude --worktree`, `/worktree` and subagent `isolation: "worktree"` all
+# send {name} plus the session envelope — never worktree_path/branch_name/
+# base_path. This shape used to hard-fail, which made agent worktree
+# isolation unusable for anyone with the plugin installed (TOM-358).
+
+AGENT_PAYLOAD = {
+    "session_id": "3f0d0a2e-0000-4000-8000-000000000000",
+    "transcript_path": "/home/u/.claude/projects/x/3f0d0a2e.jsonl",
+    "prompt_id": "9c1b0000-0000-4000-8000-000000000000",
+    "hook_event_name": "WorktreeCreate",
+    "name": "agent-a42dcd130afe9cce5",
+}
+
+
+def _agent_payload(cwd: Path, **over) -> dict:
+    return {**AGENT_PAYLOAD, "cwd": str(cwd), **over}
+
+
+def test_agent_payload_creates_worktree_and_prints_path(tmp_path):
+    """The exact captured payload from the failing agent launches."""
+    repo = _mk_repo(tmp_path)
+    proc = _hook(tmp_path, _agent_payload(repo))
+    assert proc.returncode == 0, proc.stderr
+    expected = repo / ".claude" / "worktrees" / "agent-a42dcd130afe9cce5"
+    assert proc.stdout.strip() == str(expected)
+    assert expected.is_dir() and (expected / ".git").exists()
+    assert _branch_of(expected) == "worktree-agent-a42dcd130afe9cce5"
+
+
+def test_agent_payload_resolves_repo_root_from_subdir(tmp_path):
+    repo = _mk_repo(tmp_path)
+    sub = repo / "pkg" / "deep"
+    sub.mkdir(parents=True)
+    proc = _hook(tmp_path, _agent_payload(sub))
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == str(
+        repo / ".claude" / "worktrees" / "agent-a42dcd130afe9cce5"
+    )
+
+
+def test_agent_payload_applies_worktree_json_setup(tmp_path):
+    """An agent worktree gets the same shared_dirs/copy_files/venv treatment
+    as a human one, at the configured path and branch."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(
+        json.dumps(
+            {
+                "base_path": "$HOME/wts/{project}-{slug}",
+                "branch_pattern": "{type}/{slug}",
+                "default_type": "agent",
+                "shared_dirs": ["data"],
+                "copy_files": ["local.toml"],
+                "venv_setup": "uv",
+            }
+        )
+    )
+    (repo / "data").mkdir()
+    (repo / "data" / "big.bin").write_text("x")
+    (repo / "local.toml").write_text("[cfg]")
+
+    proc = _hook(tmp_path, _agent_payload(repo), _stub_uv(tmp_path))
+    assert proc.returncode == 0, proc.stderr
+    wt = tmp_path / "wts" / "repo-agent-a42dcd130afe9cce5"
+    assert proc.stdout.strip() == str(wt)
+    assert _branch_of(wt) == "agent/agent-a42dcd130afe9cce5"
+    assert (wt / "data").is_symlink()
+    assert (wt / "data" / "big.bin").read_text() == "x"
+    assert (wt / "local.toml").read_text() == "[cfg]"
+    marker = tmp_path / ".venvs" / wt.name / ".qute-worktree.json"
+    assert json.loads(marker.read_text())["worktree_path"] == str(wt)
+
+
+def test_agent_payload_second_call_resumes(tmp_path):
+    """Re-running for an existing worktree re-applies setup and exits 0 —
+    `git worktree add` would fail on the existing directory."""
+    repo = _mk_repo(tmp_path)
+    first = _hook(tmp_path, _agent_payload(repo))
+    assert first.returncode == 0, first.stderr
+    wt = Path(first.stdout.strip())
+    (wt / "scratch.txt").write_text("work in progress")
+
+    second = _hook(tmp_path, _agent_payload(repo))
+    assert second.returncode == 0, second.stderr
+    assert second.stdout.strip() == str(wt)
+    assert "resuming" in second.stderr
+    assert (wt / "scratch.txt").read_text() == "work in progress"
+
+
+def test_resume_does_not_clobber_configured_setup_entries(tmp_path):
+    """The dangerous half of resume: `shared_dirs` deletes what it replaces
+    and `copy_files` overwrites it. On a live worktree those names may hold
+    hours of work, so a second invocation must keep what is already there."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(
+        json.dumps({"shared_dirs": ["data"], "copy_files": ["local.toml"]})
+    )
+    (repo / "data").mkdir()
+    (repo / "data" / "from-main.bin").write_text("main")
+    (repo / "local.toml").write_text("[cfg]\nfrom = 'main'\n")
+
+    first = _hook(tmp_path, _agent_payload(repo))
+    assert first.returncode == 0, first.stderr
+    wt = Path(first.stdout.strip())
+    assert (wt / "data").is_symlink()  # fresh create still links
+    assert (wt / "local.toml").read_text() == "[cfg]\nfrom = 'main'\n"
+
+    # the agent works: edits the copied file, and replaces the shared symlink
+    # with real local data of its own
+    (wt / "local.toml").write_text("[cfg]\nfrom = 'the agent'\n")
+    (wt / "data").unlink()
+    (wt / "data").mkdir()
+    (wt / "data" / "agent-output.bin").write_text("hours of work")
+
+    second = _hook(tmp_path, _agent_payload(repo))
+    assert second.returncode == 0, second.stderr
+    assert second.stdout.strip() == str(wt)
+    assert (wt / "local.toml").read_text() == "[cfg]\nfrom = 'the agent'\n"
+    assert not (wt / "data").is_symlink()
+    assert (wt / "data" / "agent-output.bin").read_text() == "hours of work"
+    assert "KEEP local.toml" in second.stderr and "KEEP data" in second.stderr
+    # main checkout untouched throughout
+    assert (repo / "data" / "from-main.bin").read_text() == "main"
+
+
+def test_resume_does_not_clobber_an_edited_envrc(tmp_path):
+    """`.envrc` is generated, but people extend it (extra exports, `use
+    flake`). On resume it is existing work like any other file."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(json.dumps({"venv_setup": "uv"}))
+    stub = _stub_uv(tmp_path)
+
+    first = _hook(tmp_path, _agent_payload(repo), stub)
+    assert first.returncode == 0, first.stderr
+    wt = Path(first.stdout.strip())
+    assert (
+        'UV_PROJECT_ENVIRONMENT="$HOME/.venvs/${PWD##*/}"'
+        in (wt / ".envrc").read_text()
+    )
+
+    (wt / ".envrc").write_text("export API_TOKEN=local\nuse flake\n")
+    second = _hook(tmp_path, _agent_payload(repo), stub)
+    assert second.returncode == 0, second.stderr
+    assert (wt / ".envrc").read_text() == "export API_TOKEN=local\nuse flake\n"
+    assert "KEEP .envrc" in second.stderr
+    # and the venv is still keyed correctly — uv sync gets the env explicitly
+    assert (tmp_path / ".venvs" / wt.name / "pyvenv.cfg").exists()
+
+
+def test_resume_keeps_a_managed_envrc_quietly(tmp_path):
+    """An unedited .envrc is 'already configured', not a scary KEEP warning."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(json.dumps({"venv_setup": "uv"}))
+    stub = _stub_uv(tmp_path)
+    _hook(tmp_path, _agent_payload(repo), stub)
+    second = _hook(tmp_path, _agent_payload(repo), stub)
+    assert second.returncode == 0, second.stderr
+    assert ".envrc already configured (kept)" in second.stderr
+
+
+def test_resume_relinks_a_shared_dir_that_went_missing(tmp_path):
+    """Preserve mode keeps what exists; it still creates what does not."""
+    repo = _mk_repo(tmp_path)
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "worktree.json").write_text(
+        json.dumps({"shared_dirs": ["data"], "copy_files": ["local.toml"]})
+    )
+    (repo / "data").mkdir()
+    (repo / "local.toml").write_text("[cfg]")
+
+    wt = Path(_hook(tmp_path, _agent_payload(repo)).stdout.strip())
+    (wt / "data").unlink()
+    (wt / "local.toml").unlink()
+
+    second = _hook(tmp_path, _agent_payload(repo))
+    assert second.returncode == 0, second.stderr
+    assert (wt / "data").is_symlink()
+    assert (wt / "local.toml").read_text() == "[cfg]"
+
+
+def test_setup_preserve_existing_flag(tmp_path):
+    """The same guard is available to the skill's manual `--setup` re-runs."""
+    base, wt = _mk_project(
+        tmp_path, {"shared_dirs": ["data"], "copy_files": ["local.toml"]}
+    )
+    (base / "data").mkdir()
+    (base / "local.toml").write_text("[cfg]")
+    (wt / "local.toml").write_text("mine")
+    (wt / "data").mkdir()
+    (wt / "data" / "mine.bin").write_text("mine")
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(CREATE),
+            "--setup",
+            str(wt),
+            "--base",
+            str(base),
+            "--preserve-existing",
+        ],
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert (wt / "local.toml").read_text() == "mine"
+    assert (wt / "data" / "mine.bin").read_text() == "mine"
+
+    # without the flag, the documented replace-on-setup behaviour is intact
+    proc = _setup(tmp_path, wt, base)
+    assert proc.returncode == 0, proc.stderr
+    assert (wt / "local.toml").read_text() == "[cfg]"
+    assert (wt / "data").is_symlink()
+
+
+def test_agent_payload_rejects_unsafe_names(tmp_path):
+    repo = _mk_repo(tmp_path)
+    for bad in ("../evil", "-b", ".hidden", "a b", "x;rm -rf /", 17):
+        proc = _hook(tmp_path, _agent_payload(repo, name=bad))
+        assert proc.returncode == 1, bad
+        assert "cannot plan worktree" in proc.stderr, proc.stderr
+    # an empty name carries no shape at all — soft skip, not a failure
+    empty = _hook(tmp_path, _agent_payload(repo, name=""))
+    assert empty.returncode == 0
+    assert "unrecognised payload" in empty.stderr
+    assert not (repo / ".claude" / "worktrees").exists()
+
+
+def test_agent_payload_outside_a_repo_fails_loudly(tmp_path):
+    not_a_repo = tmp_path / "plain"
+    not_a_repo.mkdir()
+    proc = _hook(tmp_path, _agent_payload(not_a_repo))
+    assert proc.returncode == 1
+    assert "not inside a git repository" in proc.stderr
+
+
+def test_unrecognised_payload_exits_zero_but_is_loud(tmp_path):
+    """No name, no explicit trio: get out of the way (exit 0, nothing on
+    stdout) — but leave a diagnostic a reader can act on. Doing nothing
+    quietly would be indistinguishable from a broken hook."""
+    proc = _hook(
+        tmp_path,
+        {
+            "session_id": "s",
+            "cwd": str(tmp_path),
+            "hook_event_name": "WorktreeCreate",
+        },
+    )
+    assert proc.returncode == 0
+    assert proc.stdout.strip() == ""  # claims no path
+    err = proc.stderr
+    assert "unrecognised payload" in err and "DID NOTHING (exit 0)" in err
+    assert "received keys: cwd, hook_event_name, session_id" in err
+    assert "recognised shapes:" in err  # what it would have understood
+    assert "no worktree was created and no setup ran" in err
+    assert "exiting 0 on purpose" in err  # and why that is not a silent pass
+    assert "teach the hook about it" in err  # what to do next
+
+
+def test_remove_hook_payload_without_worktree_path_is_soft_skip(tmp_path):
+    proc = subprocess.run(
+        [sys.executable, str(REMOVE)],
+        input=json.dumps({"session_id": "s", "hook_event_name": "WorktreeRemove"}),
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+    )
+    assert proc.returncode == 0
+    assert "skip: no worktree_path" in _log(tmp_path)
