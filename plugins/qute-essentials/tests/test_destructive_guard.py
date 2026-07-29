@@ -1585,6 +1585,42 @@ class TestQuotedOperandsAreMatched:
         cmd = 'dd if=/tmp/x of="/dev/sdb" bs=1M'
         assert guard.execution_surface(cmd) == "dd if=/tmp/x of=/dev/sdb   bs=1M"
 
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            # The RELATIVE-path rules, which the absolute-path cases above do
+            # not exercise: `~/`, `.` and `../` are each anchored differently,
+            # and the `.` one is anchored at END OF LINE.
+            ('rm -rf "~/Downloads"', "rm -rf in home directory"),
+            ("rm -rf '~/Downloads'", "rm -rf in home directory"),
+            ('rm -rf "."', "rm -rf . deletes current directory"),
+            ("rm -rf '.'", "rm -rf . deletes current directory"),
+            ('rm -rf "../secrets"', "rm -rf with parent traversal"),
+            ("rm -rf '../secrets'", "rm -rf with parent traversal"),
+            ('rm -rf ".."/secrets', "rm -rf with parent traversal"),
+        ],
+    )
+    def test_the_relative_path_rules_survive_quoting_too(self, command, description):
+        assert_denied(command, description)
+
+    def test_an_end_anchored_pattern_survives_the_padding_it_lands_in(self):
+        """Why the `.` rule gets its own assertion rather than one more row.
+
+        Quote removal preserves length by padding on the RIGHT, so a quoted
+        operand at the END of a command is followed by the padding — and every
+        `$`-anchored pattern is therefore matching against a line that no
+        longer ends where the text does. `rm -rf .` survives only because the
+        pattern spells `\\s*$` rather than a bare `$`:
+
+            rm -rf "."   ->   `rm -rf .  `
+
+        A pattern added later with a bare `$` would be silently disarmed by
+        quoting alone — the exact inversion (careful spelling, less
+        protection) this class exists to prevent. This pins the interaction so
+        that a change to either side has to notice the other."""
+        assert guard.execution_surface('rm -rf "."') == "rm -rf .  "
+        assert guard.execution_surface("rm -rf '.'") == "rm -rf .  "
+
     def test_quoted_text_in_a_data_only_stage_is_still_data(self):
         """Quote removal must not undo the exemptions: `echo`'s arguments are
         blanked before any of this, so there is nothing left to unquote."""
