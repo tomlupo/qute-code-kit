@@ -2845,6 +2845,87 @@ def test_a_command_line_git_dir_overrides_the_environment(tmp_path, home):
     assert decision == "deny"
 
 
+# Defect 49: `export GIT_DIR=…` persists to every LATER command in the shell,
+# so a commit after it lands in that repo. Bash settled the neighbouring
+# question too: a BARE `GIT_DIR=…;` sets a shell variable a child process never
+# sees, so it must NOT be followed.
+
+
+def test_an_exported_git_dir_persists_to_later_commands(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(f"export GIT_DIR={other}/.git; git commit -m x", session, home)
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
+def test_a_bare_assignment_is_not_exported(tmp_path, home):
+    """Verified in bash: without `export`, git is a child process and never
+    sees it, so the commit stays in THIS repo."""
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"GIT_DIR={other}/.git; git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_a_later_export_promotes_a_shell_variable(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(
+        f"GIT_DIR={other}/.git; export GIT_DIR; git commit -m x", session, home
+    )
+    assert decision == "deny"
+
+
+@pytest.mark.parametrize("undo", ["unset GIT_DIR", "export -n GIT_DIR"])
+def test_unsetting_an_exported_git_dir_restores_the_repo(undo, tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(
+        f"export GIT_DIR={other}/.git; {undo}; git commit -m x", session, home
+    )
+    assert decision == "allow", undo
+
+
+def test_a_command_line_git_dir_beats_an_exported_one(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    guarded = _make_repo(tmp_path / "guarded", "main", STD_CFG)
+    unguarded = _make_repo(tmp_path / "unguarded", "feat/data", STD_CFG)
+    decision, _ = _run(
+        f"export GIT_DIR={guarded}/.git; git --git-dir={unguarded}/.git commit -m x",
+        session,
+        home,
+    )
+    assert decision == "allow"
+
+
+def test_an_export_inside_a_subshell_does_not_escape(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "feat/work", STD_CFG)
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, _ = _run(f"(export GIT_DIR={other}/.git); git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_an_exported_git_dir_also_points_away_from_a_guarded_repo(tmp_path, home):
+    session = _make_repo(tmp_path / "lab", "main", STD_CFG)
+    other = _make_repo(tmp_path / "other", "feat/data", STD_CFG)
+    decision, _ = _run(f"export GIT_DIR={other}/.git; git commit -m x", session, home)
+    assert decision == "allow"
+
+
+def test_an_unresolvable_wrapper_checks_every_candidate_directory(tmp_path, home):
+    """Defect 50: the wrapper path looked only at `states[0]`, so after a
+    conditional `cd` an opted-in candidate went unexamined whenever the other
+    one was not opted in."""
+    session = _make_repo(tmp_path / "lab", "feat/work", None)  # NOT opted in
+    other = _make_repo(tmp_path / "other", "main", STD_CFG)
+    decision, hso = _run(
+        f"test -d /nope && cd {other}; env -S 'git commit -m x'", session, home
+    )
+    assert decision == "deny"
+    assert "main" in hso["permissionDecisionReason"]
+
+
 def test_git_work_tree_in_the_environment_selects_nothing(tmp_path, home):
     """Same as `--work-tree`: git still discovers `.git` from the cwd —
     verified — so the commit lands HERE."""

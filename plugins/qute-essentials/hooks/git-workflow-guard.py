@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41 and 45-48 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
+34-36, 38-41 and 45-48 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49 and 50 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -286,7 +286,14 @@ the same footing — a guard that cries wolf gets turned off:
       and a READ-ONLY command fell into the unknown-target fail-closed path;
   48. short-option clusters on `git push` — `-vn` is `-v -n`, a dry run that
       writes nothing, but only the exact `-n` was recognised, so it was
-      blocked.
+      blocked;
+  49. `export GIT_DIR=…` — it persists to every LATER command in the shell, so
+      a commit after it lands in that repo, but only INLINE assignments were
+      read. (A bare `GIT_DIR=…;` is not exported, so git never sees it —
+      bash's answer, not an assumption.);
+  50. the unresolvable-wrapper deny checked only `states[0]` — after a
+      conditional `cd`, an opted-in candidate went unexamined whenever the
+      other one was not opted in.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -2001,6 +2008,10 @@ def main():
     # candidate is exact either way (environment-axis defect, round 15).
     states = [(base_dir, False)]
     prev_dir = None
+    # `GIT_DIR` as a shell variable, and the value git actually sees. Only the
+    # EXPORTED one reaches a child process.
+    shell_git_dir = None
+    exported_git_dir = None
     # Above this many possibilities, stop enumerating and fail closed instead.
     max_states = 8
 
@@ -2065,7 +2076,7 @@ def main():
             # element's process — so roll the shell back to where that element
             # started. `;`, `&&`, `||` and newlines keep the same shell.
             if state_before is not None and (seg in _SUBSHELL_SEPARATORS or after_pipe):
-                states, prev_dir = state_before
+                states, prev_dir, shell_git_dir, exported_git_dir = state_before
             after_pipe = seg == "|"
             if seg == "&&":
                 run_next = last_status is not False
@@ -2081,7 +2092,7 @@ def main():
             if not run_next:
                 skip_depth = 1
                 continue
-            dir_stack.append((list(states), prev_dir))
+            dir_stack.append((list(states), prev_dir, shell_git_dir, exported_git_dir))
             continue
         if kind == "close":
             # A subshell's status is its own; we cannot compute it.
@@ -2089,7 +2100,7 @@ def main():
             # A subshell's `cd` dies with the subshell. An unmatched `)` (a
             # `case` arm, say) has nothing to restore and is ignored.
             if dir_stack:
-                states, prev_dir = dir_stack.pop()
+                states, prev_dir, shell_git_dir, exported_git_dir = dir_stack.pop()
             continue
 
         if not run_next:
@@ -2098,7 +2109,7 @@ def main():
             # keeps `a && b && c` and `a && b || c` both correct.
             continue
 
-        state_before = (list(states), prev_dir)
+        state_before = (list(states), prev_dir, shell_git_dir, exported_git_dir)
 
         tokens = _tokens(seg)
         # Redirections can sit anywhere, including before the command word.
@@ -2143,6 +2154,43 @@ def main():
             # this, `g commit -m x` left a subcommand of `$@` (defect 40).
             body = _expand_positionals(functions[call[0]], call[1:])
             events[event_index:event_index] = _segments(body)
+            continue
+
+        # Track `export GIT_DIR=…`, which persists to every LATER command in
+        # the same shell — verified: `export GIT_DIR=../lab/.git; git rev-parse
+        # --abbrev-ref HEAD` reports the OTHER repo's branch, so a commit after
+        # it lands there (defect 49).
+        #
+        # A BARE `GIT_DIR=…;` does not, and bash was the one to say so: it sets
+        # a shell variable that a child process never sees, and the same
+        # `rev-parse` reports the current repo. It is tracked only so that a
+        # later `export GIT_DIR` (no value) can promote it.
+        if tokens and tokens[0] in ("export", "unset"):
+            for tok in tokens[1:]:
+                name, eq, value = tok.partition("=")
+                if name == "-n" or tok == "-n":
+                    continue
+                if name != "GIT_DIR":
+                    continue
+                if tokens[0] == "unset":
+                    shell_git_dir = exported_git_dir = None
+                elif eq:
+                    shell_git_dir = exported_git_dir = value
+                elif "-n" in tokens[1:]:
+                    exported_git_dir = None  # `export -n` un-exports it
+                else:
+                    exported_git_dir = shell_git_dir
+            last_status = None
+            continue
+        if tokens and all(_ASSIGN_RE.fullmatch(t) for t in tokens):
+            for tok in tokens:
+                name, _, value = tok.partition("=")
+                if name == "GIT_DIR":
+                    shell_git_dir = value
+                    if exported_git_dir is not None:
+                        # Already exported: assigning updates what git sees.
+                        exported_git_dir = value
+            last_status = None
             continue
 
         # Track `cd` so a subsequent git command in the same chain resolves
@@ -2209,18 +2257,24 @@ def main():
             # block on the echo.
             if not _mentions_git(args):
                 continue
-            cfg = _cfg_for(states[0][0])
-            if cfg is None:
-                continue  # not opted in -> total no-op, as everywhere else
             wrapper = opts.get("wrapper", "env")
-            _deny(
-                f"Blocked: cannot determine which command this `{wrapper} ...` "
-                "invocation runs, and it mentions git — it may be a commit or "
-                f"push to '{cfg['protected']}'"
-                + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
-                + f". Run git directly instead of through `{wrapper}`.",
-                _guidance(cfg),
-            )
+            # EVERY candidate directory, not just the first: after a
+            # conditional `cd` the shell might be in either, and checking only
+            # `states[0]` let an opted-in candidate go unexamined whenever the
+            # other one was not opted in (defect 50). Same rule as
+            # `_check_git_command` already follows for a real git invocation.
+            for cand_dir, _cand_unknown in states:
+                cfg = _cfg_for(cand_dir)
+                if cfg is None:
+                    continue  # not opted in -> total no-op, as everywhere else
+                _deny(
+                    f"Blocked: cannot determine which command this "
+                    f"`{wrapper} ...` invocation runs, and it mentions git — "
+                    f"it may be a commit or push to '{cfg['protected']}'"
+                    + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+                    + f". Run git directly instead of through `{wrapper}`.",
+                    _guidance(cfg),
+                )
             continue
 
         if sub not in ("commit", "push") and sub in _GIT_BUILTINS:
@@ -2233,6 +2287,10 @@ def main():
         # but one of these is a singleton loop; the exception is a `cd` gated
         # on a condition we could not evaluate. `_deny` exits, so the first
         # candidate that violates wins.
+        if exported_git_dir and not opts.get("git_dir"):
+            # An exported `GIT_DIR` selects the repo just like `--git-dir`,
+            # which overrides it.
+            opts = dict(opts, git_dir=exported_git_dir)
         for _cand_dir, _cand_unknown in states:
             _check_git_command(
                 _cand_dir, _cand_unknown, sub, args, opts, _cfg_for, cfgmap_cache
