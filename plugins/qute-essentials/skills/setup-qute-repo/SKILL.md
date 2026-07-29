@@ -337,12 +337,52 @@ gate binds it on conclude.
 
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
+- **Migrate off any hand-copied guard, and stamp the config — FIRST** (TOM-351).
+  Before installing anything, run the migrator. It is the same edit in every
+  repo, so it is a script rather than a description, and it is a no-op in a repo
+  that never had the legacy copy:
+
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/migrate_git_guard.py" --repo . --check   # see the plan
+  python3 "${CLAUDE_PLUGIN_ROOT}/scripts/migrate_git_guard.py" --repo . \
+      [--integration-branch none|<name>] [--protected-branch <name>] [--release-tool "…"]
+  ```
+
+  It does three things and **reports each one** — put its output in the step
+  summary; a silent migration is indistinguishable from one that did nothing:
+
+  - **Removes `.claude/hooks/git-workflow-guard.py`.** A repo carrying that file
+    has a fork of the plugin's guard frozen at 2026-06-18 — *before* the fix for
+    resolving which repo a `git -C <path>` command targets. Left in place
+    alongside the plugin guard it is not harmless duplication: the stale copy
+    can raise a FALSE BLOCK the plugin copy would not. quantbox, quantbox-live
+    and quantbox-lab each carry the identical copy (their migrations are their
+    own tickets).
+  - **Unwires it from `.claude/settings.json` / `settings.local.json`,
+    surgically.** Only the entries whose `command` names that script go; sibling
+    hooks keep their bytes and their order, and containers left empty are pruned
+    rather than left as `[]`. A settings file that is not valid JSON is reported
+    and left alone, never rewritten.
+  - **Stamps `.claude/git-guard.json` when absent, minimally.** The guard
+    supplies the house defaults, so `{}` is the complete config for a repo that
+    wants them and a field appears only where this repo differs. The exception
+    is a repo that genuinely has **no** integration branch while `origin/dev`
+    exists (quantbox-live): pass `--integration-branch none` so the file says
+    `"integration_branch": null` out loud — omitting it would let detection
+    resurrect `dev`. An existing config is never rewritten; the repo's own
+    answer outranks the stamp.
+
+  Re-running is safe by construction: a migrated repo and a repo that never had
+  the copy both come out unchanged, and `--json` reports `"changed": false`.
+
 - **`pre-push` branch guard** (TOM-348) — the deterministic stand-in for
   server-side branch protection, which is unavailable on these repos' plan.
   Opt-in is `.claude/git-guard.json` in the repo root: its **presence** arms the
   guard, all fields are optional (`{}` = protect `main`, plus `dev` when
   `origin/dev` exists; `"integration_branch": null` = this repo genuinely has
-  none). Skip scratch repos and third-party clones. Do NOT hand-copy files or
+  none) — the migrator above already stamped it, so `--opt-in` is only for a
+  repo you are installing into without having run that step. Skip scratch repos
+  and third-party clones. Do NOT hand-copy files or
   hand-run `pre-commit install`; run the installer, which detects the world,
   installs, and then *measures* the result:
 
@@ -416,7 +456,11 @@ gate binds it on conclude.
 
   Nothing extra to install for the second layer — it ships with the plugin and
   reads the same file. Toggle it with `/guard git-workflow off` when a
-  deliberate override is wanted; that does NOT disarm `pre-push`.
+  deliberate override is wanted; that does NOT disarm `pre-push`, which yields
+  only to `git push --no-verify`. Both of those facts, and "presence of
+  `.claude/git-guard.json` is the opt-in", reach the repo through step 5's
+  **Git workflow** section (`templates/contract/git-workflow.md`) — that is
+  where the guard's contract is documented now, not in a stamped rules file.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).
