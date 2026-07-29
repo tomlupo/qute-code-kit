@@ -1195,7 +1195,11 @@ def _pipeline_stages(command: str, seg_range):
             continue
         if c == "|" and text[i - 1 : i] != ">":
             stages.append((start + seg_start, start + i))
-            i += 1
+            # `|&` is ONE operator, so the next stage starts after both
+            # characters. Consuming only the `|` left the stage reading `&
+            # grep x`, whose program parsed as `&` — not on any allowlist, so
+            # an inert `… |& grep` looked executable (review on #91, round 7).
+            i += 2 if text[i + 1 : i + 2] == "&" else 1
             seg_start = i
             continue
         i += 1

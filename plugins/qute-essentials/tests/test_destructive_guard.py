@@ -917,6 +917,14 @@ class TestWhereADataOnlyStagesOutputEndsUp:
         assert_denied("echo 'rm -rf /srv/data' |& bash", RM_ROOT)
         assert_denied("echo 'rm -rf /srv/data' |& sh -s", RM_ROOT)
 
+    @pytest.mark.parametrize("consumer", ["grep x", "wc -l", "head -1", "cat"])
+    def test_pipe_with_stderr_into_something_inert_stays_allowed(self, consumer):
+        """The other half of reading `|&` as one operator (review on #91 round
+        7): consuming only the `|` left the next stage reading `& grep x`,
+        whose program parsed as `&` — on no allowlist, so an inert pipeline
+        looked executable. A deny here is a false positive, not caution."""
+        assert_allowed(f"echo 'rm -rf /srv/data' |& {consumer}")
+
     @pytest.mark.parametrize(
         "command",
         [
