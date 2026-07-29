@@ -350,9 +350,15 @@ def desired_config(
     # Normalise BEFORE the "is this the default anyway?" comparison, so
     # `--protected-branch refs/heads/main` is recognised as `main` and omitted
     # rather than stamped as a qualified ref nobody asked for.
-    if protected:
+    #
+    # Gated on `is not None`, NOT on truthiness. `--integration-branch ""` is a
+    # value the user supplied, and skipping validation for it let the empty
+    # string through to the stamp — where `"" != detected` made it a field, and
+    # `pre-push` rejects an empty branch field on every push. "Falsy" and "not
+    # given" are different things exactly where it costs the most.
+    if protected is not None:
         protected = normalise_branch_arg(repo, "protected_branch", protected)
-    if integration_mode == "name" and integration:
+    if integration_mode == "name":
         integration = normalise_branch_arg(repo, "integration_branch", integration)
 
     if protected and protected != DEFAULT_PROTECTED:

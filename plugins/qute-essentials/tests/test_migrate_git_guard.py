@@ -348,6 +348,11 @@ def test_explicitly_requested_house_defaults_are_still_omitted(tmp_path):
         ("--integration-branch", "refs/remotes/origin/dev"),
         ("--integration-branch", "bad..name"),
         ("--integration-branch", "trailing "),
+        # Falsy, but SUPPLIED. Gating validation on truthiness let this through
+        # to the stamp, where "" became a field `pre-push` rejects on every push.
+        ("--integration-branch", ""),
+        ("--protected-branch", ""),
+        ("--protected-branch", "   "),
         ("--protected-branch", "refs/tags/v1"),
         ("--protected-branch", "feat//x"),
     ],
