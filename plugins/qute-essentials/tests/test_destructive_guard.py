@@ -1,4 +1,4 @@
-"""Tests for the destructive-command guard, focused on TOM-379.
+"""Tests for the destructive-command guard: TOM-379 and TOM-394.
 
 Two layers:
 
@@ -17,8 +17,8 @@ wrong pattern, which is precisely the class of test that measures nothing.
 
 DO NOT remove the sandboxing in `_HOOK_ENV`. Every "block" the hook decides
 has two live side effects: it appends to `~/.claude/permission-audit/` and it
-POSTs a high-priority ntfy alert. This file provokes ~40 blocks per run, so an
-unsandboxed run pages a real phone forty times. `HOME` is redirected to a temp
+POSTs a high-priority ntfy alert. This file provokes ~90 blocks per run, so an
+unsandboxed run pages a real phone ninety times. `HOME` is redirected to a temp
 dir and the proxy vars point at a closed port so `urlopen` is refused locally
 and instantly.
 """
@@ -107,6 +107,11 @@ PUSH_FORCE = "git push --force overwrites remote history"
 RM_ROOT = "rm -rf on non-tmp root path"
 DROP = "DROP destroys database objects"
 VAULT = "removing Obsidian vault data"
+CLEAN = "git clean -f permanently deletes untracked files"
+PRUNE = "docker system prune -a removes all unused data"
+KILLALL = "killall terminates all matching processes"
+MKFS = "mkfs formats a filesystem"
+DROPDB = "dropdb removes entire database"
 
 
 # ------------------------------------------------------- TOM-379: literals
@@ -554,11 +559,11 @@ class TestCommandWordResolution:
         assert_allowed("/bin/cat > /tmp/f <<'EOF'\ngit reset --hard HEAD~1\nEOF")
 
     def test_env_assignment_prefix_before_a_data_sink(self):
-        # NOT written as `LC_ALL=C cat …`: a command *starting* with an
-        # uppercase assignment is exempted wholesale by the pre-existing
-        # `^[A-Z_]+=` rule in `is_safe_context`, so that spelling would pass
-        # without exercising the surface at all — a test measuring nothing.
-        # (That rule is a live bypass; reported separately, not fixed here.)
+        # Until TOM-394 the first spelling could not be tested here at all: a
+        # command *starting* with an uppercase assignment was exempted
+        # wholesale by `is_safe_context`, so it never reached the surface —
+        # a test measuring nothing. Both spellings now go through the surface.
+        assert_allowed("LC_ALL=C cat > /tmp/f <<'EOF'\ngit reset --hard\nEOF")
         assert_allowed("true && FOO=1 cat > /tmp/f <<'EOF'\ngit reset --hard\nEOF")
 
     def test_leading_redirection_before_a_data_sink(self):
@@ -568,7 +573,639 @@ class TestCommandWordResolution:
         assert_denied("/bin/bash <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
 
 
+# -------------------------------------------------------- TOM-394: prefixes
+
+
+class TestAnEnvAssignmentPrefixNoLongerDisarmsTheGuard:
+    """The hole: `is_safe_context` returned True for the ENTIRE command when
+    it started with `^[A-Z_]+=`, so every pattern was skipped. A throwaway
+    assignment — no knowledge of this file required — turned the guard off,
+    silently."""
+
+    def test_one_assignment(self):
+        assert_denied("FOO=1 rm -rf /srv/data", RM_ROOT)
+
+    def test_several_assignments(self):
+        assert_denied("FOO=1 BAR=2 BAZ=3 git reset --hard HEAD~1", RESET_HARD)
+
+    def test_a_lowercase_assignment_too(self):
+        # The old rule was `^[A-Z_]+=`, so `foo=1` was never exempt. The new
+        # parse accepts any valid name, which can only widen what is scanned.
+        assert_denied("foo=1 rm -rf /srv/data", RM_ROOT)
+
+    def test_a_quoted_value(self):
+        assert_denied("FOO='a b' git push --force origin main", PUSH_FORCE)
+
+    @pytest.mark.parametrize(
+        "assignment",
+        [
+            "FOO='; echo x'",  # a separator inside the value
+            'FOO="a|b&&c;d"',  # every separator at once
+            "FOO='#'",  # a comment character
+            "FOO='<<EOF'",  # a heredoc operator
+        ],
+    )
+    def test_a_value_that_looks_like_shell_syntax(self, assignment):
+        assert_denied(f"{assignment} rm -rf /srv/data", RM_ROOT)
+
+    def test_a_value_that_donates_the_name_of_a_data_sink(self):
+        """Also a pre-existing TOM-379 bug, reachable without any prefix as
+        the `true && …` spelling below: `_split_command` used `str.split()`,
+        which reads `FOO='x cat' bash` as the words `FOO='x`, `cat'`, `bash`.
+        Stripping the quote made the program `cat` — a heredoc DATA SINK — so
+        the body was blanked while `bash` executed it."""
+        assert_denied(
+            "true && FOO='x cat' bash <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT
+        )
+        assert_denied("FOO='x cat' bash <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    def test_a_command_substitution_in_the_value(self):
+        assert_denied("FOO=$(echo x) rm -rf /srv/data", RM_ROOT)
+
+    def test_an_assignment_before_a_separator(self):
+        assert_denied("FOO=1; rm -rf /srv/data", RM_ROOT)
+
+    def test_a_line_continuation_after_the_assignment(self):
+        assert_denied("FOO=1 \\\nrm -rf /srv/data", RM_ROOT)
+
+    def test_an_assignment_on_its_own_is_still_not_a_command(self):
+        # Nothing runs, so nothing is blocked.
+        assert_allowed("MSG='rm -rf /srv/data is dangerous'")
+        assert_allowed("MSG='rm -rf /srv/data' ; echo done")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "foo='rm -rf /srv/data'; bash -c \"$foo\"",
+            "FOO='rm -rf /srv/data'; bash -c \"$FOO\"",
+            "foo='rm -rf /srv/data'; eval $foo",
+            "foo='rm -rf /srv/data'\nsome-runner",
+        ],
+    )
+    def test_a_standalone_assignment_is_data_only_if_nothing_can_run_it(self, command):
+        """Review finding on #91 round 8: a shell variable is a channel to a
+        later stage exactly as a file is, so the value takes route 3's gate.
+        Both cases are listed because widening the assignment parse to any
+        case is what put the lowercase one in reach — under `^[A-Z_]+=` it
+        was blocked, by accident rather than by design."""
+        assert_denied(command, RM_ROOT)
+
+    def test_a_prefix_assignment_does_not_persist_so_it_is_always_data(self):
+        # `FOO=1 grep …` is that one command's environment, not a shell
+        # variable. Gating it on the call would cost the dry-run exemption
+        # every time, `git` being an executor.
+        assert_allowed("FOO='rm -rf /srv/data' git clean -fd --dry-run")
+        assert_allowed("FOO='rm -rf /srv/data' grep x .")
+
+    def test_the_value_assembled_across_the_expansion_is_still_the_limitation(
+        self,
+    ):
+        # `X="rm -rf"; $X /` — the documented, unfixable case at the top of the
+        # hook. No pattern matches the text, with or without any exemption.
+        assert_allowed("X='rm -rf'; $X /srv/data")
+
+    def test_an_assignment_before_a_text_search_is_still_fine(self):
+        assert_allowed("FOO=1 BAR=2 grep 'rm -rf /srv/data' .")
+
+
+class TestEveryOtherPrefixThatUsedToExemptTheWholeCommand:
+    """`is_safe_context` had six of these and they were all one bug: a prefix
+    deciding that everything chained after it was safe too."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -r pattern . && rm -rf /srv/data",  # grep prefix
+            "rg pattern . ; rm -rf /srv/data",  # rg prefix
+            "echo starting && rm -rf /srv/data",  # echo prefix
+            "printf '%s\\n' starting ; rm -rf /srv/data",  # printf prefix
+            "# cleanup step\nrm -rf /srv/data",  # comment prefix
+            "man rm ; rm -rf /srv/data",  # man prefix
+            "rm --help ; rm -rf /srv/data",  # `<prog> --help` prefix
+            "rsync --dry-run -a /srv/data /backup && rm -rf /srv/data",  # dry-run
+            "make --just-print all && rm -rf /srv/data",  # dry-run, long form
+        ],
+    )
+    def test_the_prefix_no_longer_covers_what_follows_it(self, command):
+        assert_denied(command, RM_ROOT)
+
+    def test_a_comment_covers_only_its_own_line(self):
+        assert_denied("# a\n# b\ngit reset --hard HEAD~1", RESET_HARD)
+
+    def test_a_dry_run_flag_on_a_program_that_has_no_such_flag(self):
+        """`rm --dry-run` does not exist, so the flag is not a promise — it is
+        an unknown argument next to a real recursive delete. The old rule
+        searched for the flag anywhere in the first segment, for any program."""
+        assert_denied("rm -rf /srv/data --dry-run", RM_ROOT)
+        assert_denied("rm -rf /srv/data --check", RM_ROOT)
+
+    def test_a_help_flag_that_is_not_the_first_argument(self):
+        # The old rule was `^\w+\s+--help` — `--help` as the FIRST argument.
+        # Not widened: widening it is how `--dry-run` went wrong.
+        assert_denied("rm -rf /srv/data --help", RM_ROOT)
+
+    def test_help_must_be_the_only_argument(self):
+        # NARROWER than the old rule, which asked only that `--help` came
+        # first. Nothing may ride along behind it, because what rides along
+        # can be a command: git prints help either way, but the exemption
+        # would have blanked the alias out of the scan.
+        assert_denied("git --help -c alias.x='!rm -rf /srv/data' x", RM_ROOT)
+        assert_allowed("git --help")
+
+    def test_a_dry_run_later_in_the_pipeline_says_nothing_about_what_precedes(
+        self,
+    ):
+        assert_denied("rm -rf /srv/data && rsync --dry-run -a x y", RM_ROOT)
+
+
+class TestTheFalsePositivesThosePrefixesExistedFor:
+    """`is_safe_context` was not gratuitous — it suppressed real false
+    positives, and every one of them still has to pass. Each command below
+    carries text that WOULD match a pattern if it were scanned, so an allow
+    verdict can only come from the exemption."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -r 'rm -rf /srv/data' .",
+            "grep -rn 'git reset --hard' . | wc -l",
+            "grep 'rm -rf /srv/data' notes.txt > /tmp/out",
+            "rg 'rm -rf /srv/data' .",
+            "ag 'rm -rf /srv/data' src",
+            "ack 'git push --force origin main' src",
+            "echo 'rm -rf /srv/data'",
+            "printf '%s\\n' 'git push --force origin main'",
+            "# rm -rf /srv/data",
+            "MSG='rm -rf /srv/data'",
+            "man rm",
+            "git push --help",
+            "git clean -fd --dry-run",
+            "git push --dry-run --force origin main",
+            "rsync --dry-run -a /srv/data /backup/",
+            "make --just-print clean",
+            "cat /tmp/notes | grep 'rm -rf /srv/data'",
+            "echo hi | grep 'rm -rf /srv/data'",
+            "grep -rn 'rm -rf /srv/data' . | head -20",
+        ],
+    )
+    def test_still_not_blocked(self, command):
+        assert_allowed(command)
+
+
+class TestADataOnlyStageMayNotFeedAnExecutor:
+    """Blanking a stage hides its text from every pattern, so it is allowed
+    only when nothing in the same Bash call could run that text — the same
+    write-then-execute rule the heredoc exemptions already follow."""
+
+    def test_piped_straight_into_a_shell(self):
+        assert_denied("echo 'rm -rf /srv/data' | bash", RM_ROOT)
+
+    def test_piped_through_a_filter_into_a_shell(self):
+        assert_denied("echo 'rm -rf /srv/data' | tee /tmp/x | bash", RM_ROOT)
+
+    def test_written_to_a_file_that_the_same_call_runs(self):
+        assert_denied("echo 'rm -rf /srv/data' > /tmp/x ; bash /tmp/x", RM_ROOT)
+
+    def test_a_program_nobody_listed_counts_as_an_executor(self):
+        assert_denied("echo 'rm -rf /srv/data' > /tmp/x ; some-runner /tmp/x", RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "reader",
+        [
+            "rg --pre=/tmp/x needle .",
+            "rg --pre /tmp/x needle .",
+            "man -P /tmp/x rm",
+            "ack --pager=/tmp/x needle",
+            "ag --pager=/tmp/x needle",
+        ],
+    )
+    def test_a_text_tool_that_can_run_a_file_is_an_executor(self, reader):
+        """Review finding on #91: these tools read text, but `--pre`, `-P` and
+        `--pager` all RUN a named program, so a text tool is not automatically
+        a non-executor. Nothing here special-cases their options — they are
+        simply not on `INERT_PROGRAMS`, and that is enough."""
+        assert_denied(f"echo 'rm -rf /srv/data' > /tmp/x ; {reader}", RM_ROOT)
+
+    def test_a_plain_invocation_of_the_same_tool_is_unaffected(self):
+        """…and the finding costs the exemption nothing when the tool is not
+        being handed a command: being an executor stops OTHER stages being
+        blanked, and a plain search is still a search."""
+        assert_allowed("rg 'rm -rf /srv/data' .")
+        assert_allowed("rg --hidden --type=py 'rm -rf /srv/data' .")
+        assert_allowed("rg 'rm -rf /srv/data' . | wc -l")
+
+
+class TestAToolThatCanRunItsOwnOptionValue:
+    """Review finding on #91 round 3: a text tool being an executor was used
+    only to protect OTHER stages. But the destructive text can BE the option
+    value it executes, and that text was blanked before matching."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rg --pre 'rm -rf /srv/data' needle .",
+            "rg --pre='rm -rf /srv/data' needle .",
+            "rg --hostname-bin 'rm -rf /srv/data' .",
+            "ag --pager='rm -rf /srv/data' needle",
+            "ack --pager 'rm -rf /srv/data' needle",
+            "ack --ackrc='rm -rf /srv/data' needle",
+        ],
+    )
+    def test_a_text_tool_handed_a_command_is_not_data_only(self, command):
+        assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "man -P 'rm -rf /srv/data' rm",
+            "man -H 'rm -rf /srv/data' rm",
+            "man -e 'rm -rf /srv/data' rm",
+        ],
+    )
+    def test_man_is_off_the_data_only_list_entirely(self, command):
+        """`man -P CMD` runs CMD through a shell, and the list bought nothing
+        against that: no realistic `man …` contains text a pattern matches, so
+        `man rm` was never allowed BECAUSE of the exemption."""
+        assert_denied(command, RM_ROOT)
+
+    def test_man_without_a_command_option_is_still_fine(self):
+        assert_allowed("man rm")
+        assert_allowed("man git-push")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git -c alias.x='!rm -rf /srv/data' x --dry-run",
+            "git --exec-path='rm -rf /srv/data' clean -fd --dry-run",
+            "rsync -e 'rm -rf /srv/data' --dry-run src dst",
+            "make --eval='$(shell rm -rf /srv/data)' --just-print",
+            "git -c core.pager='rm -rf /srv/data' clean -fd --dry-run",
+        ],
+    )
+    def test_a_dry_run_carrying_a_quoted_option_value_is_not_data_only(self, command):
+        """Every program with a dry-run flag can also be made to run something,
+        and every spelling of that carries the command in an OPTION VALUE. So
+        the dry-run exemption requires bare words end to end — one rule, no
+        per-program option table."""
+        assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            ("git -c alias.x=!killall x -- --dry-run", KILLALL),
+            ("git -c core.pager=mkfs clean -fd --dry-run", MKFS),
+            ("git -c alias.x=!dropdb x mydb --dry-run", DROPDB),
+        ],
+    )
+    def test_an_unquoted_option_value_is_not_a_bare_word_either(
+        self, command, description
+    ):
+        """Review finding on #91 round 6: an unquoted alias value is a single
+        token with no whitespace, and git hands it the arguments that follow —
+        so quoting and whitespace were not the whole of it. `=` is what these
+        have in common, and a real dry run has none of the three.
+
+        These are the four single-word patterns, deliberately: a one-word
+        command is exactly what fits in a bare option value, and round 3
+        documented that as a residual. It is now closed."""
+        assert_denied(command, description)
+
+    def test_the_reported_shape_itself_is_no_longer_data_only(self):
+        """The shape as reported. It is asserted at the predicate rather than
+        through a verdict because the command contains no text any pattern
+        matches — git's alias NAME sits between `!rm` and the later `-rf
+        /srv/data`, so `rm -rf /` is never contiguous. The exemption applying
+        to it was still wrong, and no longer does."""
+        stage = "git -c alias.x=!rm x -rf /srv/data -- --dry-run"
+        assert guard._stage_is_data_only(stage) is False
+        assert guard.execution_surface(stage) == stage
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "git clean -fd --dry-run",
+            "git clean --dry-run -fdx",
+            "git push --dry-run --force origin main",
+        ],
+    )
+    def test_a_real_dry_run_is_bare_words_end_to_end(self, command):
+        assert_allowed(command)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rsync --dry-run -a /srv/data /backup/",
+            "make --just-print clean",
+            "npm ci --dry-run",
+        ],
+    )
+    def test_the_programs_dropped_in_round_10_never_needed_the_exemption(self, command):
+        """They match no pattern with or without it — which is the criterion
+        `DRY_RUN_INVOCATIONS` now uses. Pinned so that shrinking the list is
+        seen to have cost nothing."""
+        assert_allowed(command)
+        assert guard._stage_is_data_only(command) is False
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            # Review finding on #91 round 10: these tools take a COMMAND as
+            # bare-word arguments, so a `--dry-run` among them may be the
+            # payload's or ignored outright — it says nothing about the tool.
+            ("kubectl exec pod -- rm -rf /srv/data --dry-run", RM_ROOT),
+            ("docker run --dry-run alpine rm -rf /srv/data", RM_ROOT),
+            ("npm exec --dry-run -- rm -rf /srv/data", RM_ROOT),
+            ("git bisect run rm -rf /srv/data --dry-run", RM_ROOT),
+            ("git submodule foreach rm -rf /srv/data --dry-run", RM_ROOT),
+        ],
+    )
+    def test_a_dry_run_flag_among_a_command_payload_exempts_nothing(
+        self, command, description
+    ):
+        assert_denied(command, description)
+
+    def test_the_flag_must_be_the_tools_not_the_payloads(self):
+        # After `--` the arguments belong to whatever the tool invokes, so a
+        # dry-run flag there is not the tool's promise to keep.
+        assert_denied("git clean -fd -- --dry-run", CLEAN)
+        assert_allowed("git clean -fd --dry-run")
+
+    def test_docker_system_prune_is_the_one_deliberate_casualty(self):
+        """Docker has no `--dry-run` for `prune`, so this errors today anyway.
+        Pinned so that adding `"docker": {"system"}` later is a decision rather
+        than a drift."""
+        assert_denied("docker system prune -a --dry-run", PRUNE)
+
+
+class TestWhereADataOnlyStagesOutputEndsUp:
+    """Route 3 in detail: the stage's output reaching a FILE that something in
+    the same call can then run. Where the write happens, and how it is spelled,
+    is not the stage's business — so neither is it this check's."""
+
+    @pytest.mark.parametrize(
+        "writer",
+        [
+            "tee /tmp/x",  # writes a file with no `>` in the command at all
+            "cat > /tmp/x",  # the redirection belongs to a LATER stage
+            "cat >> /tmp/x",
+            "cp /dev/stdin /tmp/x",
+            "cp /proc/self/fd/0 /tmp/x",
+            "mv /dev/stdin /tmp/x",
+        ],
+    )
+    def test_the_file_can_be_written_by_a_later_stage_of_the_pipeline(self, writer):
+        """Review finding on #91 round 2: route 3 asks where this stage's
+        OUTPUT ends up, so it has to follow the whole pipeline. `cat` is inert,
+        so route 2 waves `echo … | cat > /tmp/x` through, and the redirection
+        that puts the text on disk is not on the `echo` stage at all."""
+        assert_denied(f"echo 'rm -rf /srv/data' | {writer} ; bash /tmp/x", RM_ROOT)
+
+    def test_writing_it_is_still_fine_when_nothing_runs_it(self):
+        assert_allowed("echo 'rm -rf /srv/data' | cat > /tmp/x")
+        assert_allowed("echo 'rm -rf /srv/data' | tee /tmp/x")
+
+    @pytest.mark.parametrize("consumer", ["tee", "tee -a", "tee --"])
+    def test_tee_with_no_file_operand_writes_nothing(self, consumer):
+        """Review nit on #91 round 9: `tee` writes to the files it is GIVEN.
+        Bare, or with options only, it is a copy to stdout — so route 3 does
+        not apply and a deny here is a false positive."""
+        assert_allowed(f"echo 'rm -rf /srv/data' | {consumer} ; bash /tmp/x")
+
+    @pytest.mark.parametrize("consumer", ["tee /tmp/x", "tee -a /tmp/x", "tee -- -x"])
+    def test_tee_with_a_file_operand_however_spelled_does_write(self, consumer):
+        assert_denied(f"echo 'rm -rf /srv/data' | {consumer} ; bash /tmp/x", RM_ROOT)
+
+    @pytest.mark.parametrize("consumer", ["cp a b", "mv a b", "wc -l", "grep x"])
+    def test_a_consumer_that_does_not_write_its_stdin_is_not_route_3(self, consumer):
+        """Review finding on #91 round 5: `cp` and `mv` write their STDIN only
+        when handed a path that is stdin. Treating every `cp` as a stdin writer
+        blocked a pipeline whose text goes nowhere near a file."""
+        assert_allowed(f"echo 'rm -rf /srv/data' | {consumer} ; bash /tmp/x")
+
+    @pytest.mark.parametrize("redirection", [">", ">>", ">|", "1>", "&>", ">&", "2>"])
+    def test_every_spelling_of_a_write_counts_as_one(self, redirection):
+        assert_denied(
+            f"echo 'rm -rf /srv/data' {redirection} /tmp/x ; bash /tmp/x", RM_ROOT
+        )
+
+    @pytest.mark.parametrize("filter_stage", ["tr a a", "head -1", "cat"])
+    def test_a_filter_between_the_stage_and_the_write_changes_nothing(
+        self, filter_stage
+    ):
+        assert_denied(
+            f"echo 'rm -rf /srv/data' | {filter_stage} > /tmp/x ; bash /tmp/x", RM_ROOT
+        )
+
+    def test_pipe_with_stderr_is_one_operator_not_a_separator(self):
+        """`|&` used to be split at the `&`, leaving the first segment ending
+        in a bare `|` — so the stage after the pipe was the empty string, which
+        runs nothing and did not stop the echo being blanked."""
+        assert_denied("echo 'rm -rf /srv/data' |& bash", RM_ROOT)
+        assert_denied("echo 'rm -rf /srv/data' |& sh -s", RM_ROOT)
+
+    @pytest.mark.parametrize("consumer", ["grep x", "wc -l", "head -1", "cat"])
+    def test_pipe_with_stderr_into_something_inert_stays_allowed(self, consumer):
+        """The other half of reading `|&` as one operator (review on #91 round
+        7): consuming only the `|` left the next stage reading `& grep x`,
+        whose program parsed as `&` — on no allowlist, so an inert pipeline
+        looked executable. A deny here is a false positive, not caution."""
+        assert_allowed(f"echo 'rm -rf /srv/data' |& {consumer}")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # Review finding on #91 round 4: the shell requires no whitespace
+            # around a redirection, and `str.split()`-shaped tokenization read
+            # `/srv/data>/tmp/x` as one argument — so route 3 saw no write.
+            "echo rm -rf /srv/data>/tmp/x ; bash /tmp/x",
+            "echo rm -rf /srv/data>>/tmp/x ; bash /tmp/x",
+            "echo 'rm -rf /srv/data'>/tmp/x ; bash /tmp/x",
+            "printf %s 'rm -rf /srv/data'>/tmp/x ; bash /tmp/x",
+            # …and it can be glued to a token of a LATER stage instead
+            "echo 'rm -rf /srv/data' | cat>/tmp/x ; bash /tmp/x",
+            "echo 'rm -rf /srv/data' | tr a a>/tmp/x ; bash /tmp/x",
+            "grep -o 'rm -rf /srv/data' f>/tmp/x ; bash /tmp/x",
+        ],
+    )
+    def test_a_redirection_glued_to_a_word_is_still_a_write(self, command):
+        assert_denied(command, RM_ROOT)
+
+    def test_a_glued_redirection_with_nothing_to_run_it_is_still_fine(self):
+        assert_allowed("echo rm -rf /srv/data>/tmp/x")
+        assert_allowed("echo 'rm -rf /srv/data' | cat>/tmp/x")
+
+    @pytest.mark.parametrize("sink", ["cat", "tee"])
+    def test_a_glued_redirection_does_not_rename_the_program(self, sink):
+        """The same mis-parse reached TOM-379's data-sink test: `foo>/tmp/cat`
+        was read as the program `cat`, so an arbitrary program's heredoc body
+        was blanked as if it were data bound for a file."""
+        assert_denied(f"foo>/tmp/{sink} <<'EOF'\nrm -rf /srv/data\nEOF", RM_ROOT)
+
+    @pytest.mark.parametrize("opener", ["cat>/tmp/f", "cat >/tmp/f", "cat<<'EOF'"])
+    def test_and_a_real_data_sink_is_recognised_however_it_is_spaced(self, opener):
+        # The other half of the same mis-parse: these were FALSE POSITIVES.
+        suffix = "" if opener.endswith("'EOF'") else " <<'EOF'"
+        assert_allowed(f"{opener}{suffix}\nrm -rf /srv/data\nEOF")
+
+    @pytest.mark.parametrize("dup", ["2>&1", ">&2", "2>&-"])
+    def test_a_descriptor_duplication_is_not_a_write(self, dup):
+        # `2>&1` opens no file, so route 3 does not apply and the executor
+        # elsewhere in the call is irrelevant. Reading it as a write would
+        # block a shape that puts nothing on disk at all.
+        assert_allowed(f"echo 'rm -rf /srv/data' {dup} ; bash /tmp/x")
+
+    def test_a_comment_is_discarded_by_the_shell_not_written_anywhere(self):
+        # The counterpart: a comment's text cannot reach a file or a pipe, so
+        # an executor elsewhere in the call is irrelevant to it.
+        assert_allowed("# rm -rf /srv/data\nbash /tmp/x")
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            'echo "$(rm -rf /srv/data)"',
+            "echo `rm -rf /srv/data`",
+            "grep x <(rm -rf /srv/data)",
+            # Double quotes do NOT stop a substitution.
+            'echo "prefix $(rm -rf /srv/data) suffix"',
+            'echo "prefix `rm -rf /srv/data` suffix"',
+        ],
+    )
+    def test_a_substitution_inside_the_data_only_stage_is_not_data(self, command):
+        assert_denied(command, RM_ROOT)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # Review finding on #91 round 11: the plainness test was a raw
+            # substring check, so a pipe inside quotes — the commonest thing
+            # this exemption exists for — stopped the stage being data.
+            "echo 'rm -rf /srv/data | note'",
+            'echo "rm -rf /srv/data | note"',
+            "grep 'rm -rf /srv/data|note' file",
+            "echo 'rm -rf /srv/data' > /tmp/f",
+            "echo 'rm -rf /srv/data | note' > /tmp/f",
+            # Single quotes and a backslash DO stop a substitution.
+            "echo 'rm -rf /srv/data $(x)'",
+            "echo 'rm -rf /srv/data `x`'",
+            "grep 'rm -rf /srv/data <(x)' file",
+            "echo rm\\ -rf\\ /srv/data\\|note",
+        ],
+    )
+    def test_an_operator_the_shell_will_not_act_on_is_still_data(self, command):
+        assert_allowed(command)
+
+    def test_the_quote_aware_test_does_not_lose_a_real_operator(self):
+        """A backslash inside SINGLE quotes is a literal, so the quote closes
+        at the next `'` and what follows is unquoted. Reading it as an escape
+        would swallow that quote and leave the scanner believing the rest of
+        the stage is quoted — so the substitution here would look inert.
+
+        The substitution rather than a pipe, deliberately: a pipe is caught by
+        route 2 whatever the plainness test believes, so a test using one
+        would pass with this logic broken."""
+        assert_denied("echo 'a\\' $(rm -rf /srv/data)", RM_ROOT)
+        assert_denied("echo 'rm -rf /srv/data\\' | bash", RM_ROOT)
+
+    def test_a_consumer_that_cannot_execute_does_not_void_it(self):
+        # tee writes a file; nothing in this call runs it. Same shape, and the
+        # same verdict, as `cat > /tmp/x <<'EOF' … EOF`.
+        assert_allowed("echo 'rm -rf /srv/data' | tee /tmp/x")
+
+
 # ------------------------------------------------------- unit: the surface
+
+
+class TestDataOnlyStagesOnTheSurface:
+    """Character-exact assertions: a verdict alone cannot tell "blanked the
+    arguments" from "blanked the whole line" or "skipped every pattern"."""
+
+    def test_only_the_arguments_are_blanked(self):
+        cmd = "echo hi && rm -rf /srv/data"
+        assert guard.execution_surface(cmd) == "echo    && rm -rf /srv/data"
+
+    def test_the_program_word_survives_but_nothing_else_does(self):
+        cmd = "grep -r 'rm -rf /srv/data' ."
+        assert guard.execution_surface(cmd) == "grep" + " " * (len(cmd) - 4)
+
+    def test_a_redirection_is_an_action_and_stays_on_the_surface(self):
+        # `printf 'x' > /etc/passwd` is a write to a system file whoever does
+        # it, so the operator and its target are not blanked with the args.
+        cmd = "printf 'x' > /etc/passwd"
+        assert guard.execution_surface(cmd) == "printf     > /etc/passwd"
+
+    def test_a_comment_stage_is_blanked_whole(self):
+        cmd = "# rm -rf /srv/data\nls"
+        assert guard.execution_surface(cmd) == " " * 18 + "\nls"
+
+    def test_an_assignment_prefix_leaves_the_command_after_it_intact(self):
+        cmd = "FOO=1 rm -rf /srv/data"
+        assert guard.execution_surface(cmd) == cmd
+
+    def test_an_assignment_only_stage_is_data(self):
+        cmd = "FOO='rm -rf /srv/data'"
+        assert guard.execution_surface(cmd) == " " * len(cmd)
+
+    def test_nothing_is_blanked_when_the_call_can_execute(self):
+        cmd = "echo 'rm -rf /srv/data' | bash"
+        assert guard.execution_surface(cmd) == cmd
+
+
+class TestIsSafeContextIsAStrictSubsetOfTheSurface:
+    """It survives with a narrower meaning — EVERY stage is data-only — and it
+    is deliberately a fast path rather than a second opinion. A prefix-shaped
+    shortcut that can DISAGREE with the surface is the bug this ticket is
+    about, so the invariant to hold is: whatever it accepts, the surface would
+    have blanked to nothing but program words anyway."""
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "FOO=1 rm -rf /srv/data",
+            "echo hi && rm -rf /srv/data",
+            "# note\nrm -rf /srv/data",
+            'echo "$(rm -rf /srv/data)"',
+            "grep -rn x . | wc -l",  # `wc` is not data-only, so not the whole command
+            "git clean -fd --dry-run",  # `git` can run anything
+            "printf 'x' > /etc/passwd",  # writes a file
+        ],
+    )
+    def test_false_unless_the_whole_command_is_inert_data(self, command):
+        assert guard.is_safe_context(command) is False
+
+    @pytest.mark.parametrize(
+        "command",
+        ["grep -r 'rm -rf /srv/data' .", "# rm -rf /srv/data", "echo hi | grep x"],
+    )
+    def test_true_when_every_stage_is_data_only(self, command):
+        assert guard.is_safe_context(command) is True
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -r 'rm -rf /srv/data' .",
+            "echo 'git reset --hard HEAD~1'",
+            "# rm -rf /srv/data",
+            "MSG='rm -rf /srv/data'",
+            "printf '%s' 'rm -rf /srv/data'",
+            "echo hi | grep 'rm -rf /srv/data'",
+        ],
+    )
+    def test_what_it_accepts_the_surface_would_have_blanked_anyway(self, command):
+        """The subset invariant, asserted rather than asserted-about: remove
+        the fast path and the verdict must not move."""
+        assert guard.is_safe_context(command) is True
+        surface = guard.execution_surface(command)
+        matched = [d for p, d, _s in guard.ALL_PATTERNS if p.search(surface)]
+        assert matched == [], f"surface {surface!r} still matches {matched}"
+
+    def test_a_dry_run_is_allowed_by_the_surface_not_by_the_fast_path(self):
+        # `git` can run anything (`git -c alias.x='!…'`), so the fast path
+        # refuses it — and the stage is blanked all the same, because being an
+        # executor is not what disqualifies a stage from having its own
+        # arguments blanked.
+        assert guard.is_safe_context("git clean -fd --dry-run") is False
+        assert guard.execution_surface("git clean -fd --dry-run") == "git" + " " * 20
+        assert_allowed("git clean -fd --dry-run")
 
 
 class TestExecutionSurface:
