@@ -237,6 +237,9 @@ def test_a_name_merely_containing_the_basename_is_not_the_legacy_hook(tmp_path):
         "uv run .claude/hooks/git-workflow-guard.py",
         "bash -lc .claude/hooks/git-workflow-guard.py",
         "/usr/bin/env python3 .claude/hooks/git-workflow-guard.py",
+        # Env assignments prefix the command; they are not the command.
+        "env FOO=1 python3 .claude/hooks/git-workflow-guard.py",
+        "FOO=1 .claude/hooks/git-workflow-guard.py",
         ".claude/hooks/git-workflow-guard.py",
     ):
         assert mig._names_legacy_script(command) is True, command

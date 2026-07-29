@@ -61,6 +61,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import shlex
 import stat
 import subprocess
@@ -175,6 +176,11 @@ def dump_like(data, original: str) -> str:
     return out + "\n" if original.endswith("\n") else out
 
 
+# A leading `NAME=value` is a shell variable assignment prefixing the command,
+# not the command — the shape `env FOO=1 python3 <script>` and its bare form.
+_ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
 # ------------------------------------------------------- legacy detection
 
 
@@ -226,6 +232,13 @@ def _names_legacy_script(command: str) -> bool:
                 return True
             if tokens[index].startswith("-"):
                 index += 1  # an option to the wrapper we already consumed
+                continue
+            if _ENV_ASSIGNMENT.match(tokens[index].strip("\"'")):
+                # `env FOO=1 python3 <script>` / a bare `FOO=1 python3 <script>`:
+                # an assignment is a prefix to the command, not the command. It
+                # cannot be mistaken for the script, since the matched basename
+                # would have to be the whole token including `NAME=`.
+                index += 1
                 continue
             if name in _WRAPPERS or name.startswith("python"):
                 index += 1  # a wrapper: whatever follows may still be the script
