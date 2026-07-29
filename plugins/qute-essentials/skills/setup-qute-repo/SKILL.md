@@ -339,8 +339,9 @@ gate binds it on conclude.
   quant-production additionally lists its destructive-command surface.
 - **Migrate off any hand-copied guard, and stamp the config — FIRST** (TOM-351).
   Before installing anything, run the migrator. It is the same edit in every
-  repo, so it is a script rather than a description, and it is a no-op in a repo
-  that never had the legacy copy:
+  repo, so it is a script rather than a description. In a repo that never had
+  the legacy copy it does nothing except stamp the config (and nothing at all
+  once that exists) — so every run after the first is a true no-op:
 
   ```bash
   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/migrate_git_guard.py" --repo . --check   # see the plan
