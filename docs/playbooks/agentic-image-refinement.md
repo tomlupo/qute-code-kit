@@ -8,7 +8,7 @@ Based on [Agentic Context Engineering](https://academy.dair.ai/blog/agentic-cont
 
 | Component | Source | Purpose |
 |-----------|--------|---------|
-| image-generator | `qute-marketplace` plugin | Generate/edit images via Gemini API |
+| image-generator | kit skill (`claude/skills/visual/image-generator`) | Generate/edit images via Gemini API |
 | playground | `claude-plugins-official` plugin | Build interactive annotation interfaces |
 | gemini-imagegen | `compound-engineering` skill | Gemini image generation knowledge |
 
@@ -18,8 +18,8 @@ Based on [Agentic Context Engineering](https://academy.dair.ai/blog/agentic-cont
 # Gemini API key (free from Google AI Studio)
 export GEMINI_API_KEY="your_key_here"  # add to ~/.bashrc
 
-# Plugins (already installed if using qute-code-kit)
-claude plugin install image-generator@qute-marketplace
+# image-generator skill — copy from this repo's kit
+cp -r claude/skills/visual/image-generator ~/.claude/skills/
 ```
 
 ## The Generate → Annotate → Refine Loop

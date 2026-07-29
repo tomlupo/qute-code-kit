@@ -13,7 +13,8 @@
 version: 1
 
 # ── Board state machine ──────────────────────────────────────────────────────
-# qute-code-kit is a low-volume personal-kit + plugin repo, solo-tracked. Generic
+# qute-code-kit is a low-volume personal skills + templates library, solo-tracked.
+# (The qute-essentials plugin moved to qute-platform 2026-07-29.) Generic
 # dispatchable-vs-done Status values, same as the template.
 board_states:
   active:   [Todo, In Progress, Human Review, Merging]
@@ -72,16 +73,13 @@ turns:
 
 # ── Auto-classification signals (consumed by the #159 classifier) ────────────
 # The classifier reads these to bucket a change into a rigor tier. This repo's
-# risky surfaces are the release tooling, the plugin manifests (drift-enforced),
-# and the pre-commit hook.
+# risky surfaces are the CI workflow and the tested research gate (the plugin +
+# release tooling moved to qute-platform 2026-07-29).
 classify:
   trivial_globs: ["**/*.md", "docs/**", "**/CHANGELOG*"]
   complex_globs:
-    - "scripts/release-plugin.sh"
-    - "scripts/build-marketplace.py"
-    - ".claude-plugin/**"
-    - "plugins/*/.claude-plugin/plugin.json"
-    - ".githooks/**"
+    - ".github/workflows/**"
+    - "templates/research/check_research_pins.py"
   trivial_max_lines: 15
 
 # ── Wave 1a workflow-policy fields (obsidian-vaults#162) ─────────────────────
@@ -117,9 +115,8 @@ reviewEngine:
   confidenceThreshold: 0.0
   multiRun: 1
   riskyPaths:
-    - "scripts/release-plugin.sh"
-    - ".claude-plugin/**"
-    - "plugins/*/.claude-plugin/plugin.json"
+    - ".github/workflows/**"
+    - "templates/research/check_research_pins.py"
   mode: auto
   dispatcherUrl: ""
   verdictPrefix: ""
@@ -133,17 +130,19 @@ escalation:
 
 taskThreshold: 12           # TASKS.md → GitHub Issues graduation threshold
 
-# Ship-verb release namespace. qute-code-kit ships the qute-essentials plugin via
-# scripts/release-plugin.sh, tagging off main as vX.Y.Z. forbiddenPaths guards
-# against committing skill artifacts (none tracked here today).
+# Ship-verb release namespace. This repo cuts NO releases anymore — the
+# qute-essentials plugin and its release tooling moved to qute-platform
+# (2026-07-29). tagPattern kept for the historical v* tags; forbiddenPaths
+# guards against committing skill artifacts (none tracked here today).
 release:
   branch: main
   tagPattern: "v*"
   forbiddenPaths: []
 
-adrDir: docs/adr            # decision-verb ADRs land here (qute-essentials:decision).
-                            # NOT the schema default (docs/decisions): this repo's
-                            # CLAUDE.md and the /decision skill both use docs/adr, and
-                            # that is where all eight ADRs actually live. Stated
-                            # explicitly so the default cannot re-split the series.
+adrDir: docs/adr            # kept for schema completeness, but this repo keeps NO
+                            # ADRs of its own since 2026-07-29 — the eight plugin
+                            # ADRs moved with qute-essentials to qute-platform
+                            # (agent-kit/plugins/qute-essentials/docs/adr/); the
+                            # local dir holds only a pointer README. Record new
+                            # plugin/regime decisions there, not here.
 adrTemplate: ""             # '' = built-in template
