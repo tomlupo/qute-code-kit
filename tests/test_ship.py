@@ -2145,6 +2145,120 @@ class TagCompletesTheRelease(unittest.TestCase):
             self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
 
 
+class TagPushVersusThePrePushGuard(unittest.TestCase):
+    """`--tag` pushes a tag; the pre-push branch guard is now live in repos.
+
+    TOM-348 and this ticket landed within a day of each other, and they meet at
+    exactly one point: `git push origin v0.2.0`. The guard reads `refs/heads/`
+    and skips everything else, so a tag refspec should sail through — but
+    "should" is the word that precedes an outage, and the guard is stamped into
+    real repos now.
+
+    The control matters as much as the assertion. A test that only shows the
+    tag push succeeding passes just as well when the guard was never armed, so
+    this first proves a direct `git push origin main` IS refused in the same
+    repo, in the same state, moments before.
+    """
+
+    INSTALLER = REPO_ROOT / "plugins/qute-essentials/scripts/install_pre_push_guard.py"
+    GUARD = REPO_ROOT / "plugins/qute-essentials/templates/hooks/pre-push-branch-guard"
+
+    def _arm_guard(self, work: Path) -> None:
+        """Install the real guard and opt the repo in, guarding `main`."""
+        claude = work / ".claude"
+        claude.mkdir(exist_ok=True)
+        # Opt-in IS the presence of this file.
+        (claude / "git-guard.json").write_text(
+            json.dumps({"protected_branch": "main", "integration_branch": "dev"}),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(self.INSTALLER),
+                "--repo",
+                str(work),
+                "--mechanism",
+                "native",
+            ],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+    def test_the_release_tag_push_is_not_a_guarded_branch_push(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = Path(d)
+            origin, work = make_two_stage(base)
+            env = cz_env(work)
+            if env is None:
+                self.skipTest("commitizen not reachable via `cz` or `uv`")
+            feature_commit(work)
+            self.assertEqual(run_ship([], work, env=env).returncode, 0)
+            git(work, "push", "-q", "origin", "dev")
+            git(work, "checkout", "-q", "main")
+            git(work, "merge", "--squash", "dev")
+            git(work, "commit", "-q", "-m", "feat: release 0.2.0")
+            git(work, "push", "-q", "origin", "main")
+
+            self._arm_guard(work)
+
+            # ---- CONTROL: the guard is genuinely armed in THIS repo. -------
+            # Without this, a green tag push proves nothing — an installer that
+            # silently no-opped would produce exactly the same result.
+            (work / "probe.txt").write_text("x\n", encoding="utf-8")
+            git(work, "add", "probe.txt")
+            git(work, "commit", "-q", "-m", "chore: probe")
+            blocked = subprocess.run(
+                ["git", "-C", str(work), "push", "origin", "main"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(
+                blocked.returncode,
+                0,
+                msg="the pre-push guard did NOT block a direct push to the "
+                "protected branch, so this test proves nothing about tags:\n"
+                + blocked.stdout
+                + blocked.stderr,
+            )
+            # Undo the probe so the tag names the released commit.
+            git(work, "reset", "-q", "--hard", "HEAD~1")
+
+            # ---- THE ASSERTION: `/ship --tag` still publishes. -------------
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
+            self.assertIn("pushed v0.2.0", result.stdout)
+
+    def test_the_guard_itself_classifies_a_tag_ref_as_not_a_branch(self):
+        """Unit twin, straight against the guard's own `evaluate()`."""
+        import importlib.machinery
+        import importlib.util
+
+        loader = importlib.machinery.SourceFileLoader(
+            "pre_push_guard_under_test", str(self.GUARD)
+        )
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+
+        sha, zero = "a" * 40, "0" * 40
+        # A release tag push: not a branch, not the guard's business.
+        self.assertIsNone(
+            mod.evaluate(
+                [("refs/tags/v0.2.0", sha, "refs/tags/v0.2.0", zero)], {"main"}
+            )
+        )
+        # ...while the branch push it exists for is still caught, so the skip
+        # above is a classification and not a dead guard.
+        self.assertEqual(
+            mod.evaluate([("refs/heads/main", sha, "refs/heads/main", sha)], {"main"}),
+            ("main", "update"),
+        )
+
+
 class InFlightBumpGuard(unittest.TestCase):
     """A declared-but-untagged version blocks the next bump.
 

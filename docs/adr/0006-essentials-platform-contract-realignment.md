@@ -76,7 +76,8 @@ The essentials skill cites the **real** reader of `review-core.md`
 
 ### 3. `qute-coder` leaves essentials → platform/jimek
 
-Its only purpose is "an **agent** opens a PR **as** `qute-coder[bot]`" so the gate has
+Its only purpose is "an **agent** opens a PR **as** the qute-coder App (login
+`qute-coding[bot]`)" so the gate has
 author ≠ reviewer — pure App transport, agent-only, secret-bearing, with no useful
 degraded form (a human/session just runs `gh pr create`; no skill needed). It ships
 from jimek alongside its `~/bin` verb and the App creds. The essentials plugin drops
