@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41 and 45-48 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49 and 50 are the environment axis, and
+34-36, 38-41, 45-48 and 51 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49 and 50 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -293,7 +293,11 @@ the same footing — a guard that cries wolf gets turned off:
       bash's answer, not an assumption.);
   50. the unresolvable-wrapper deny checked only `states[0]` — after a
       conditional `cd`, an opted-in candidate went unexamined whenever the
-      other one was not opted in.
+      other one was not opted in;
+  51. a NEGATED dry run — git generates `--no-` forms and the last flag wins,
+      so `git commit --dry-run --no-dry-run -m x` really commits and
+      `git push -n --no-dry-run` really pushes. Returning True at the first
+      `--dry-run` allowed both.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1607,6 +1611,11 @@ def _push_targets(args, current_branch):
                 # For `git push`, `-n` IS `--dry-run` (unlike `git commit -n`,
                 # which is `--no-verify` and really commits).
                 dry_run = True
+            elif a == "--no-dry-run":
+                # Git generates `--no-` negations, and the LAST flag wins:
+                # `git push -n --no-dry-run rem HEAD:probe` really creates the
+                # remote branch — verified (defect 51).
+                dry_run = False
             elif len(a) > 1 and a[1] != "-":
                 # Short options CLUSTER, so `git push -vn origin main` is a
                 # dry run and writes nothing — denying it was an over-block
@@ -1723,7 +1732,14 @@ def _commit_is_dry_run(args) -> bool:
     subject line is `--dry-run`. A value-taking letter anywhere in a cluster
     consumes the next token unless the cluster already supplies its value
     (`-amwip`) (defect 46).
+
+    LAST FLAG WINS, because git generates `--no-` negations for its boolean
+    options: `git commit --dry-run --no-dry-run -m x` really commits —
+    verified, HEAD moves. Returning True at the first `--dry-run` therefore
+    had to become a state decided only once the whole option list is read
+    (defect 51).
     """
+    dry_run = False
     skip_value = False
     for a in args:
         if skip_value:
@@ -1732,7 +1748,11 @@ def _commit_is_dry_run(args) -> bool:
         if a == "--":
             break  # pathspecs from here on
         if a == "--dry-run":
-            return True
+            dry_run = True
+            continue
+        if a == "--no-dry-run":
+            dry_run = False
+            continue
         if a in _COMMIT_OPTS_WITH_VALUE:
             skip_value = True
         elif len(a) > 1 and a[0] == "-" and a[1] != "-":
@@ -1741,7 +1761,7 @@ def _commit_is_dry_run(args) -> bool:
                 if letter in _COMMIT_SHORT_OPTS_WITH_VALUE:
                     skip_value = index == len(letters) - 1
                     break
-    return False
+    return dry_run
 
 
 def _local_branches(target_dir: Path):

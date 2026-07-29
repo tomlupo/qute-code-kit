@@ -1143,6 +1143,52 @@ def test_a_cluster_that_supplies_its_own_value_is_still_a_dry_run(cmd, tmp_path,
     assert decision == "allow", cmd
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git commit --dry-run --no-dry-run -m x",
+        "git commit --no-dry-run --dry-run --no-dry-run -m x",
+        "git commit -a --dry-run --no-dry-run -m x",
+    ],
+)
+def test_a_negated_dry_run_is_a_real_commit(cmd, tmp_path, home):
+    """Defect 51. Git generates `--no-` negations and the LAST flag wins —
+    verified, `git commit --dry-run --no-dry-run -m x` moves HEAD. Returning
+    True at the first `--dry-run` allowed the write."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+def test_a_dry_run_after_a_negation_is_still_a_dry_run(tmp_path, home):
+    """Last flag wins cuts both ways."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for cmd in (
+        "git commit --no-dry-run --dry-run -m x",
+        "git push --no-dry-run -n origin main",
+    ):
+        decision, _ = _run(cmd, repo, home)
+        assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git push -n --no-dry-run origin main",
+        "git push --dry-run --no-dry-run origin main",
+        "git push -vn --no-dry-run origin main",
+    ],
+)
+def test_a_negated_dry_run_is_a_real_push(cmd, tmp_path, home):
+    """Verified against a real remote: `git push -n --no-dry-run rem
+    HEAD:probe` creates the branch."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
 def test_commit_dry_run_after_a_double_dash_is_a_pathspec(tmp_path, home):
     """After `--` everything is a path, so a file called `--dry-run` must not
     disarm the guard."""
