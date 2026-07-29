@@ -11,12 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      # Scoped to the plugin + release tooling + tests; the personal-kit tree
-      # under claude/ is copy-paste material and not lint-enforced.
+      # Scoped to the tested template code; the personal-kit tree under
+      # claude/ is copy-paste material and not lint-enforced.
       - name: ruff check
-        run: uvx ruff check plugins/qute-essentials scripts tests
+        run: uvx ruff check tests templates/research/check_research_pins.py
       - name: ruff format
-        run: uvx ruff format --check plugins/qute-essentials scripts tests
+        run: uvx ruff format --check tests templates/research/check_research_pins.py
 
   test:
     runs-on: ubuntu-latest
@@ -24,14 +24,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: pytest
-        # pyyaml: test_jimek_onboard.py self-skips without it
-        run: uvx --with pyyaml pytest plugins/qute-essentials/tests tests -q
-
-  manifest-drift:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: marketplace.json matches plugin manifest
-        run: |
-          python3 scripts/build-marketplace.py
-          git diff --exit-code .claude-plugin/marketplace.json
+        # pyyaml: templates/research/check_research_pins.py imports yaml
+        run: uvx --with pyyaml pytest tests -q
