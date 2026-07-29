@@ -59,10 +59,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import stat
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 LEGACY_HOOK = Path(".claude/hooks/git-workflow-guard.py")
 CONFIG = Path(".claude/git-guard.json")
@@ -77,9 +78,11 @@ DEFAULT_INTEGRATION = "dev"
 # What marks an entry as the legacy wiring: its command names the legacy script.
 # Matched on the basename so every spelling of the path is caught —
 # `$CLAUDE_PROJECT_DIR/.claude/hooks/...`, `./.claude/hooks/...`, an absolute
-# path, `uv run` in front of it. The plugin's own copy of the guard is never
-# referenced from a repo's settings.json (it is wired by the plugin's
-# `hooks.json`), so this cannot match the replacement it is clearing the way for.
+# path, `uv run` in front of it — while `not-git-workflow-guard.py` and
+# `git-workflow-guard.py.bak` are NOT it (see `_names_legacy_script`).
+# The plugin's own copy of the guard is never referenced from a repo's
+# settings.json (it is wired by the plugin's `hooks.json`), so this cannot match
+# the replacement it is clearing the way for.
 LEGACY_BASENAME = "git-workflow-guard.py"
 
 
@@ -136,13 +139,50 @@ def dump_like(data, original: str) -> str:
 # ------------------------------------------------------- legacy detection
 
 
+def _names_legacy_script(command: str) -> bool:
+    """Whether `command` runs the legacy guard — matched per TOKEN, not per substring.
+
+    A raw `LEGACY_BASENAME in command` is a false-positive generator, and its
+    failure mode is removal: `.claude/hooks/not-git-workflow-guard.py` contains
+    the basename, so an unrelated hook would be unwired and — if it were the only
+    one in its group — its whole container pruned. This step deletes things; the
+    match has to be exact.
+
+    So the command is split into tokens and a token qualifies only when its
+    BASENAME is exactly the legacy script. Basename rather than the full
+    `.claude/hooks/…` path, because the file's location is not the thing that
+    identifies it — a repo that moved it still needs it gone.
+
+    TWO splits, unioned. `shlex.split` handles the quoting the real entries use
+    (`python3 "$CLAUDE_PROJECT_DIR/…"`), but in POSIX mode it also *eats*
+    backslashes as escapes, which silently turns a Windows-spelled
+    `.claude\\hooks\\git-workflow-guard.py` into one unrecognisable word — a
+    miss, i.e. legacy wiring left armed. So a backslash-folded whitespace split
+    is checked as well. Both are conservative in the same direction: a token
+    still has to END in exactly this basename.
+    """
+    candidates: list[str] = []
+    try:
+        candidates.extend(shlex.split(command))
+    except ValueError:
+        # Unbalanced quotes — the fallback below still covers it.
+        pass
+    candidates.extend(
+        token.strip("\"'") for token in command.replace("\\", "/").split()
+    )
+    return any(
+        PurePosixPath(token.replace("\\", "/")).name == LEGACY_BASENAME
+        for token in candidates
+    )
+
+
 def _is_legacy_hook_entry(entry) -> bool:
     if not isinstance(entry, dict):
         return False
     command = entry.get("command")
     if not isinstance(command, str):
         return False
-    return LEGACY_BASENAME in command
+    return _names_legacy_script(command)
 
 
 def strip_legacy_wiring(data):

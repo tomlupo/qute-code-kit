@@ -206,6 +206,40 @@ def test_prunes_emptied_containers(tmp_path):
     assert not (repo / ".claude" / "hooks").exists()
 
 
+def test_a_name_merely_containing_the_basename_is_not_the_legacy_hook(tmp_path):
+    """Near-miss names must survive. This step DELETES; the match has to be exact.
+
+    A raw substring test removes `not-git-workflow-guard.py` and
+    `git-workflow-guard.py.bak`, and — being alone in their groups — takes their
+    whole containers with them. The failure is destructive and silent.
+    """
+    for command in (
+        'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/not-git-workflow-guard.py"',
+        "python3 .claude/hooks/git-workflow-guard.py.bak",
+        "echo git-workflow-guard.py.disabled",
+    ):
+        assert mig._names_legacy_script(command) is False, command
+
+    # …while every real spelling still matches.
+    for command in (
+        'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/git-workflow-guard.py"',
+        "python3 ./.claude/hooks/git-workflow-guard.py",
+        "uv run /abs/path/.claude/hooks/git-workflow-guard.py",
+        r"python3 .claude\hooks\git-workflow-guard.py",
+    ):
+        assert mig._names_legacy_script(command) is True, command
+
+    # End to end: a repo wired to a near-miss comes out untouched.
+    repo = make_repo(tmp_path, "nearmiss")
+    settings = repo / ".claude" / "settings.json"
+    body = SETTINGS_ONLY_LEGACY.replace(
+        "/git-workflow-guard.py", "/not-git-workflow-guard.py"
+    )
+    settings.write_text(body)
+    assert run_script(repo).returncode == 0
+    assert settings.read_text() == body  # byte-for-byte
+
+
 def test_leaves_unrelated_settings_file_untouched(tmp_path):
     repo = make_repo(tmp_path, "unrelated")
     settings = repo / ".claude" / "settings.json"
