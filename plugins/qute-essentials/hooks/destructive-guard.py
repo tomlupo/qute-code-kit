@@ -424,8 +424,8 @@ def is_safe_context(command: str) -> bool:
 #       their stdin. `bash <<EOF`, `ssh host <<EOF`, `psql <<EOF` and every
 #       other consumer keep their body scanned — an unlisted consumer is
 #       assumed to execute. For an UNQUOTED delimiter (`<<EOF`, not
-#       `<<'EOF'`) the shell still expands `$(…)` and backticks inside the
-#       body, so those spans are left in the surface.
+#       `<<'EOF'`) the shell still runs command substitutions in the body, so
+#       a body containing `$(` or a backtick is not exempt at all.
 #
 #   `python -c <payload>`        …and `python3 - <<'PY' … PY`
 #       Exempt only when python is genuinely reading that region AS ITS OWN
@@ -586,7 +586,14 @@ _NOT_A_COMMAND_WORD = re.compile(r"\A(?:\d*[<>]|[A-Za-z_][A-Za-z0-9_]*=)")
 _REDIR_OP = re.compile(r"\A\d*(?:>>|>&|<&|>|<)\Z")
 
 # `$(...)`/backticks inside an unquoted heredoc body still expand.
-_EXPANSION = re.compile(r"\$\([^)]*\)|`[^`]*`")
+# Inside an UNQUOTED heredoc (`<<EOF`, not `<<'EOF'`) the shell still runs
+# command substitutions. An earlier version tried to carve the substituted
+# SPANS back out of the blanked body with a regex; that regex stopped at the
+# first `)`, and `$(printf ')' ; rm -rf /srv/data)` put that `)` inside quotes
+# — so the tail of a substitution the shell really executes got blanked.
+# Finding the true end of a substitution needs a shell parser. Rather than
+# grow one, an unquoted body carrying either marker is simply not exempt.
+_SUBSTITUTION_MARKERS = ("$(", "`")
 
 
 def _split_segments(line: str, base: int = 0):
@@ -863,11 +870,9 @@ def _blank_heredoc_bodies(command: str, chars: list, heredocs) -> None:
             continue
         if not _heredoc_body_is_data(segment, body):
             continue
+        if not quoted and any(mark in body for mark in _SUBSTITUTION_MARKERS):
+            continue  # the shell will run something in there — scan all of it
         _blank(chars, body_start, body_end)
-        if not quoted:
-            # The shell still expands these inside an unquoted heredoc.
-            for m in _EXPANSION.finditer(body):
-                chars[body_start + m.start() : body_start + m.end()] = list(m.group(0))
 
 
 def _blank_python_c_payloads(command: str, chars: list, segments) -> None:

@@ -449,6 +449,19 @@ class TestSegmentsThatReExecuteData:
             "cat > /tmp/f <<EOF\nprefix $(rm -rf /srv/data) suffix\nEOF", RM_ROOT
         )
 
+    def test_a_closing_paren_inside_quotes_does_not_end_the_substitution(self):
+        """Review finding on #90 round 6: the old span regex stopped at the
+        first `)`, which here sits inside quotes — so the tail of a
+        substitution bash really runs was blanked away."""
+        assert_denied(
+            "cat > /tmp/f <<EOF\n$(printf ')' ; rm -rf /srv/data)\nEOF", RM_ROOT
+        )
+
+    def test_a_nested_substitution_does_not_end_the_outer_one(self):
+        assert_denied(
+            "cat > /tmp/f <<EOF\n$(echo $(date) ; rm -rf /srv/data)\nEOF", RM_ROOT
+        )
+
     def test_fd_duplication_does_not_hide_a_later_pipe(self):
         """Review finding on #90: `&` was treated as a command separator, so
         `2>&1` split the segment before the `|` and the pipe went unseen."""
@@ -568,9 +581,17 @@ class TestExecutionSurface:
         cmd = "bash <<'EOF'\nrm -rf /srv/data\nEOF"
         assert guard.execution_surface(cmd) == cmd
 
-    def test_expansion_span_survives_verbatim_in_an_unquoted_heredoc(self):
+    def test_an_unquoted_body_with_a_substitution_is_not_blanked_at_all(self):
+        # Not "blanked except the substitution span": finding where a
+        # substitution ENDS needs a shell parser (see `_SUBSTITUTION_MARKERS`).
         cmd = "cat > /tmp/f <<EOF\nab $(id) cd\nEOF"
-        assert guard.execution_surface(cmd) == "cat > /tmp/f <<EOF\n   $(id)   \nEOF"
+        assert guard.execution_surface(cmd) == cmd
+
+    def test_an_unquoted_body_without_substitutions_is_still_blanked(self):
+        cmd = "cat > /tmp/f <<EOF\nrm -rf /srv/data\nEOF"
+        assert (
+            guard.execution_surface(cmd) == "cat > /tmp/f <<EOF\n" + " " * 16 + "\nEOF"
+        )
 
     def test_unterminated_heredoc_body_runs_to_end_of_input(self):
         # bash never executes an unterminated heredoc body either.
