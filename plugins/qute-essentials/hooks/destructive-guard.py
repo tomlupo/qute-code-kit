@@ -1151,10 +1151,11 @@ _ASSIGNMENT = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 # already counts as an executor and gates the call by itself, which is why
 # `dd of=…` and `sponge` are absent.
 #
-# `tee` does it by definition. `cp` and `mv` do it only when handed a path that
-# IS stdin, so they are checked for one rather than assumed: reading every
-# `cp` as a stdin writer blocked `echo … | cp a b ; bash /tmp/x`, where the
-# text goes nowhere near a file (review on #91, round 5).
+# Neither is assumed from the program name alone. `tee` writes only to the
+# files it is GIVEN — bare `tee`, or `tee -a` with no operand, is a copy to
+# stdout (round 9). `cp` and `mv` write stdin only when handed a path that IS
+# stdin; reading every `cp` as a stdin writer blocked `echo … | cp a b ; bash
+# /tmp/x`, where the text goes nowhere near a file (round 5).
 STDIN_WRITERS = frozenset({"tee"})
 STDIN_PATH_WRITERS = frozenset({"cp", "mv"})
 _STDIN_PATHS = frozenset({"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"})
@@ -1350,11 +1351,29 @@ def _stage_writes_a_file(stage: str) -> bool:
     return False
 
 
+def _has_a_file_operand(args: list) -> bool:
+    """Whether any argument is a filename rather than an option.
+
+    Everything after `--` is an operand whatever it looks like. An option
+    taking a SEPARATE value would be misread as one — `tee` has none, and the
+    mistake would only make a stage look more like a write, which is the safe
+    direction.
+    """
+    terminated = False
+    for arg in args:
+        if not terminated and arg == "--":
+            terminated = True
+            continue
+        if terminated or not arg.startswith("-"):
+            return True
+    return False
+
+
 def _stage_writes_stdin_to_a_file(stage: str) -> bool:
     """Whether the stage puts what it reads on stdin into a named file."""
     program, args = _split_command(stage)
     if program in STDIN_WRITERS:
-        return True
+        return _has_a_file_operand(args)
     if program in STDIN_PATH_WRITERS:
         return any(arg.strip("'\"") in _STDIN_PATHS for arg in args)
     return False

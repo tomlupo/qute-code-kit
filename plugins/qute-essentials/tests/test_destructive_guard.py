@@ -919,6 +919,17 @@ class TestWhereADataOnlyStagesOutputEndsUp:
         assert_allowed("echo 'rm -rf /srv/data' | cat > /tmp/x")
         assert_allowed("echo 'rm -rf /srv/data' | tee /tmp/x")
 
+    @pytest.mark.parametrize("consumer", ["tee", "tee -a", "tee --"])
+    def test_tee_with_no_file_operand_writes_nothing(self, consumer):
+        """Review nit on #91 round 9: `tee` writes to the files it is GIVEN.
+        Bare, or with options only, it is a copy to stdout — so route 3 does
+        not apply and a deny here is a false positive."""
+        assert_allowed(f"echo 'rm -rf /srv/data' | {consumer} ; bash /tmp/x")
+
+    @pytest.mark.parametrize("consumer", ["tee /tmp/x", "tee -a /tmp/x", "tee -- -x"])
+    def test_tee_with_a_file_operand_however_spelled_does_write(self, consumer):
+        assert_denied(f"echo 'rm -rf /srv/data' | {consumer} ; bash /tmp/x", RM_ROOT)
+
     @pytest.mark.parametrize("consumer", ["cp a b", "mv a b", "wc -l", "grep x"])
     def test_a_consumer_that_does_not_write_its_stdin_is_not_route_3(self, consumer):
         """Review finding on #91 round 5: `cp` and `mv` write their STDIN only
