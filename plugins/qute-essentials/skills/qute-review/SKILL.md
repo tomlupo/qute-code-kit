@@ -119,7 +119,7 @@ This skill exists because of a concrete failure (2026-06-28): a session ran code
 - **The platform reviewer** is the autonomous entry point: `agent-kit/bin/qute_reviewer_post.sh`
   (in qute-platform, installed to `~/bin/`) loads this same `review-core.md` for its codex/claude
   runners. It resolves the core via `QUTE_REVIEW_CORE` (**env > qute-code-kit checkout > embedded
-  fallback**). Its embedded fallback is held byte-identical to this core by
+  fallback**). Its embedded fallback is held in sync with this core by
   `agent-kit/tests/test_review_core_sync.sh` in qute-platform — bump one, bump both, or that test
   goes red. It also runs its reviewer inside a checkout at the PR head (TOM-403). Change the review
   policy HERE, once.
