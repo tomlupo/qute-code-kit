@@ -1030,16 +1030,23 @@ def execution_surface(command: str) -> str:
 #   * `<prog> --help` and nothing else — narrower than the old rule's
 #     `^\w+\s+--help`, so no other argument can ride along. `rm -rf / --help`
 #     is still scanned.
-#   * a dry-run flag, but only for a program that HAS one (`DRY_RUN_PROGRAMS`)
-#     and only when every argument is a BARE WORD (`_is_a_bare_word`). The old
-#     rule searched the flag anywhere in the first segment for any program at
-#     all, so `rm -rf /srv/data --dry-run` was exempt — `rm` has no such flag
-#     and would have deleted the path. The bare-word half is what stops
-#     `git -c alias.x='!rm -rf /srv/data' x --dry-run` and its unquoted
-#     sibling `git -c alias.x=!killall x -- --dry-run`: every program with a
-#     dry-run flag can also be made to run something, and every spelling of
-#     that carries the command in an OPTION VALUE — which needs quoting,
-#     whitespace, or an `=`.
+#   * a dry-run flag, under three conditions. The INVOCATION must be one whose
+#     own program and flags can match a pattern here (`DRY_RUN_INVOCATIONS` —
+#     `git clean` and `git push`, and nothing else); the flag must be the
+#     tool's rather than a payload's, so the search stops at `--`; and every
+#     argument must be a BARE WORD (`_is_a_bare_word`).
+#
+#     Each condition answers a way the old rule went wrong. It searched the
+#     flag anywhere in the first segment for ANY program, so
+#     `rm -rf /srv/data --dry-run` was exempt — `rm` has no such flag and would
+#     have deleted the path. Listing programs by "has a dry-run flag" then
+#     admitted tools that take a COMMAND as bare arguments, where the flag is
+#     the payload's or is ignored: `kubectl exec pod -- rm -rf /srv/data
+#     --dry-run`, `git bisect run rm -rf /srv/data --dry-run`. And the
+#     bare-word rule is what stops the command being smuggled into an option
+#     value — `git -c alias.x='!rm -rf /srv/data' x --dry-run` and its
+#     unquoted sibling `git -c alias.x=!killall x -- --dry-run` — which needs
+#     quoting, whitespace, or an `=`.
 #   * a stage that is only assignments and redirections (`FOO=bar`) — nothing
 #     runs — but only when nothing in the call can execute, because a shell
 #     variable is a channel to a later stage exactly as a file is:
@@ -1116,19 +1123,28 @@ EXEC_OPTIONS = {
     "ack-grep": ("--pager", "--ackrc"),
 }
 
-# Programs that actually HAVE a dry-run flag, so claiming one means something.
-# `rm --dry-run` does not exist; `rm` is not here, and `rm -rf /x --dry-run`
-# is scanned like any other `rm -rf`.
-DRY_RUN_PROGRAMS = frozenset(
-    {
-        "git", "rsync", "make", "gmake",
-        "docker", "docker-compose", "podman", "kubectl", "helm",
-        "terraform", "terragrunt", "ansible", "ansible-playbook",
-        "apt", "apt-get", "yum", "dnf", "brew",
-        "npm", "pnpm", "yarn", "pip", "pip3", "uv", "poetry", "cargo",
-        "gh", "rclone", "restic", "borg",
-    }
-)  # fmt: skip
+# Which invocations a dry-run flag may exempt: program -> its subcommands.
+#
+# NOT "programs that have a --dry-run flag" (review on #91, round 10). That set
+# is unbounded, and most of it takes a COMMAND as bare-word arguments, where
+# the flag belongs to the payload or is simply ignored by the tool:
+#
+#     kubectl exec pod -- rm -rf /srv/data --dry-run
+#     docker run --dry-run alpine rm -rf /srv/data
+#     git bisect run rm -rf /srv/data --dry-run
+#
+# The criterion here is narrower and checkable: an invocation earns an
+# exemption only if its OWN program and flags can match a pattern in this file,
+# because otherwise the exemption suppresses nothing and only widens the hole.
+# Two do — `git clean -f…` and `git push --force` — so `git clean` and
+# `git push` are the whole list, and `git bisect run` is not on it.
+#
+# Everything dropped in round 10 lost nothing: `rsync --dry-run -a src dst`,
+# `make --just-print clean` and `npm ci --dry-run` match no pattern with or
+# without an exemption. The one real casualty is `docker system prune -a
+# --dry-run`, which is now blocked — docker has no `--dry-run` for `prune`, so
+# the command errors today anyway. Add `"docker": {"system"}` when it gains one.
+DRY_RUN_INVOCATIONS = {"git": frozenset({"clean", "push"})}
 
 # Dry-run flags — LONG FORMS ONLY.
 #
@@ -1225,13 +1241,37 @@ def _stage_is_data_only(stage: str) -> bool:
         return not _carries_an_exec_option(program, args)
     if args == ["--help"]:
         return True
+    own_args = _args_before_the_terminator(args)
     if (
-        program in DRY_RUN_PROGRAMS
-        and any(_DRY_RUN_FLAG.match(a) for a in args)
+        _dry_run_subcommand(args) in DRY_RUN_INVOCATIONS.get(program, ())
+        and any(_DRY_RUN_FLAG.match(a) for a in own_args)
         and all(_is_a_bare_word(a) for a in args)
     ):
         return True
     return False
+
+
+def _args_before_the_terminator(args: list) -> list:
+    """Arguments belonging to the program itself, i.e. those before `--`.
+
+    A dry-run flag after `--` is the payload's, not the tool's:
+    `kubectl exec pod -- rm -rf /srv/data --dry-run`.
+    """
+    return args[: args.index("--")] if "--" in args else args
+
+
+def _dry_run_subcommand(args: list) -> str:
+    """The first non-option argument, or "" — `clean` in `git clean -fd`.
+
+    An option that takes a SEPARATE value is misread as the subcommand:
+    `git -C /path clean -fd --dry-run` reads `/path`, finds it on no list, and
+    is scanned. That is the same shape `_python_source_mode` declines to parse
+    for the same reason, and it fails toward scanning.
+    """
+    for arg in _args_before_the_terminator(args):
+        if not arg.startswith("-"):
+            return arg
+    return ""
 
 
 def _carries_an_exec_option(program: str, args: list) -> bool:

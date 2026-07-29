@@ -107,6 +107,8 @@ PUSH_FORCE = "git push --force overwrites remote history"
 RM_ROOT = "rm -rf on non-tmp root path"
 DROP = "DROP destroys database objects"
 VAULT = "removing Obsidian vault data"
+CLEAN = "git clean -f permanently deletes untracked files"
+PRUNE = "docker system prune -a removes all unused data"
 KILLALL = "killall terminates all matching processes"
 MKFS = "mkfs formats a filesystem"
 DROPDB = "dropdb removes entire database"
@@ -882,14 +884,57 @@ class TestAToolThatCanRunItsOwnOptionValue:
         "command",
         [
             "git clean -fd --dry-run",
+            "git clean --dry-run -fdx",
             "git push --dry-run --force origin main",
-            "rsync --dry-run -a /srv/data /backup/",
-            "make --just-print clean",
-            "docker system prune -a --dry-run",
         ],
     )
     def test_a_real_dry_run_is_bare_words_end_to_end(self, command):
         assert_allowed(command)
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rsync --dry-run -a /srv/data /backup/",
+            "make --just-print clean",
+            "npm ci --dry-run",
+        ],
+    )
+    def test_the_programs_dropped_in_round_10_never_needed_the_exemption(self, command):
+        """They match no pattern with or without it — which is the criterion
+        `DRY_RUN_INVOCATIONS` now uses. Pinned so that shrinking the list is
+        seen to have cost nothing."""
+        assert_allowed(command)
+        assert guard._stage_is_data_only(command) is False
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            # Review finding on #91 round 10: these tools take a COMMAND as
+            # bare-word arguments, so a `--dry-run` among them may be the
+            # payload's or ignored outright — it says nothing about the tool.
+            ("kubectl exec pod -- rm -rf /srv/data --dry-run", RM_ROOT),
+            ("docker run --dry-run alpine rm -rf /srv/data", RM_ROOT),
+            ("npm exec --dry-run -- rm -rf /srv/data", RM_ROOT),
+            ("git bisect run rm -rf /srv/data --dry-run", RM_ROOT),
+            ("git submodule foreach rm -rf /srv/data --dry-run", RM_ROOT),
+        ],
+    )
+    def test_a_dry_run_flag_among_a_command_payload_exempts_nothing(
+        self, command, description
+    ):
+        assert_denied(command, description)
+
+    def test_the_flag_must_be_the_tools_not_the_payloads(self):
+        # After `--` the arguments belong to whatever the tool invokes, so a
+        # dry-run flag there is not the tool's promise to keep.
+        assert_denied("git clean -fd -- --dry-run", CLEAN)
+        assert_allowed("git clean -fd --dry-run")
+
+    def test_docker_system_prune_is_the_one_deliberate_casualty(self):
+        """Docker has no `--dry-run` for `prune`, so this errors today anyway.
+        Pinned so that adding `"docker": {"system"}` later is a decision rather
+        than a drift."""
+        assert_denied("docker system prune -a --dry-run", PRUNE)
 
 
 class TestWhereADataOnlyStagesOutputEndsUp:
