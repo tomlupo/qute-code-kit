@@ -1104,6 +1104,45 @@ def test_a_dry_run_option_value_is_not_a_dry_run(tmp_path, home):
         assert decision == "deny", cmd
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git commit -am --dry-run",
+        "git commit -aF --dry-run",
+        "git commit -at --dry-run",
+        "git commit -aC --dry-run",
+    ],
+)
+def test_a_short_option_cluster_can_swallow_the_dry_run_flag(cmd, tmp_path, home):
+    """Defect 46. Git reads `-am` as `-a -m`, so `--dry-run` becomes the commit
+    MESSAGE and the commit is real — verified, HEAD moves and the subject line
+    is `--dry-run`. Reading the cluster as an unknown option let it through as
+    a dry run."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd, repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "git commit -amwip --dry-run",
+        "git commit -amv --dry-run",
+        "git commit -an --dry-run",
+        "git commit -av --dry-run",
+        "git commit -a --dry-run",
+    ],
+)
+def test_a_cluster_that_supplies_its_own_value_is_still_a_dry_run(cmd, tmp_path, home):
+    """The other half, verified the same way: `-amwip` and `-amv` already carry
+    the message in the cluster, and `-an`/`-av` take no value, so `--dry-run`
+    really is the flag and HEAD does not move."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
 def test_commit_dry_run_after_a_double_dash_is_a_pathspec(tmp_path, home):
     """After `--` everything is a path, so a file called `--dry-run` must not
     disarm the guard."""

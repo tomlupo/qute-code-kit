@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41 and 45 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
+34-36, 38-41, 45 and 46 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37 and 42-44 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -276,7 +276,11 @@ the same footing — a guard that cries wolf gets turned off:
   45. quoted parens inside `$( … )` — counting parens without minding quotes
       ended the substitution early on `echo $(printf ')')`, and the stray
       quote then swallowed the rest of the line, including a real
-      `; git commit`.
+      `; git commit`;
+  46. short-option CLUSTERS on `git commit` — git reads `-am` as `-a -m`, so
+      `git commit -am --dry-run` makes `--dry-run` the MESSAGE and really
+      commits, while the guard read the cluster as an unknown option and let
+      it through as a dry run.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -1633,6 +1637,10 @@ _COMMIT_OPTS_WITH_VALUE = frozenset(
     }
 )
 
+# The same options as single letters, which CLUSTER: `-am` is `-a -m`, so the
+# `m` still consumes the next token.
+_COMMIT_SHORT_OPTS_WITH_VALUE = "mFCct"
+
 
 def _commit_is_dry_run(args) -> bool:
     """Whether this `git commit` writes nothing.
@@ -1640,6 +1648,13 @@ def _commit_is_dry_run(args) -> bool:
     ONLY `--dry-run`. `git commit -n` is `--no-verify`, which is a real commit
     that merely skips hooks — verified: HEAD moves. Conflating the two would
     turn the busiest bypass in the file into an allow.
+
+    Short options CLUSTER, and that matters here for the same reason: git
+    reads `git commit -am --dry-run` as `-a -m --dry-run`, so `--dry-run` is
+    the commit MESSAGE and the commit is real — verified, HEAD moves and the
+    subject line is `--dry-run`. A value-taking letter anywhere in a cluster
+    consumes the next token unless the cluster already supplies its value
+    (`-amwip`) (defect 46).
     """
     skip_value = False
     for a in args:
@@ -1652,6 +1667,12 @@ def _commit_is_dry_run(args) -> bool:
             return True
         if a in _COMMIT_OPTS_WITH_VALUE:
             skip_value = True
+        elif len(a) > 1 and a[0] == "-" and a[1] != "-":
+            letters = a[1:]
+            for index, letter in enumerate(letters):
+                if letter in _COMMIT_SHORT_OPTS_WITH_VALUE:
+                    skip_value = index == len(letters) - 1
+                    break
     return False
 
 
