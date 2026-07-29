@@ -127,7 +127,7 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36 and 38 are parsing; 10-13, 16-18, 22, 25, 26, 33 and 37 are the environment axis, and
+34-36 and 38-41 are parsing; 10-13, 16-18, 22, 25, 26, 33 and 37 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
 24, 27, 29-32 and 36 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
@@ -251,7 +251,15 @@ the same footing — a guard that cries wolf gets turned off:
       original repo, but the body was applied as if it always ran;
   38. config field TYPES — `{"protected_branch": 123}` is truthy, so 123
       became the guarded branch name, matched nothing, and silently unguarded
-      a repo that looked opted in.
+      a repo that looked opted in;
+  39. an assignment prefix before a function CALL — `FOO=1 gc` still calls
+      `gc`, but the lookup used `tokens[0]`, which was the assignment;
+  40. function call ARGUMENTS — `g() { git "$@"; }` is an ordinary wrapper,
+      and expanding the body without the call's arguments left a subcommand of
+      `$@` that matched nothing;
+  41. a VARIABLE subcommand — `git $VERB -m x` was allowed outright. The verb
+      is exactly as unresolvable as a refspec we cannot expand, and now fails
+      closed the same way.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -462,6 +470,32 @@ _FUNC_DEF_RE = re.compile(
     r"(?:function\s+(?P<n1>[^\s(){}<>&|;]+)\s*(?:\(\s*\)\s*)?"
     r"|(?P<n2>[A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*)"
 )
+
+
+# `$1`, `${2}`, `$@`, `$*` — a called function's positional parameters.
+_POSITIONAL_RE = re.compile(r"\$\{?([1-9][0-9]*|[@*])\}?")
+
+
+def _expand_positionals(body: str, args) -> str:
+    """Substitute a function call's arguments into its body.
+
+    `g() { git "$@"; }` is an ordinary wrapper, and without this `g commit -m
+    x` expanded to a subcommand of `$@` — unrecognised, no alias, allowed.
+    The quoted `"$@"` / `"$*"` forms are replaced INCLUDING their quotes,
+    because they expand to separate words rather than one.
+    """
+    joined = " ".join(shlex.quote(a) for a in args)
+    for quoted in ('"$@"', '"$*"', '"${@}"', '"${*}"'):
+        body = body.replace(quoted, joined)
+
+    def replace(match):
+        name = match.group(1)
+        if name in ("@", "*"):
+            return joined
+        index = int(name)
+        return shlex.quote(args[index - 1]) if index <= len(args) else ""
+
+    return _POSITIONAL_RE.sub(replace, body)
 
 
 def _skip_group(command: str, pos: int, opener: str, closer: str):
@@ -1964,9 +1998,21 @@ def main():
         # here, which is the half that keeps `gc() { git commit; }; gc` caught
         # while the bare definition is not. The cap stops a recursive function
         # (`f() { f; }`) from expanding forever.
-        if tokens and tokens[0] in functions and expansions < 32:
+        #
+        # Assignment prefixes are peeled first: `FOO=1 gc` still calls `gc`
+        # (verified). `command gc` deliberately is NOT peeled here — `command`
+        # suppresses function lookup, so it runs the external `gc` or nothing
+        # ("gc: command not found"), never the function (defect 39).
+        call = tokens
+        while call and _ASSIGN_RE.fullmatch(call[0]):
+            call = call[1:]
+        if call and call[0] in functions and expansions < 32:
             expansions += 1
-            events[event_index:event_index] = _segments(functions[tokens[0]])
+            # The call's arguments are the body's positional parameters, so a
+            # wrapper like `g() { git "$@"; }` is expanded with them — without
+            # this, `g commit -m x` left a subcommand of `$@` (defect 40).
+            body = _expand_positionals(functions[call[0]], call[1:])
+            events[event_index:event_index] = _segments(body)
             continue
 
         # Track `cd` so a subsequent git command in the same chain resolves
@@ -2097,6 +2143,20 @@ def _check_git_command(base_dir, base_unknown, sub, args, opts, _cfg_for, cfgmap
     cfg = _cfg_for(target_dir)
     if cfg is None:
         return  # not a resolvable repo, or not opted in -> no-op for it
+
+    if sub not in ("commit", "push") and _UNEXPANDED_RE.search(sub):
+        # The VERB itself is a variable or a substitution we never expanded —
+        # `git $VERB -m x`, or a function wrapper whose `$@` had no arguments
+        # to expand. We cannot tell whether it is `commit`, `push`, or
+        # `status`, so fail closed like every other check that cannot verify.
+        _deny(
+            f"Blocked: cannot tell which git subcommand `{sub}` is — it is a "
+            "variable or a substitution this guard never expanded, so it may "
+            f"be a commit or push to '{cfg['protected']}'"
+            + (f" or '{cfg['integration']}'" if cfg["integration"] else "")
+            + ". Name the subcommand literally.",
+            _guidance(cfg),
+        )
 
     if sub not in ("commit", "push"):
         # Unrecognised subcommand in an opted-in repo: it may be an alias,

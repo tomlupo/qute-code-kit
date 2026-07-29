@@ -892,6 +892,58 @@ def test_an_uncalled_function_does_not_leak_into_later_commands(tmp_path, home):
     assert decision == "deny", "a real command after a definition is still live"
 
 
+@pytest.mark.parametrize("prefix", ["FOO=1", "FOO=1 BAR=2"])
+def test_an_assignment_prefix_does_not_hide_a_function_call(prefix, tmp_path, home):
+    """Defect 39. `FOO=1 gc` still calls `gc` — verified — but the lookup used
+    `tokens[0]`, which was the assignment."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(f"gc() {{ git commit -m x; }}; {prefix} gc", repo, home)
+    assert decision == "deny", prefix
+    assert "main" in hso["permissionDecisionReason"], prefix
+
+
+def test_command_suppresses_function_lookup(tmp_path, home):
+    """The control, and the reason `command` is NOT peeled here: `command`
+    skips shell functions — verified, `command gc` reports "gc: command not
+    found" — so it never runs the body."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run("gc() { git commit -m x; }; command gc", repo, home)
+    assert decision == "allow"
+
+
+def test_function_call_arguments_are_expanded_into_the_body(tmp_path, home):
+    """Defect 40. `g() { git "$@"; }` is an ordinary wrapper; without the call's
+    arguments the body left a subcommand of `$@`, which matched nothing."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    for body, call, expected in (
+        ('git "$@"', "g commit -m x", "deny"),
+        ('git "$@"', "g status", "allow"),
+        ("git $1 -m x", "g commit", "deny"),
+        ("git $1 -m x", "g status", "allow"),
+        ('git $1 "$2"', "g commit -m", "deny"),
+        ('git push origin "$1"', "g main", "deny"),
+        ('git push origin "$1"', "g feat/x", "allow"),
+    ):
+        decision, _ = _run(f"g() {{ {body}; }}; {call}", repo, home)
+        assert decision == expected, f"{body} <- {call}"
+
+
+def test_a_git_subcommand_that_is_a_variable_fails_closed(tmp_path, home):
+    """The gap the wrapper case exposed on its own: the VERB itself can be a
+    variable, and `git $VERB -m x` was allowed outright."""
+    repo = _make_repo(tmp_path / "r", "feat/x", STD_CFG)
+    for cmd in ("git $VERB -m x", "git ${VERB} -m x", "git $(pick) -m x"):
+        decision, hso = _run(cmd, repo, home)
+        assert decision == "deny", cmd
+        assert "which git subcommand" in hso["permissionDecisionReason"], cmd
+
+
+def test_a_variable_subcommand_is_a_noop_without_config(tmp_path, home):
+    repo = _make_repo(tmp_path / "r", "main", None)
+    decision, _ = _run("git $VERB -m x", repo, home)
+    assert decision == "allow"
+
+
 def test_parentheses_that_are_not_a_definition_still_subshell(tmp_path, home):
     """`(cd x && git commit)` must keep its subshell meaning — the definition
     pattern needs a NAME in front of the parens."""
