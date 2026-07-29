@@ -1,6 +1,6 @@
 {
   "name": "qute-essentials",
-  "version": "3.5.0",
+  "version": "3.6.0",
   "description": "Claude Code runtime layer (Matt-compatible): hooks (ruff, notifications, auto-audit, langfuse-trace) + 7 security guards (destructive, git-workflow, secrets, audit, lakera, langfuse, provenance) + universal skills: generating-commit-messages, worktrees, handoff, pickup, decision, readme, guard, ship, audit, test, gbu, wtf, qute-review, board, repo-status, task + research regime: research-line, finding, research-status, research-freeze, research-repin, promote + regime setup: setup-qute-repo, check-agent-regime",
   "author": {
     "name": "twilc"

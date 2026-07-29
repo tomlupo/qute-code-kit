@@ -1,3 +1,28 @@
+## v3.6.0 (2026-07-29)
+
+### Feat
+
+- migrate repos off the hand-copied guard, stamp the guard config (TOM-351) (#94)
+- rehome the git-workflow branch guard into qute-essentials (TOM-350) (#82)
+- bump and tag as separate acts, selected by branch (TOM-349) (#88)
+- pre-push branch guard + verified onboarding install (TOM-348) (#86)
+- release-tag ancestry + stale-lockfile CI templates (TOM-347) (#81)
+- emit Dispatchable-task skeleton from Linear add path (TOM-216) (#78)
+- ADR-0007 reproducibility contract + gating — accept + implement (#77)
+
+### Fix
+
+- pattern anchors, severity semantics, quoted paths (TOM-400, TOM-395) (#92)
+- an env-assignment prefix no longer disables the destructive guard (TOM-394) (#91)
+- stop matching destructive commands inside string literals (TOM-379) (#90)
+- handle the agent-isolation WorktreeCreate payload instead of failing (TOM-358) (#87)
+- jimek.yml -> conductor.yml, drop commit-to-default (ADR-0011) (#79)
+- stop bare -n from disarming the destructive guard
+
+### Refactor
+
+- one tagging path, annotated tags carrying release notes (TOM-346) (#84)
+
 ## v3.5.0 (2026-07-24)
 
 ## v3.4.0 (2026-07-24)
