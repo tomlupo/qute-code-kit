@@ -727,6 +727,33 @@ class TestADataOnlyStageMayNotFeedAnExecutor:
         assert_denied("echo 'rm -rf /srv/data' > /tmp/x ; some-runner /tmp/x", RM_ROOT)
 
     @pytest.mark.parametrize(
+        "reader",
+        [
+            "rg --pre=/tmp/x needle .",
+            "rg --pre /tmp/x needle .",
+            "man -P /tmp/x rm",
+            "ack --pager=/tmp/x needle",
+            "ag --pager=/tmp/x needle",
+        ],
+    )
+    def test_a_text_tool_that_can_run_a_file_is_an_executor(self, reader):
+        """Review finding on #91: these tools read text, but `--pre`, `-P` and
+        `--pager` all RUN a named program, so a text tool is not automatically
+        a non-executor. Nothing here special-cases their options — they are
+        simply not on `INERT_PROGRAMS`, and that is enough."""
+        assert_denied(f"echo 'rm -rf /srv/data' > /tmp/x ; {reader}", RM_ROOT)
+
+    def test_the_same_tool_still_gets_its_own_arguments_blanked(self):
+        """…and the finding costs the exemption nothing: being an executor
+        stops OTHER stages being blanked, not this one's own text."""
+        assert_allowed("rg --pre=/tmp/x 'rm -rf /srv/data' .")
+        assert_allowed("rg 'rm -rf /srv/data' . | wc -l")
+
+    def test_piped_into_a_file_writer_that_a_later_stage_runs(self):
+        # `tee` puts the piped text on disk with no `>` in the command at all.
+        assert_denied("echo 'rm -rf /srv/data' | tee /tmp/x ; bash /tmp/x", RM_ROOT)
+
+    @pytest.mark.parametrize(
         "command",
         [
             'echo "$(rm -rf /srv/data)"',
@@ -781,9 +808,12 @@ class TestDataOnlyStagesOnTheSurface:
         assert guard.execution_surface(cmd) == cmd
 
 
-class TestIsSafeContextIsNowAWholeCommandAnswer:
-    """It survives, with a narrower meaning: EVERY stage is data-only. Kept in
-    `main()` because it is not redundant with the surface — see below."""
+class TestIsSafeContextIsAStrictSubsetOfTheSurface:
+    """It survives with a narrower meaning — EVERY stage is data-only — and it
+    is deliberately a fast path rather than a second opinion. A prefix-shaped
+    shortcut that can DISAGREE with the surface is the bug this ticket is
+    about, so the invariant to hold is: whatever it accepts, the surface would
+    have blanked to nothing but program words anyway."""
 
     @pytest.mark.parametrize(
         "command",
@@ -793,26 +823,46 @@ class TestIsSafeContextIsNowAWholeCommandAnswer:
             "# note\nrm -rf /srv/data",
             'echo "$(rm -rf /srv/data)"',
             "grep -rn x . | wc -l",  # `wc` is not data-only, so not the whole command
+            "git clean -fd --dry-run",  # `git` can run anything
+            "printf 'x' > /etc/passwd",  # writes a file
         ],
     )
-    def test_false_when_any_stage_is_not_data_only(self, command):
+    def test_false_unless_the_whole_command_is_inert_data(self, command):
         assert guard.is_safe_context(command) is False
 
     @pytest.mark.parametrize(
         "command",
-        ["grep -r 'rm -rf /srv/data' .", "# rm -rf /srv/data", "man rm ; echo hi"],
+        ["grep -r 'rm -rf /srv/data' .", "# rm -rf /srv/data", "echo hi | grep x"],
     )
     def test_true_when_every_stage_is_data_only(self, command):
         assert guard.is_safe_context(command) is True
 
-    def test_it_is_what_still_allows_a_dry_run_by_an_executor(self):
-        """Why the function is kept rather than folded into the surface: `git`
-        can run anything (`git -c alias.x='!…'`), so a call containing it never
-        gets a stage blanked. `git clean -fd --dry-run` is still a dry run."""
-        assert guard.execution_surface("git clean -fd --dry-run") == (
-            "git clean -fd --dry-run"
-        )
-        assert guard.is_safe_context("git clean -fd --dry-run") is True
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "grep -r 'rm -rf /srv/data' .",
+            "echo 'git reset --hard HEAD~1'",
+            "# rm -rf /srv/data",
+            "MSG='rm -rf /srv/data'",
+            "printf '%s' 'rm -rf /srv/data'",
+            "echo hi | grep 'rm -rf /srv/data'",
+        ],
+    )
+    def test_what_it_accepts_the_surface_would_have_blanked_anyway(self, command):
+        """The subset invariant, asserted rather than asserted-about: remove
+        the fast path and the verdict must not move."""
+        assert guard.is_safe_context(command) is True
+        surface = guard.execution_surface(command)
+        matched = [d for p, d, _s in guard.ALL_PATTERNS if p.search(surface)]
+        assert matched == [], f"surface {surface!r} still matches {matched}"
+
+    def test_a_dry_run_is_allowed_by_the_surface_not_by_the_fast_path(self):
+        # `git` can run anything (`git -c alias.x='!…'`), so the fast path
+        # refuses it — and the stage is blanked all the same, because being an
+        # executor is not what disqualifies a stage from having its own
+        # arguments blanked.
+        assert guard.is_safe_context("git clean -fd --dry-run") is False
+        assert guard.execution_surface("git clean -fd --dry-run") == "git" + " " * 20
         assert_allowed("git clean -fd --dry-run")
 
 

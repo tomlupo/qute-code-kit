@@ -950,11 +950,9 @@ def execution_surface(command: str) -> str:
         ):
             _blank_heredoc_bodies(command, chars, heredocs)
             _blank_python_c_payloads(command, chars, segments)
-        # Arguments of a data-only stage (`grep …`, `echo …`) — same gate,
-        # one notch wider, because a text searcher is not an executor even
-        # though it is not on INERT_PROGRAMS. See "Data-only stages".
-        if not _call_can_execute(command, segments, bodies):
-            _blank_data_only_stages(command, chars, segments)
+        # Arguments of a data-only stage (`grep …`, `echo …`). Gated per
+        # stage rather than per call — see "Data-only stages" below.
+        _blank_data_only_stages(command, chars, segments, bodies)
         return "".join(chars)
     except Exception:
         return command
@@ -1015,24 +1013,36 @@ def execution_surface(command: str) -> str:
 #     unfixable limitation at the top of this file, unchanged either way.
 #   * a comment stage.
 #
-# …and the gate over all of it: none of this applies if anything in the call
-# could execute a program (`_call_can_execute`), because blanking a stage in
+# …and the gate over all of it. Blanking a stage hides its text, so it is
+# allowed only when that text cannot reach something that RUNS it. There are
+# exactly three routes out of a stage, and one condition each:
 #
-#     echo 'rm -rf /srv/data' > /tmp/x ; bash /tmp/x
+#   1. the stage's own program — it is data-only, so its arguments are text
+#      to it by construction. Unless the stage carries `$(…)`, a backtick or
+#      a process substitution, which the shell runs before the program ever
+#      sees them: `_segment_is_plain`.
+#   2. its STDOUT, down the pipeline — so no LATER stage in the pipeline may
+#      be able to execute anything. `echo 'rm -rf /srv/data' | bash` is caught
+#      here; `rg 'rm -rf /srv' . | wc -l` is not, because `wc` cannot run it.
+#   3. a FILE, if the stage redirects its output (or pipes into `tee`) — and
+#      then something else in the call could run that file. So THAT case, and
+#      only that case, takes the call-wide gate:
 #
-# would hide a command the next stage runs — the write-then-execute shape the
-# heredoc rules already defend against. `echo … | bash` is caught the same way.
+#          echo 'rm -rf /srv/data' > /tmp/x ; bash /tmp/x
 #
-# `_call_can_execute` is `_segment_can_run_a_program` with two differences,
-# both needed and both narrow: it looks at PIPELINE STAGES (a pipe alone is
-# not an executor if no stage in it can execute), and it counts a data-only
-# program as a non-executor. The residual that buys: `rg --pre=/tmp/x`,
-# `man -P /tmp/x` and `ack --pager=/tmp/x` do run a named file, so an `echo`
-# that wrote that file in the same call would have its text blanked. That is
-# an adversary, not an accident — and the strict gate above, which those
-# programs still trip, keeps every heredoc and python payload scanned. The
-# alternative was blocking `rg 'rm -rf /srv' . | wc -l`, i.e. reading this
-# repo's own guard code, which is what produced the incident behind TOM-379.
+#      the write-then-execute shape the heredoc rules already defend against.
+#
+# Route 3 is why "can execute" is judged by TOM-379's `_segment_can_run_a_program`
+# with NO widening for text tools. `rg --pre=/tmp/x`, `man -P /tmp/x` and
+# `ack --pager=/tmp/x` really do run a named file, so they must count as
+# executors — and they do, by simply not being on `INERT_PROGRAMS`. That costs
+# nothing this exemption was for: those tools are still data-only, so their own
+# arguments are still blanked, and `rg 'rm -rf /srv' . | wc -l` still passes
+# under route 2. No option denylist is needed anywhere.
+#
+# `_call_can_execute` differs from the strict gate in one way only: it looks at
+# PIPELINE STAGES, so a pipe by itself is not an executor when no stage in it
+# can execute.
 
 # Programs whose command line is TEXT: they search it, print it, or look it
 # up, and never execute it. An ALLOWLIST — an unknown program is an executor.
@@ -1073,6 +1083,18 @@ DRY_RUN_PROGRAMS = frozenset(
 _DRY_RUN_FLAG = re.compile(r"\A--(?:dry-run|dryrun|check|whatif|just-print)(?:=|\Z)")
 
 _ASSIGNMENT = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
+
+# Programs that put their STDIN into a file named in their ARGUMENTS, so a
+# pipeline ending in one lands the piped text on disk with no `>` in sight.
+# Only `tee` qualifies: it is the sole member of INERT_PROGRAMS that does it.
+# `dd` and `sponge` do it too, but neither is on that allowlist, so both
+# already count as executors and gate the call by themselves.
+FILE_WRITERS = frozenset({"tee"})
+
+# `2>&1`, `>&2`, `>&-` duplicate or close a descriptor; they do not open a file.
+_FD_DUP = re.compile(r"\A(?:\d*|&)>&(?:\d+|-)\Z")
+# `>f`, `>>f`, `2>f`, `&>f`, and the bare operators.
+_REDIRECTS_OUTPUT = re.compile(r"\A(?:&|\d*)>{1,2}")
 
 
 def _pipeline_stages(command: str, seg_range):
@@ -1180,14 +1202,26 @@ def _data_spans(stage: str):
     return data
 
 
+def _stage_writes_a_file(stage: str) -> bool:
+    """Whether the stage sends its output into a file (route 3 above)."""
+    for a, b in _token_spans(stage):
+        token = stage[a:b]
+        if _FD_DUP.match(token):
+            continue
+        if _REDIRECTS_OUTPUT.match(token):
+            return True
+    return False
+
+
 def _stage_can_execute(command: str, stage_range, bodies: dict) -> bool:
-    """Whether one pipeline stage could run a program or a file."""
-    stage = command[stage_range[0] : stage_range[1]]
-    if not _segment_is_plain(stage):
-        return True  # `$(…)`, backticks, process substitution
-    if stage.strip().startswith("#"):
-        return False  # a comment runs nothing — and its `#` is not a program
-    if _command_word(stage) in TEXT_ONLY_PROGRAMS:
+    """Whether one pipeline stage could run a program or a file.
+
+    TOM-379's `_segment_can_run_a_program` unchanged — no widening for text
+    tools, because `rg --pre=…`, `man -P …` and `ack --pager=…` really do run
+    a named file. A comment is the one thing it cannot be asked about: its `#`
+    is not a program name, it is the absence of one.
+    """
+    if command[stage_range[0] : stage_range[1]].strip().startswith("#"):
         return False
     return _segment_can_run_a_program(command, stage_range, bodies)
 
@@ -1201,12 +1235,24 @@ def _call_can_execute(command: str, segments, bodies: dict) -> bool:
     )
 
 
-def _blank_data_only_stages(command: str, chars: list, segments) -> None:
+def _blank_data_only_stages(command: str, chars: list, segments, bodies: dict) -> None:
+    call_can_execute = _call_can_execute(command, segments, bodies)
     for seg in segments:
-        for start, end in _pipeline_stages(command, seg):
+        stages = _pipeline_stages(command, seg)
+        for index, (start, end) in enumerate(stages):
             stage = command[start:end]
+            if not _segment_is_plain(stage):
+                continue  # route 1: the shell runs part of this stage itself
             if not _stage_is_data_only(stage):
                 continue
+            downstream = stages[index + 1 :]
+            if any(_stage_can_execute(command, s, bodies) for s in downstream):
+                continue  # route 2: stdout reaches something that can run it
+            reaches_a_file = _stage_writes_a_file(stage) or any(
+                _command_word(command[s[0] : s[1]]) in FILE_WRITERS for s in downstream
+            )
+            if reaches_a_file and call_can_execute:
+                continue  # route 3: written to disk, and something here runs
             for a, b in _data_spans(stage):
                 _blank(chars, start + a, start + b)
 
@@ -1217,26 +1263,40 @@ def is_safe_context(command: str) -> bool:
     TOM-394. This used to answer that question from a PREFIX, and so exempted
     everything chained after the prefix too; see "Data-only stages" above for
     what that cost. It is now the whole-command case of the same per-stage
-    predicate the surface uses: every stage data-only, and no stage able to
-    turn text back into commands.
+    predicate: every stage plain and data-only, nothing written to a file, and
+    no stage in the call able to run anything.
 
-    It is kept, and kept in `main()`, because it is NOT redundant with the
-    surface: a data-only stage whose program is itself an executor —
-    `git clean -fd --dry-run` — trips `_call_can_execute` and would never be
-    blanked, yet the command really is a dry run and really is safe. This
-    function is what still allows it.
+    It is a fast path, not a second opinion. Everything it accepts, the
+    surface would have blanked to nothing but program words anyway — and that
+    is the point: a prefix-shaped shortcut that can DISAGREE with the surface
+    is the bug this ticket is about. `TestIsSafeContextIsAStrictSubsetOfTheSurface`
+    pins the agreement. TOM-394 asked that the function not simply be deleted;
+    it is kept, gated to agree, and the deletion question is left open.
+
+    Only `_stage_is_data_only` is load-bearing today; mutation testing says so
+    outright — remove the plainness check, the write check or the executor
+    gate and no test moves, because `_call_can_execute` already refuses a
+    stage carrying a substitution, and a data-only program cannot put text on
+    disk without a redirection. They are belt-and-braces, kept for the same
+    reason as the `<<<` skip in `_heredoc_openers`: widening
+    `_stage_is_data_only` later must not be able to make this shortcut
+    silently disagree with the surface.
     """
     try:
-        _heredocs, segments = _scan_layout(command)
+        heredocs, segments = _scan_layout(command)
+        bodies = {(s, e): command[bs:be] for _q, s, e, bs, be in heredocs}
         stages = [
-            (start, end)
+            command[start:end]
             for seg in segments
             for start, end in _pipeline_stages(command, seg)
         ]
+        if _call_can_execute(command, segments, bodies):
+            return False
         return all(
-            _segment_is_plain(command[start:end])
-            and _stage_is_data_only(command[start:end])
-            for start, end in stages
+            _segment_is_plain(stage)
+            and _stage_is_data_only(stage)
+            and not _stage_writes_a_file(stage)
+            for stage in stages
         )
     except Exception:
         return False  # unparseable is not safe: scan everything
