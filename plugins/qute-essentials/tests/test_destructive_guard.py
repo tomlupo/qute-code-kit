@@ -241,6 +241,18 @@ class TestHeredocConsumersThatActuallyExecute:
             RM_ROOT,
         )
 
+    def test_the_option_terminator_makes_dash_c_a_filename(self):
+        """Review finding on #90 round 5: after `--`, CPython reads `-c` as a
+        SCRIPT NAME. Treating it as the flag exempted the payload and marked
+        the segment inert, while python ran a file the same call had written."""
+        assert_denied("python3 -- -c \"data = 'rm -rf /srv/data'\"", RM_ROOT)
+
+    def test_the_option_terminator_also_voids_a_neighbours_exemption(self):
+        assert_denied(
+            "cat > /tmp/x <<'EOF'\nrm -rf /srv/data\nEOF\npython3 -- -c \"data = 'x'\"",
+            RM_ROOT,
+        )
+
     def test_option_bundles_are_not_taken_apart(self):
         # A bundle containing `c` or `m` means the invocation is doing
         # something this code refuses to guess at, so the body stays scanned.

@@ -733,6 +733,12 @@ def _python_source_mode(args: list) -> str:
     for token in args:
         if token == "-":
             return "stdin"
+        if token == "--":
+            # Option terminator: everything after it is a SCRIPT FILENAME, so
+            # `python3 -- -c` runs a file called `-c`, it does not take a `-c`
+            # flag. Reading it as the flag would exempt the payload and mark
+            # the segment inert while python ran a file the same call wrote.
+            return "file"
         if token == "-c":
             return "dash_c"
         if token.startswith("-") and len(token) > 1:
