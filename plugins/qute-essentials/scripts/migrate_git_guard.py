@@ -95,6 +95,35 @@ DEFAULT_INTEGRATION = "dev"
 # the replacement it is clearing the way for.
 LEGACY_BASENAME = "git-workflow-guard.py"
 
+# Tokens that put the NEXT token in command position. Anything starting with
+# `python` is treated as an interpreter too (python3, python3.12, python3.exe).
+# The list is deliberately short: a wrapper missing from it costs a missed
+# unwiring (visible: a hook command pointing at a deleted file), while a flag
+# wrongly on it would cost a deleted live hook.
+_WRAPPERS = frozenset(
+    {
+        "uv",
+        "uvx",
+        "run",
+        "exec",
+        "env",
+        "bash",
+        "sh",
+        "zsh",
+        "node",
+        "deno",
+        "bun",
+        "poetry",
+        "pdm",
+        "hatch",
+        "pipx",
+        "nice",
+        "time",
+        "sudo",
+        "command",
+    }
+)
+
 
 # ------------------------------------------------------------------ git
 
@@ -170,20 +199,38 @@ def _names_legacy_script(command: str) -> bool:
     miss, i.e. legacy wiring left armed. So a backslash-folded whitespace split
     is checked as well. Both are conservative in the same direction: a token
     still has to END in exactly this basename.
+
+    And the token has to be in COMMAND POSITION — first, or right after an
+    interpreter/wrapper. `python3 other.py --target git-workflow-guard.py` and
+    `echo git-workflow-guard.py` name the file as DATA; unwiring those would
+    delete a live hook that merely mentions the legacy one. Erring toward "not
+    it" is the right direction here only because the file-removal half of this
+    step is separate: the stale script still gets deleted either way, and a
+    missed wiring entry is a dangling command someone sees, not silent damage.
     """
-    candidates: list[str] = []
+
+    def _named_in_command_position(tokens: list[str]) -> bool:
+        for index, token in enumerate(tokens):
+            token = token.strip("\"'")
+            if PurePosixPath(token.replace("\\", "/")).name != LEGACY_BASENAME:
+                continue
+            if index == 0:
+                return True
+            previous = PurePosixPath(
+                tokens[index - 1].strip("\"'").replace("\\", "/")
+            ).name
+            if previous in _WRAPPERS or previous.startswith("python"):
+                return True
+        return False
+
+    splits: list[list[str]] = []
     try:
-        candidates.extend(shlex.split(command))
+        splits.append(shlex.split(command))
     except ValueError:
         # Unbalanced quotes — the fallback below still covers it.
         pass
-    candidates.extend(
-        token.strip("\"'") for token in command.replace("\\", "/").split()
-    )
-    return any(
-        PurePosixPath(token.replace("\\", "/")).name == LEGACY_BASENAME
-        for token in candidates
-    )
+    splits.append(command.replace("\\", "/").split())
+    return any(_named_in_command_position(tokens) for tokens in splits)
 
 
 def _is_legacy_hook_entry(entry) -> bool:

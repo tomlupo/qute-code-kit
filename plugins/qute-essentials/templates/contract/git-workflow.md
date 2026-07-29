@@ -1,4 +1,4 @@
-<!-- prose source: git-workflow v3 — /setup-qute-repo step 5 writes this as a section of the repo's CLAUDE.md. It is prose, not a file to copy: nothing stamps it into .claude/rules (ADR-0005 §5 as amended 2026-07-28). -->
+<!-- prose source: git-workflow v4 — /setup-qute-repo step 5 writes this as a section of the repo's CLAUDE.md. It is prose, not a file to copy: nothing stamps it into .claude/rules (ADR-0005 §5 as amended 2026-07-28). -->
 # Git workflow
 
 - Branch off the default branch for every change; never commit directly to it
@@ -15,6 +15,13 @@
   `main`, plus `dev` when `origin/dev` exists), so a field appears only where
   this repo's answer differs from the default, and `"integration_branch": null`
   is how a repo with no integration branch says so out loud.
+- **A broken config is not an absent one, and the two layers differ there.** If
+  that file is malformed, or is a symlink or directory rather than a regular
+  file, `pre-push` fails CLOSED — it refuses every push until the file is fixed
+  — while the agent-side hook falls back to no-op. So a repo in that state is
+  half-guarded and unpushable: repair the file (or delete it, which opts the
+  repo out deliberately), and read `pre-push`'s message rather than guessing —
+  it names the field and the value it refused.
 - **Two layers read that one file, and they are not alternatives.**
   - `pre-push` is the one that HOLDS: git hands it the resolved refs, so it
     covers humans, scripts and agents alike and refuses a push landing on a

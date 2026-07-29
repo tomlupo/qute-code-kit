@@ -217,6 +217,11 @@ def test_a_name_merely_containing_the_basename_is_not_the_legacy_hook(tmp_path):
         'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/not-git-workflow-guard.py"',
         "python3 .claude/hooks/git-workflow-guard.py.bak",
         "echo git-workflow-guard.py.disabled",
+        # Named as DATA, not run: unwiring these deletes a live hook that merely
+        # mentions the legacy one.
+        "python3 other.py --target git-workflow-guard.py",
+        "echo git-workflow-guard.py",
+        'grep -l "git-workflow-guard.py" .claude/settings.json',
     ):
         assert mig._names_legacy_script(command) is False, command
 
