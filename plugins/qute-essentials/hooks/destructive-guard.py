@@ -359,53 +359,11 @@ ALL_PATTERNS = (
 
 
 # ─── Context detection (avoid false positives) ────────────────
-
-
-def is_safe_context(command: str) -> bool:
-    """Commands that mention destructive patterns but aren't destructive."""
-    stripped = command.strip()
-
-    # grep/rg searching for patterns
-    if re.match(r"^(grep|rg|ag|ack)\s+", stripped):
-        return True
-
-    # echo/printf just printing text
-    if re.match(r"^(echo|printf)\s+", stripped):
-        return True
-
-    # Comments
-    if stripped.startswith("#"):
-        return True
-
-    # Variable assignment (not execution)
-    if re.match(r"^[A-Z_]+=", stripped):
-        return True
-
-    # man/help pages
-    if re.match(r"^(man|help|\w+\s+--help)\b", stripped):
-        return True
-
-    # Dry-run flags — LONG FORMS ONLY, and only on the FIRST command.
-    #
-    # This exemption skips ALL patterns below, so it has to be narrower than
-    # what it protects. It used to include bare `-n`, which is a dry-run flag
-    # for make/rsync/git-clean and something else entirely everywhere else:
-    # line numbers (grep), numeric sort (sort), a count (head/tail), quiet
-    # (sed), no-clobber (cp/mv), batch size (xargs). `\b` only needs a
-    # non-word char after the n, so `head -n 20` disarmed the guard — and
-    # because the search spanned the whole string, it disarmed it for every
-    # command chained alongside: `rm -rf /srv/data && tail -n 50 log` was
-    # exempt. So was `find . -type f | xargs -n 1 rm -rf`.
-    #
-    # Scoping to the first segment matters for the same reason: a dry run
-    # later in a pipeline says nothing about the destructive command before it.
-    first_segment = re.split(r"[;|]|&&|\|\|", stripped, maxsplit=1)[0]
-    if re.search(
-        r"--dry-run\b|--dryrun\b|--check\b|--whatif\b|--just-print\b", first_segment
-    ):
-        return True
-
-    return False
+#
+# `is_safe_context()` lives with the rest of the data-only machinery, below
+# `execution_surface()` — see "Data-only stages". It used to live here and
+# answer from a PREFIX; TOM-394 replaced that with a per-stage judgement, and
+# the two now share one predicate.
 
 
 # ─── Execution surface ────────────────────────────────────────
@@ -693,6 +651,73 @@ def _heredoc_openers(segment: str):
     return openers
 
 
+def _has_unquoted(text: str, chars: str) -> bool:
+    """Whether any of `chars` appears in `text` outside quotes/escapes."""
+    i, n, quote = 0, len(text), None
+    while i < n:
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in "'\"":
+            quote = c
+            i += 1
+            continue
+        if c == "\\":
+            i += 2
+            continue
+        if c in chars:
+            return True
+        i += 1
+    return False
+
+
+def _token_spans(text: str):
+    """(start, end) of every whitespace-separated token, respecting quotes.
+
+    `str.split()` does not: it reads `FOO='x cat' bash <<'EOF'` as five words,
+    the second of which is `cat'`. `_split_command` then stripped the quote,
+    called the program `cat` — a heredoc DATA SINK — and blanked a body that
+    `bash` went on to execute. That was a live bypass in the TOM-379 surface,
+    reachable as `true && FOO='x cat' bash <<'EOF' …`; a quoted value must not
+    be able to donate a word to the parse.
+    """
+    spans, i, n = [], 0, len(text)
+    while i < n:
+        while i < n and text[i].isspace():
+            i += 1
+        if i >= n:
+            break
+        start, quote = i, None
+        while i < n:
+            c = text[i]
+            if quote:
+                if c == "\\" and quote == '"':
+                    i += 2
+                    continue
+                if c == quote:
+                    quote = None
+                i += 1
+                continue
+            if c in "'\"":
+                quote = c
+                i += 1
+                continue
+            if c == "\\":
+                i += 2
+                continue
+            if c.isspace():
+                break
+            i += 1
+        spans.append((start, min(i, n)))
+    return spans
+
+
 def _split_command(segment: str):
     """(program, argument tokens) for a segment, or ("", []).
 
@@ -700,7 +725,8 @@ def _split_command(segment: str):
     dropped from the argument list — `python3 > out - <<EOF` has to read as
     "python, arg `-`", not "python, arg `out`".
     """
-    tokens, i = segment.split(), 0
+    tokens = [segment[a:b] for a, b in _token_spans(segment)]
+    i = 0
     while i < len(tokens) and _NOT_A_COMMAND_WORD.match(tokens[i]):
         if _REDIR_OP.match(tokens[i]):
             i += 1  # bare operator: its target is the next token
@@ -916,16 +942,304 @@ def execution_surface(command: str) -> str:
             return command
         heredocs, segments = _scan_layout(command)
         bodies = {(s, e): command[bs:be] for _q, s, e, bs, be in heredocs}
+        chars = list(command)
         # One executor anywhere in the call voids every exemption in it: it
         # could run a file another segment just wrote.
-        if any(_segment_can_run_a_program(command, seg, bodies) for seg in segments):
-            return command
-        chars = list(command)
-        _blank_heredoc_bodies(command, chars, heredocs)
-        _blank_python_c_payloads(command, chars, segments)
+        if not any(
+            _segment_can_run_a_program(command, seg, bodies) for seg in segments
+        ):
+            _blank_heredoc_bodies(command, chars, heredocs)
+            _blank_python_c_payloads(command, chars, segments)
+        # Arguments of a data-only stage (`grep …`, `echo …`) — same gate,
+        # one notch wider, because a text searcher is not an executor even
+        # though it is not on INERT_PROGRAMS. See "Data-only stages".
+        if not _call_can_execute(command, segments, bodies):
+            _blank_data_only_stages(command, chars, segments)
         return "".join(chars)
     except Exception:
         return command
+
+
+# ─── Data-only stages ─────────────────────────────────────────
+#
+# TOM-394. `is_safe_context()` used to decide, from a PREFIX, that an ENTIRE
+# command was harmless — and every pattern above was then skipped for every
+# command chained after that prefix. Six prefixes did it. All six were the
+# same bug, and the cheapest of them was `^[A-Z_]+=`:
+#
+#     FOO=1 rm -rf /srv/data                  ← assignment prefix: exempt
+#     echo hi && rm -rf /srv/data             ← echo prefix: exempt
+#     grep -r x . ; rm -rf /srv/data          ← grep prefix: exempt
+#     # note⏎rm -rf /srv/data                 ← comment prefix: exempt
+#     man rm ; rm -rf /srv/data               ← man prefix: exempt
+#     rsync --dry-run a b && rm -rf /srv/data ← dry-run prefix: exempt
+#
+# Each cost nothing to type, needed no knowledge of this file, and failed
+# silently — no output, no signal that the guard had been skipped. (A seventh,
+# bare `-n`, was removed earlier; its comment is preserved below.)
+#
+# THE PREFIX WAS NEVER THE POINT. What those rules were reaching for is that
+# some programs treat their command line as TEXT: `grep` searches for it,
+# `echo` prints it, `man` looks it up. That is a property of one stage, not of
+# a line. So the judgement is per stage, and it feeds the same execution
+# surface as everything else: a data-only stage has its ARGUMENTS blanked, and
+# every other stage in the call stays fully scanned.
+#
+# Blanking arguments rather than the whole stage is not fussiness. A
+# redirection is an ACTION, not data, so the operator and its target survive
+# on the surface: `printf 'x' > /etc/passwd` keeps its `> /etc/passwd`, where
+# the old `^(echo|printf)` prefix rule exempted the whole line.
+#
+#   (It is still not BLOCKED, for an unrelated reason: the pattern is
+#   `\b>\s*/etc/`, and `\b` before `>` demands a word character immediately
+#   to its left — so it matches `foo>/etc/passwd` and misses every ordinary
+#   spelling, `> /etc/passwd` included. That is a defect in the pattern, not
+#   in this exemption; it predates TOM-394 and is reported separately rather
+#   than fixed here. The surface behaviour above is asserted directly, by
+#   `TestDataOnlyStagesOnTheSurface`, so it holds whatever the pattern does.)
+#
+# WHAT STILL EXEMPTS A COMMAND, and why:
+#
+#   * a data-only PROGRAM (`TEXT_ONLY_PROGRAMS`) — allowlist of text search /
+#     print / lookup tools. They act on files and stdout, never on their own
+#     argument text.
+#   * `<prog> --help` with `--help` as the FIRST argument — the old rule's
+#     exact shape (`^\w+\s+--help`), deliberately not widened. `rm -rf / --help`
+#     is still scanned.
+#   * a dry-run flag, but only for a program that HAS one (`DRY_RUN_PROGRAMS`).
+#     The old rule searched the flag anywhere in the first segment for any
+#     program at all, so `rm -rf /srv/data --dry-run` was exempt — `rm` has no
+#     such flag and would have deleted the path.
+#   * a stage that is only assignments and redirections (`FOO=bar`). Nothing
+#     runs. A value expanded LATER (`FOO='rm -rf /'; $FOO`) is the documented,
+#     unfixable limitation at the top of this file, unchanged either way.
+#   * a comment stage.
+#
+# …and the gate over all of it: none of this applies if anything in the call
+# could execute a program (`_call_can_execute`), because blanking a stage in
+#
+#     echo 'rm -rf /srv/data' > /tmp/x ; bash /tmp/x
+#
+# would hide a command the next stage runs — the write-then-execute shape the
+# heredoc rules already defend against. `echo … | bash` is caught the same way.
+#
+# `_call_can_execute` is `_segment_can_run_a_program` with two differences,
+# both needed and both narrow: it looks at PIPELINE STAGES (a pipe alone is
+# not an executor if no stage in it can execute), and it counts a data-only
+# program as a non-executor. The residual that buys: `rg --pre=/tmp/x`,
+# `man -P /tmp/x` and `ack --pager=/tmp/x` do run a named file, so an `echo`
+# that wrote that file in the same call would have its text blanked. That is
+# an adversary, not an accident — and the strict gate above, which those
+# programs still trip, keeps every heredoc and python payload scanned. The
+# alternative was blocking `rg 'rm -rf /srv' . | wc -l`, i.e. reading this
+# repo's own guard code, which is what produced the incident behind TOM-379.
+
+# Programs whose command line is TEXT: they search it, print it, or look it
+# up, and never execute it. An ALLOWLIST — an unknown program is an executor.
+TEXT_ONLY_PROGRAMS = frozenset(
+    {
+        "grep", "egrep", "fgrep", "zgrep", "zegrep", "zfgrep",
+        "rg", "ag", "ack", "ack-grep",
+        "echo", "printf",
+        "man", "info", "whatis", "apropos", "help",
+    }
+)  # fmt: skip
+
+# Programs that actually HAVE a dry-run flag, so claiming one means something.
+# `rm --dry-run` does not exist; `rm` is not here, and `rm -rf /x --dry-run`
+# is scanned like any other `rm -rf`.
+DRY_RUN_PROGRAMS = frozenset(
+    {
+        "git", "rsync", "make", "gmake",
+        "docker", "docker-compose", "podman", "kubectl", "helm",
+        "terraform", "terragrunt", "ansible", "ansible-playbook",
+        "apt", "apt-get", "yum", "dnf", "brew",
+        "npm", "pnpm", "yarn", "pip", "pip3", "uv", "poetry", "cargo",
+        "gh", "rclone", "restic", "borg",
+    }
+)  # fmt: skip
+
+# Dry-run flags — LONG FORMS ONLY.
+#
+# This exemption skips ALL patterns above for the stage, so it has to be
+# narrower than what it protects. It used to include bare `-n`, which is a
+# dry-run flag for make/rsync/git-clean and something else entirely everywhere
+# else: line numbers (grep), numeric sort (sort), a count (head/tail), quiet
+# (sed), no-clobber (cp/mv), batch size (xargs). `\b` only needs a non-word
+# char after the n, so `head -n 20` disarmed the guard — and because the search
+# spanned the whole string, it disarmed it for every command chained alongside:
+# `rm -rf /srv/data && tail -n 50 log` was exempt. So was
+# `find . -type f | xargs -n 1 rm -rf`.
+_DRY_RUN_FLAG = re.compile(r"\A--(?:dry-run|dryrun|check|whatif|just-print)(?:=|\Z)")
+
+_ASSIGNMENT = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _pipeline_stages(command: str, seg_range):
+    """Char ranges of the pipeline stages inside one segment.
+
+    `_split_segments` deliberately leaves `|` inside a segment, because a pipe
+    disqualifies that segment from the heredoc/python exemptions. Deciding
+    whether a stage's ARGUMENTS are data needs the finer view: in
+    `grep 'rm -rf /srv/data' . | wc -l` the pattern is data and `wc` cannot
+    execute it, while in `echo 'rm -rf /srv/data' | bash` it plainly can.
+    `||` never reaches here — `_split_segments` already split on it — and `>|`
+    is a clobber operator, not a pipe.
+    """
+    start, end = seg_range
+    text = command[start:end]
+    stages, seg_start, i, n, quote = [], 0, 0, end - start, None
+    while i < n:
+        c = text[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 2
+                continue
+            if c == quote:
+                quote = None
+            i += 1
+            continue
+        if c in "'\"":
+            quote = c
+            i += 1
+            continue
+        if c == "\\":
+            i += 2
+            continue
+        if c == "|" and text[i - 1 : i] != ">":
+            stages.append((start + seg_start, start + i))
+            i += 1
+            seg_start = i
+            continue
+        i += 1
+    stages.append((start + seg_start, start + n))
+    return stages
+
+
+def _stage_is_data_only(stage: str) -> bool:
+    """Whether this stage treats its command line as text rather than action."""
+    stripped = stage.strip()
+    if not stripped:
+        return True
+    if stripped.startswith("#"):
+        return True
+    program, args = _split_command(stage)
+    if not program:
+        return True  # assignments and/or redirections only — nothing runs
+    if program in TEXT_ONLY_PROGRAMS:
+        return True
+    if args and args[0] == "--help":
+        return True
+    if program in DRY_RUN_PROGRAMS and any(_DRY_RUN_FLAG.match(a) for a in args):
+        return True
+    return False
+
+
+def _data_spans(stage: str):
+    """Ranges inside a data-only `stage` that are DATA, relative to it.
+
+    The program word stays visible (no pattern matches a bare `grep`), and so
+    does every redirection operator and target: `> /etc/passwd` is an action
+    whichever program performs it, so it stays on the surface where the old
+    `^(echo|printf)` prefix rule removed the whole line from the scan.
+    """
+    stripped = stage.strip()
+    if not stripped:
+        return []
+    if stripped.startswith("#"):
+        return [(0, len(stage))]
+
+    spans = _token_spans(stage)
+    tokens = [stage[a:b] for a, b in spans]
+    data, i, n = [], 0, len(tokens)
+
+    while i < n and _NOT_A_COMMAND_WORD.match(tokens[i]):
+        if _ASSIGNMENT.match(tokens[i]):
+            data.append(spans[i])  # an assigned value is data
+            i += 1
+            continue
+        if _REDIR_OP.match(tokens[i]):
+            i += 2  # bare operator: its target is the next token, kept
+            continue
+        i += 1  # redirection with the target attached, e.g. `2>&1`
+    if i >= n:
+        return data
+
+    i += 1  # the program word itself stays on the surface
+    while i < n:
+        token = tokens[i]
+        if token.startswith("<<"):
+            i += 1  # a heredoc opener; its body is not this function's to blank
+        elif _REDIR_OP.match(token):
+            i += 2
+        elif _has_unquoted(token, "<>"):
+            i += 1  # `>/etc/passwd`, `2>&1` — action, not data
+        else:
+            data.append(spans[i])
+            i += 1
+    return data
+
+
+def _stage_can_execute(command: str, stage_range, bodies: dict) -> bool:
+    """Whether one pipeline stage could run a program or a file."""
+    stage = command[stage_range[0] : stage_range[1]]
+    if not _segment_is_plain(stage):
+        return True  # `$(…)`, backticks, process substitution
+    if stage.strip().startswith("#"):
+        return False  # a comment runs nothing — and its `#` is not a program
+    if _command_word(stage) in TEXT_ONLY_PROGRAMS:
+        return False
+    return _segment_can_run_a_program(command, stage_range, bodies)
+
+
+def _call_can_execute(command: str, segments, bodies: dict) -> bool:
+    """Whether ANY stage in the whole call could run a program or a file."""
+    return any(
+        _stage_can_execute(command, stage, bodies)
+        for seg in segments
+        for stage in _pipeline_stages(command, seg)
+    )
+
+
+def _blank_data_only_stages(command: str, chars: list, segments) -> None:
+    for seg in segments:
+        for start, end in _pipeline_stages(command, seg):
+            stage = command[start:end]
+            if not _stage_is_data_only(stage):
+                continue
+            for a, b in _data_spans(stage):
+                _blank(chars, start + a, start + b)
+
+
+def is_safe_context(command: str) -> bool:
+    """Whether the WHOLE command is data — nothing in it acts.
+
+    TOM-394. This used to answer that question from a PREFIX, and so exempted
+    everything chained after the prefix too; see "Data-only stages" above for
+    what that cost. It is now the whole-command case of the same per-stage
+    predicate the surface uses: every stage data-only, and no stage able to
+    turn text back into commands.
+
+    It is kept, and kept in `main()`, because it is NOT redundant with the
+    surface: a data-only stage whose program is itself an executor —
+    `git clean -fd --dry-run` — trips `_call_can_execute` and would never be
+    blanked, yet the command really is a dry run and really is safe. This
+    function is what still allows it.
+    """
+    try:
+        _heredocs, segments = _scan_layout(command)
+        stages = [
+            (start, end)
+            for seg in segments
+            for start, end in _pipeline_stages(command, seg)
+        ]
+        return all(
+            _segment_is_plain(command[start:end])
+            and _stage_is_data_only(command[start:end])
+            for start, end in stages
+        )
+    except Exception:
+        return False  # unparseable is not safe: scan everything
 
 
 # ─── Main hook ────────────────────────────────────────────────
