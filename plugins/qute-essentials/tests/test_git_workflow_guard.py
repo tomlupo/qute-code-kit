@@ -3577,6 +3577,44 @@ def test_pipeline_inside_a_chain_only_rolls_back_its_own_elements(tmp_path, home
 
 
 @pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo ok # ; git commit -m x",
+        "# git commit -m x",
+        "echo ok #git commit -m x",
+        "echo ok # && git push origin main",
+        "true # $(git commit -m x)",
+    ],
+)
+def test_a_comment_is_not_a_command(cmd, tmp_path, home):
+    """Defect 61. Bash ignores everything after an unquoted `#` that starts a
+    word — verified, `echo ok # ; git rev-parse …` prints only `ok` — but the
+    scanner split at the `;` inside the comment and blocked the imaginary
+    commit."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, _ = _run(cmd, repo, home)
+    assert decision == "allow", cmd
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "echo a#b && git commit -m x",
+        'git commit -m "a # b"',
+        "echo hi # comment\ngit commit -m x",
+        "git commit -m x # trailing",
+    ],
+)
+def test_a_hash_that_is_not_a_comment_is_still_text(cmd, tmp_path, home):
+    """A `#` mid-word is ordinary — verified, `echo a#b` prints `a#b` — and a
+    comment ends at the newline, so real code after it still counts."""
+    repo = _make_repo(tmp_path / "r", "main", STD_CFG)
+    decision, hso = _run(cmd.replace("\n", "\n"), repo, home)
+    assert decision == "deny", cmd
+    assert "main" in hso["permissionDecisionReason"], cmd
+
+
+@pytest.mark.parametrize(
     "sub",
     ["$(printf '(')", "$(printf ')')", "$(echo 'a b')", "`printf '('`"],
 )

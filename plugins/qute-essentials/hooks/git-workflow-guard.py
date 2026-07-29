@@ -127,9 +127,9 @@ this file:
 
 Defects review has found, ALL now handled — kept as evidence the tail is real,
 not as a checklist that is now complete. 1-9, 14, 15, 19-21, 23, 24, 27-32 and
-34-36, 38-41, 45-48, 51-53, 58 and 59 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
+34-36, 38-41, 45-48, 51-53, 58, 59 and 61 are parsing; 10-13, 16-18, 22, 25, 26, 33, 37, 42-44, 49, 50, 54-57 and 60 are the environment axis, and
 are the reason that axis is written down at all. Most let something THROUGH;
-24, 27, 29-32, 36, 42 and 43 BLOCKED something they should not have, which is a defect on
+24, 27, 29-32, 36, 42, 43 and 61 BLOCKED something they should not have, which is a defect on
 the same footing — a guard that cries wolf gets turned off:
 
    1. bare `HEAD` — compared as the literal "HEAD", never equal to "main";
@@ -328,7 +328,11 @@ the same footing — a guard that cries wolf gets turned off:
   60. the FUNCTION TABLE was global — a definition inside `( … )` dies with
       the subshell, and one in an `if` body may never happen, but either could
       overwrite a real outer function in the model and hide what the later
-      call really runs.
+      call really runs;
+  61. shell COMMENTS — bash ignores everything after an unquoted `#` that
+      starts a word, but the scanner split at a `;` inside one, so
+      `echo ok # ; git commit -m x` was blocked over a commit that does not
+      exist.
 
 `pre-push` IS THE ACTUAL ENFORCEMENT LAYER (TOM-348, being built in parallel).
 Git invokes `pre-push` with the real local/remote refs it is about to send —
@@ -837,6 +841,14 @@ def _segments(command: str, _depth: int = 0):
             emit_substitution(command[i + 1 : max(j - 1, i + 1)])
             buf.append(command[i:j])
             i = j
+        elif c == "#" and (not buf or buf[-1][-1:] in (" ", "\t", "\n", "")):
+            # A COMMENT — but only when `#` starts a word. Bash ignores the
+            # rest of the line, so `echo ok # ; git commit -m x` contains no
+            # git command at all; splitting at the `;` inside it produced a
+            # false block (defect 61). A `#` mid-word (`a#b`, `$#`) is
+            # ordinary text and falls through.
+            j = command.find("\n", i)
+            i = n if j < 0 else j
         elif (
             c == "<" and command[i + 1 : i + 2] == "<" and command[i + 2 : i + 3] != "<"
         ):
