@@ -749,9 +749,58 @@ class TestADataOnlyStageMayNotFeedAnExecutor:
         assert_allowed("rg --pre=/tmp/x 'rm -rf /srv/data' .")
         assert_allowed("rg 'rm -rf /srv/data' . | wc -l")
 
-    def test_piped_into_a_file_writer_that_a_later_stage_runs(self):
-        # `tee` puts the piped text on disk with no `>` in the command at all.
-        assert_denied("echo 'rm -rf /srv/data' | tee /tmp/x ; bash /tmp/x", RM_ROOT)
+    @pytest.mark.parametrize(
+        "writer",
+        [
+            "tee /tmp/x",  # writes a file with no `>` in the command at all
+            "cat > /tmp/x",  # the redirection belongs to a LATER stage
+            "cat >> /tmp/x",
+            "cp /dev/stdin /tmp/x",
+        ],
+    )
+    def test_the_file_can_be_written_by_a_later_stage_of_the_pipeline(self, writer):
+        """Review finding on #91 round 2: route 3 asks where this stage's
+        OUTPUT ends up, so it has to follow the whole pipeline. `cat` is inert,
+        so route 2 waves `echo … | cat > /tmp/x` through, and the redirection
+        that puts the text on disk is not on the `echo` stage at all."""
+        assert_denied(f"echo 'rm -rf /srv/data' | {writer} ; bash /tmp/x", RM_ROOT)
+
+    def test_writing_it_is_still_fine_when_nothing_runs_it(self):
+        assert_allowed("echo 'rm -rf /srv/data' | cat > /tmp/x")
+        assert_allowed("echo 'rm -rf /srv/data' | tee /tmp/x")
+
+    @pytest.mark.parametrize("redirection", [">", ">>", ">|", "1>", "&>", ">&", "2>"])
+    def test_every_spelling_of_a_write_counts_as_one(self, redirection):
+        assert_denied(
+            f"echo 'rm -rf /srv/data' {redirection} /tmp/x ; bash /tmp/x", RM_ROOT
+        )
+
+    @pytest.mark.parametrize("filter_stage", ["tr a a", "head -1", "cat"])
+    def test_a_filter_between_the_stage_and_the_write_changes_nothing(
+        self, filter_stage
+    ):
+        assert_denied(
+            f"echo 'rm -rf /srv/data' | {filter_stage} > /tmp/x ; bash /tmp/x", RM_ROOT
+        )
+
+    def test_pipe_with_stderr_is_one_operator_not_a_separator(self):
+        """`|&` used to be split at the `&`, leaving the first segment ending
+        in a bare `|` — so the stage after the pipe was the empty string, which
+        runs nothing and did not stop the echo being blanked."""
+        assert_denied("echo 'rm -rf /srv/data' |& bash", RM_ROOT)
+        assert_denied("echo 'rm -rf /srv/data' |& sh -s", RM_ROOT)
+
+    @pytest.mark.parametrize("dup", ["2>&1", ">&2", "2>&-"])
+    def test_a_descriptor_duplication_is_not_a_write(self, dup):
+        # `2>&1` opens no file, so route 3 does not apply and the executor
+        # elsewhere in the call is irrelevant. Reading it as a write would
+        # block a shape that puts nothing on disk at all.
+        assert_allowed(f"echo 'rm -rf /srv/data' {dup} ; bash /tmp/x")
+
+    def test_a_comment_is_discarded_by_the_shell_not_written_anywhere(self):
+        # The counterpart: a comment's text cannot reach a file or a pipe, so
+        # an executor elsewhere in the call is irrelevant to it.
+        assert_allowed("# rm -rf /srv/data\nbash /tmp/x")
 
     @pytest.mark.parametrize(
         "command",

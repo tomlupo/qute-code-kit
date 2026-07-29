@@ -585,11 +585,19 @@ def _split_segments(line: str, base: int = 0):
             i += 2
             start = i
             continue
-        if c == "&" and (line[i - 1 : i] in ("<", ">") or line[i + 1 : i + 2] == ">"):
+        if c == "&" and (
+            line[i - 1 : i] in ("<", ">", "|") or line[i + 1 : i + 2] == ">"
+        ):
             # `2>&1`, `>&2`, `&>log` — fd duplication, NOT a separator. Getting
             # this wrong split the segment before a later `|`, which hid the
             # pipe from `_segment_is_plain` and exempted a payload that a shell
             # then executed: `python3 -c '…' 2>&1 | bash`.
+            #
+            # `|&` is the same trap wearing a different hat (TOM-394): it is
+            # bash's pipe-with-stderr, one operator. Splitting it left the
+            # first segment ending in a bare `|`, so the stage after the pipe
+            # was the EMPTY STRING — which runs nothing, and therefore did not
+            # stop `echo 'rm -rf /srv/data' |& bash` having its echo blanked.
             i += 1
             continue
         if c in ";&":
@@ -1024,9 +1032,10 @@ def execution_surface(command: str) -> str:
 #   2. its STDOUT, down the pipeline — so no LATER stage in the pipeline may
 #      be able to execute anything. `echo 'rm -rf /srv/data' | bash` is caught
 #      here; `rg 'rm -rf /srv' . | wc -l` is not, because `wc` cannot run it.
-#   3. a FILE, if the stage redirects its output (or pipes into `tee`) — and
-#      then something else in the call could run that file. So THAT case, and
-#      only that case, takes the call-wide gate:
+#   3. a FILE — if the stage, or anything downstream of it in the pipeline,
+#      redirects the output or writes it with `tee`/`cp` — and then something
+#      else in the call could run that file. So THAT case, and only that case,
+#      takes the call-wide gate:
 #
 #          echo 'rm -rf /srv/data' > /tmp/x ; bash /tmp/x
 #
@@ -1084,12 +1093,14 @@ _DRY_RUN_FLAG = re.compile(r"\A--(?:dry-run|dryrun|check|whatif|just-print)(?:=|
 
 _ASSIGNMENT = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*=")
 
-# Programs that put their STDIN into a file named in their ARGUMENTS, so a
+# Programs that can put their STDIN into a file named in their ARGUMENTS, so a
 # pipeline ending in one lands the piped text on disk with no `>` in sight.
-# Only `tee` qualifies: it is the sole member of INERT_PROGRAMS that does it.
-# `dd` and `sponge` do it too, but neither is on that allowlist, so both
-# already count as executors and gate the call by themselves.
-FILE_WRITERS = frozenset({"tee"})
+# Only members of INERT_PROGRAMS need naming here — anything off that allowlist
+# already counts as an executor and gates the call by itself, which is why
+# `dd of=…` and `sponge` are absent. `tee` does it by design; `cp`/`mv` do it
+# when handed `/dev/stdin`. A miss here costs a blanked stage whose text was
+# written to disk, so the list errs long rather than short.
+FILE_WRITERS = frozenset({"tee", "cp", "mv"})
 
 # `2>&1`, `>&2`, `>&-` duplicate or close a descriptor; they do not open a file.
 _FD_DUP = re.compile(r"\A(?:\d*|&)>&(?:\d+|-)\Z")
@@ -1248,10 +1259,15 @@ def _blank_data_only_stages(command: str, chars: list, segments, bodies: dict) -
             downstream = stages[index + 1 :]
             if any(_stage_can_execute(command, s, bodies) for s in downstream):
                 continue  # route 2: stdout reaches something that can run it
-            reaches_a_file = _stage_writes_a_file(stage) or any(
-                _command_word(command[s[0] : s[1]]) in FILE_WRITERS for s in downstream
-            )
-            if reaches_a_file and call_can_execute:
+            # Route 3 asks where this stage's OUTPUT ends up, so it has to
+            # follow the whole pipeline, not just this stage: the redirection
+            # in `echo … | cat > /tmp/x` belongs to `cat`, and `cat` is inert,
+            # so route 2 lets it through. (Review finding on #91, round 2.)
+            onward = [stage] + [command[s[0] : s[1]] for s in downstream]
+            if call_can_execute and any(
+                _stage_writes_a_file(text) or _command_word(text) in FILE_WRITERS
+                for text in onward
+            ):
                 continue  # route 3: written to disk, and something here runs
             for a, b in _data_spans(stage):
                 _blank(chars, start + a, start + b)
