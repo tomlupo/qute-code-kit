@@ -130,10 +130,14 @@ def assert_flagged(command: str, description: str) -> None:
     assert_verdict(command, description, "warn")
 
 
-def unquoted(command: str) -> str:
-    """`command` with its quote delimiters replaced by spaces — what the
-    surface does to a command it blanks nothing else in (TOM-395)."""
-    return command.replace("'", " ").replace('"', " ")
+def dequoted(word: str) -> str:
+    """One WORD with its quote delimiters removed and the width made up on the
+    right — what quote removal does to a command it blanks nothing else in
+    (TOM-395). Spelled out per word rather than as a `.replace()` over the
+    whole string, because removing a delimiter must not split the word: that
+    was the #92 finding."""
+    stripped = word.replace("'", "").replace('"', "")
+    return stripped + " " * (len(word) - len(stripped))
 
 
 # Descriptions, copied from the pattern table. Kept as constants so a typo
@@ -1549,9 +1553,37 @@ class TestQuotedOperandsAreMatched:
     ):
         assert_denied(command, description)
 
-    def test_the_surface_removes_only_the_delimiters(self):
+    def test_the_surface_removes_the_delimiters_and_keeps_the_word_whole(self):
+        # The width is made up on the RIGHT, in the gap between words, so the
+        # operand stays contiguous and the surface stays the same length.
         cmd = 'rm -rf "/srv/data"'
-        assert guard.execution_surface(cmd) == "rm -rf  /srv/data "
+        assert guard.execution_surface(cmd) == "rm -rf /srv/data  "
+        assert len(guard.execution_surface(cmd)) == len(cmd)
+
+    @pytest.mark.parametrize(
+        "command,description",
+        [
+            # Review finding on #92: quote removal is only half of what the
+            # shell does — the other half is that the remainder stays ONE WORD.
+            # Replacing a delimiter with a space did the first and undid the
+            # second, so a quote INSIDE a word left the operand split and
+            # unmatched. `of="/dev/sdb"` is the ordinary spelling, not a trick.
+            ('dd if=/tmp/x of="/dev/sdb" bs=1M', "dd writing to device"),
+            ("dd if=/tmp/x of='/dev/sdb' bs=1M", "dd writing to device"),
+            ('dd if=/tmp/x "of=/dev/sdb" bs=1M', "dd writing to device"),
+            ('git push --"force" origin main', PUSH_FORCE),
+            ('rm -rf "/srv"/data', RM_ROOT),
+            ('chmod -R 777 "/var/www"', "chmod -R 777 makes everything world-writable"),
+        ],
+    )
+    def test_a_quote_inside_a_word_does_not_split_the_operand(
+        self, command, description
+    ):
+        assert_denied(command, description)
+
+    def test_the_word_is_joined_the_way_the_shell_joins_it(self):
+        cmd = 'dd if=/tmp/x of="/dev/sdb" bs=1M'
+        assert guard.execution_surface(cmd) == "dd if=/tmp/x of=/dev/sdb   bs=1M"
 
     def test_quoted_text_in_a_data_only_stage_is_still_data(self):
         """Quote removal must not undo the exemptions: `echo`'s arguments are
@@ -1563,15 +1595,19 @@ class TestQuotedOperandsAreMatched:
     def test_a_quoted_heredoc_delimiter_is_not_a_quoted_operand(self):
         assert_allowed("cat > /tmp/f <<'EOF'\nrm -rf \"/srv/data\"\nEOF")
 
-    def test_quoting_used_to_split_a_word_is_still_not_handled(self):
-        """The documented limit, pinned rather than left to be discovered.
-        Quote REMOVAL is not word JOINING: `/srv/"ob"sidian` becomes
-        `/srv/ ob sidian`, which matches the vault pattern no better than it did
-        before. That is the adversary, not hygiene — the same bucket as
-        `X="rm -rf"; $X /` at the top of the hook — and nothing regressed,
-        because the text was not contiguous before quote removal either."""
-        assert_allowed('rm -r /srv/"ob"sidian')
-        assert_allowed("rm -r /srv/'ob'sidian")
+    def test_quoting_used_to_split_a_word_is_joined_back(self):
+        """Word joining closes this as a side effect, so the limitation this
+        PR originally documented is gone: `/srv/"ob"sidian` is one word to the
+        shell and one word on the surface. Pinned because it was a stated limit
+        — if joining is ever weakened back to substitution, this says so."""
+        assert_denied('rm -r /srv/"ob"sidian', VAULT)
+        assert_denied("rm -r /srv/'ob'sidian", VAULT)
+
+    def test_what_quoting_still_cannot_reach_is_the_variable(self):
+        """The limit that remains, and it is the one at the top of the hook:
+        a value assembled across an expansion. No quoting is involved, so no
+        amount of quote handling touches it."""
+        assert_allowed("X='rm -rf'; $X /srv/data")
 
     @pytest.mark.parametrize(
         "command",
@@ -1635,22 +1671,49 @@ class TestQuotedOperandsAreMatched:
     def test_removing_quotes_can_only_add_matches_never_remove_one(
         self, command, monkeypatch
     ):
-        """The safety argument, executed rather than asserted in a comment: no
-        pattern in this file contains a quote character, so a quote can only
-        ever be consumed by a wildcard — which takes the space just as happily.
-        Every pattern that matched before quote removal must still match."""
+        """The safety argument, executed rather than asserted in a comment.
+
+        Quote removal deletes only quote characters and makes the width up on
+        the right, so the only text it moves stays inside its own word and the
+        gap between words only grows — and every pattern spells that gap `\\s+`
+        or `.*`. Nothing that matched before may stop matching, and the two
+        invariants the rest of the surface depends on — total length and where
+        the newlines are — must hold exactly."""
         with_removal = guard.execution_surface(command)
         monkeypatch.setattr(guard, "_blank_quote_delimiters", lambda *_a: None)
         without_removal = guard.execution_surface(command)
         before = {d for p, d, _s in guard.ALL_PATTERNS if p.search(without_removal)}
         after = {d for p, d, _s in guard.ALL_PATTERNS if p.search(with_removal)}
         assert before <= after, f"quote removal lost {before - after}"
-        # …and the surfaces differ only where a quote character stood.
         assert len(with_removal) == len(without_removal)
-        assert all(
-            a == b or (b in "'\"" and a == " ")
-            for a, b in zip(with_removal, without_removal)
-        )
+        newlines = [i for i, c in enumerate(with_removal) if c == "\n"]
+        assert newlines == [i for i, c in enumerate(without_removal) if c == "\n"]
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            # A quoted string spanning lines, inside a heredoc body that is
+            # SCANNED — the only place a word on the surface really contains a
+            # newline, because `_scan_layout` splits the outer command by
+            # physical line before any of this. (A `grep "a<NL>b" f` at the top
+            # level does NOT exercise this: the first line's argument is
+            # blanked, so the surviving quote opens a word that begins after
+            # the newline. Checked, rather than assumed — an earlier version of
+            # this test used exactly that command and measured nothing.)
+            "bash <<'EOF'\necho \"a\nb\"\nrm -rf /srv/data\nEOF",
+            "wc -l <<'EOF'\n\"a\nb\"\nEOF\nrm -rf /srv/data",
+        ],
+    )
+    def test_a_quoted_string_spanning_lines_is_not_compacted(self, command):
+        """The one shape word joining declines: moving a newline would move the
+        line structure the `$`-anchored patterns read. Its delimiters are
+        blanked in place instead, so every newline stays exactly where it was."""
+        surface = guard.execution_surface(command)
+        assert len(surface) == len(command)
+        assert [i for i, c in enumerate(surface) if c == "\n"] == [
+            i for i, c in enumerate(command) if c == "\n"
+        ]
+        assert_denied(command, RM_ROOT)
 
 
 # ------------------------------------------------------- unit: the surface
@@ -1687,13 +1750,12 @@ class TestDataOnlyStagesOnTheSurface:
         assert guard.execution_surface(cmd) == " " * len(cmd)
 
     def test_nothing_is_blanked_when_the_call_can_execute(self):
-        # Nothing *blanked*: the quote delimiters still go, because the shell
-        # removes them before bash ever sees the text (TOM-395). Asserting
-        # `unquoted(cmd)` rather than a literal keeps this a statement about
-        # what was NOT blanked — every other character has to survive.
+        # Nothing *blanked*: the quoted argument is dequoted and stays one word
+        # (TOM-395), because that is what bash hands to the program.
         cmd = "echo 'rm -rf /srv/data' | bash"
-        assert guard.execution_surface(cmd) == unquoted(cmd)
-        assert "rm -rf /srv/data" in guard.execution_surface(cmd)
+        assert guard.execution_surface(cmd) == (
+            "echo " + dequoted("'rm -rf /srv/data'") + " | bash"
+        )
 
 
 class TestIsSafeContextIsAStrictSubsetOfTheSurface:
@@ -1763,7 +1825,7 @@ class TestExecutionSurface:
         cmd = "cat > /tmp/f <<'EOF'\nrm -rf /srv/data\nEOF"
         assert (
             guard.execution_surface(cmd)
-            == "cat > /tmp/f << EOF \n" + " " * 16 + "\nEOF"
+            == "cat > /tmp/f <<EOF  \n" + " " * 16 + "\nEOF"
         )
 
     def test_newlines_inside_a_multiline_body_are_kept(self):
@@ -1772,13 +1834,14 @@ class TestExecutionSurface:
         cmd = "cat > /tmp/f <<'EOF'\nfirst line\nsecond line\nEOF"
         assert (
             guard.execution_surface(cmd)
-            == "cat > /tmp/f << EOF \n" + " " * 10 + "\n" + " " * 11 + "\nEOF"
+            == "cat > /tmp/f <<EOF  \n" + " " * 10 + "\n" + " " * 11 + "\nEOF"
         )
 
     def test_nothing_is_blanked_for_an_unlisted_consumer(self):
         cmd = "bash <<'EOF'\nrm -rf /srv/data\nEOF"
-        assert guard.execution_surface(cmd) == unquoted(cmd)
-        assert "rm -rf /srv/data" in guard.execution_surface(cmd)
+        assert guard.execution_surface(cmd) == (
+            "bash " + dequoted("<<'EOF'") + "\nrm -rf /srv/data\nEOF"
+        )
 
     def test_an_unquoted_body_with_a_substitution_is_not_blanked_at_all(self):
         # Not "blanked except the substitution span": finding where a
@@ -1795,7 +1858,7 @@ class TestExecutionSurface:
     def test_unterminated_heredoc_body_runs_to_end_of_input(self):
         # bash never executes an unterminated heredoc body either.
         cmd = "cat > /tmp/f <<'EOF'\nrm -rf /srv/data"
-        assert guard.execution_surface(cmd) == "cat > /tmp/f << EOF \n" + " " * 16
+        assert guard.execution_surface(cmd) == "cat > /tmp/f <<EOF  \n" + " " * 16
 
     def test_a_command_with_no_data_region_is_returned_unchanged(self):
         # Inert programs on purpose: a non-inert one would short-circuit at the
@@ -1812,8 +1875,9 @@ class TestExecutionSurface:
 
     def test_python_payload_mentioning_subprocess_is_left_alone(self):
         cmd = "python3 -c 'import subprocess as s'"
-        assert guard.execution_surface(cmd) == unquoted(cmd)
-        assert "import subprocess as s" in guard.execution_surface(cmd)
+        assert guard.execution_surface(cmd) == (
+            "python3 -c " + dequoted("'import subprocess as s'")
+        )
 
 
 class TestFailOpenAndScope:

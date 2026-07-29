@@ -90,12 +90,12 @@ one the guard has never heard of. Severity, not table order, decides: a `block`
 anywhere outranks a `warn` earlier in the table, so `git branch -D x && rm -rf
 /srv/data` is still a deny.
 
-**Quoted paths count.** `rm -rf "/srv/data"` is caught exactly as `rm -rf
-/srv/data` is: quote delimiters are removed on the execution surface, the way
-the shell removes them before a program sees an argument. Patterns stay written
-in one spelling. (Quote removal is not word joining — `rm -r /srv/"ob"sidian`
-is obfuscation, and lands in the same "stops the accident, not the adversary"
-bucket as `X="rm -rf"; $X /`.)
+**Quoted paths count.** `rm -rf "/srv/data"`, `dd of="/dev/sdb"` and
+`rm -r /srv/"ob"sidian` are all caught exactly as their bare spellings are: the
+execution surface performs quote removal *and* keeps what is left as one word,
+the way the shell does before a program sees an argument. Patterns stay written
+in one spelling each. What quoting cannot reach is still what it always was — a
+value assembled across an expansion, `X="rm -rf"; $X /`.
 
 **Writing a destructive command is not running one.** Patterns match the
 *execution surface* — regions the shell hands to a program as data are excluded,

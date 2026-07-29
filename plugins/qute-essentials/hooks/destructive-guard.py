@@ -1081,18 +1081,32 @@ def _blank_python_c_payloads(command: str, chars: list, segments) -> None:
 # string that is meant to be "what the shell will run" — should have the
 # quoting removed too.
 #
-# Only the quote DELIMITERS are overwritten (with a space, so offsets and
-# length survive), never the quoted text. That is one-directional by
-# construction: no pattern in this file contains a `'` or a `"`, so a quote
-# character can only ever be matched by a wildcard (`.*`, `[^|]*`) — which
-# matches a space just as happily. Blanking a quote can therefore ADD a match
-# and can never remove one, and the added ones are exactly the quoted spellings
-# of things this file already blocks unquoted.
+# Only the quote DELIMITERS go, never the quoted text — and, second half, WHAT
+# IS LEFT STAYS ONE WORD. Both halves are the shell's behaviour and the second
+# is easy to skip: the first version of this replaced each delimiter with a
+# space, which quote-removes and word-SPLITS, so the commonest quoted spelling
+# of all stayed unmatched (review on #92):
 #
-# What it does NOT do is defeat quoting used as obfuscation: `rm -rf /srv/"ob"sidian`
-# becomes `rm -rf /srv/ ob sidian`, which still matches nothing. That is the
-# adversary again, and the note at the top of this file applies unchanged — the
-# text was not contiguous before quote removal either, so nothing regressed.
+#     dd if=/tmp/x of="/dev/sdb"    →  `of= /dev/sdb`, and `of=/dev/` misses
+#
+# So `_compact_word` shifts the survivors left and pads the word on the right.
+# Length is preserved, which is the surface's one hard invariant, and the
+# padding lands in the gap BETWEEN words, where every pattern already spells
+# `\s+` or `.*`.
+#
+# One-directional by construction, in both halves: no pattern in this file
+# contains a `'` or a `"`, so a quote can only ever be consumed by a wildcard,
+# which takes a space just as happily; and the only text that moves stays
+# inside its own word while the gap between words only grows. Quote removal can
+# therefore ADD a match and never remove one — asserted over a corpus rather
+# than argued, by `test_removing_quotes_can_only_add_matches_never_remove_one`.
+#
+# Word joining also closes, as a side effect, what an earlier draft of this
+# comment called an unfixable limitation: `rm -r /srv/"ob"sidian` is one word to
+# the shell, so it is one word here, and the vault pattern matches it. What
+# remains out of reach is what always was — a value assembled across an
+# expansion, `X="rm -rf"; $X /`. No quoting is involved there, so no amount of
+# quote handling touches it.
 #
 # QUOTE STATE MUST NOT CROSS A DATA REGION (review on #92). An unbalanced quote
 # inside a heredoc body left the scanner believing the REST OF THE COMMAND was
@@ -1130,11 +1144,46 @@ def _blank_python_c_payloads(command: str, chars: list, segments) -> None:
 # this). No character that is not a quote is ever touched.
 
 
+def _compact_word(chars: list, start: int, end: int, delimiters: set) -> None:
+    """Remove the quote delimiters from one WORD and pad the word out again.
+
+    Quote removal is only half of what the shell does; the other half is that
+    the remainder stays ONE WORD. Replacing a delimiter with a space performs
+    the first half and undoes the second, which leaves the commonest quoted
+    spelling of all unmatched (review on #92):
+
+        dd if=/tmp/x of="/dev/sdb"    ->  `of= /dev/sdb`, and `of=/dev/` misses
+
+    So the surviving characters are shifted left and the word is padded on the
+    right instead. Length is preserved, which is the surface's one hard
+    invariant, and the padding falls in the gap BETWEEN words — where every
+    pattern already spells `\\s+` or `.*`, so nothing that matched before can
+    stop matching.
+
+    A word containing a newline (a quoted string spanning lines) is NOT
+    compacted, because moving a newline would move the line structure the
+    `$`-anchored patterns depend on. Its delimiters are blanked in place, which
+    is the pre-#92 behaviour for that one shape.
+    """
+    if any(chars[i] == "\n" for i in range(start, end)):
+        for i in delimiters:
+            chars[i] = " "
+        return
+    kept = [chars[i] for i in range(start, end) if i not in delimiters]
+    chars[start:end] = kept + [" "] * (end - start - len(kept))
+
+
 def _blank_quotes_in_span(chars: list, start: int, end: int) -> None:
     """Quote removal within ONE region, tracking state exactly as
     `_has_unquoted` does: a backslash escapes the next character outside quotes
-    and inside double quotes, and is a literal inside single quotes."""
-    i, quote = start, None
+    and inside double quotes, and is a literal inside single quotes.
+
+    Delimiters are collected per WORD — a run with no UNQUOTED whitespace in
+    it, i.e. exactly what the shell will hand over as one argument — and the
+    word is then compacted. `'rm -rf /srv/data'` is one word, quoted spaces and
+    all, so it stays contiguous on the surface.
+    """
+    i, quote, word_start, delimiters = start, None, start, set()
     while i < end:
         c = chars[i]
         if quote:
@@ -1142,23 +1191,32 @@ def _blank_quotes_in_span(chars: list, start: int, end: int) -> None:
                 i += 2
                 continue
             if c == quote:
-                chars[i] = " "
+                delimiters.add(i)
                 quote = None
             i += 1
             continue
         if c in "'\"":
-            chars[i] = " "
+            delimiters.add(i)
             quote = c
             i += 1
             continue
         if c == "\\":
             i += 2
             continue
+        if c.isspace():
+            if delimiters:
+                _compact_word(chars, word_start, i, delimiters)
+                delimiters = set()
+            word_start = i + 1
+            i += 1
+            continue
         i += 1
+    if delimiters:
+        _compact_word(chars, word_start, end, delimiters)
 
 
 def _blank_quote_delimiters(chars: list, data_regions=()) -> None:
-    """Overwrite shell quote delimiters with spaces (quote removal).
+    """Quote removal over the whole surface (the shell's, word joining and all).
 
     Operates on `chars` — the surface built so far — and gives each region in
     `data_regions` (heredoc bodies) its own quote-scanning region, so no quote
