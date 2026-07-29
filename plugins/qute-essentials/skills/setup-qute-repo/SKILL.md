@@ -272,6 +272,71 @@ gate binds it on conclude.
 
 - Note in CLAUDE.md that qute guards stay active under all workflows;
   quant-production additionally lists its destructive-command surface.
+- **`pre-push` branch guard** (TOM-348) — the deterministic stand-in for
+  server-side branch protection, which is unavailable on these repos' plan.
+  Opt-in is `.claude/git-guard.json` in the repo root: its **presence** arms the
+  guard, all fields are optional (`{}` = protect `main`, plus `dev` when
+  `origin/dev` exists; `"integration_branch": null` = this repo genuinely has
+  none). Skip scratch repos and third-party clones. Do NOT hand-copy files or
+  hand-run `pre-commit install`; run the installer, which detects the world,
+  installs, and then *measures* the result:
+
+  ```bash
+  python3 "$(claude plugin path qute-essentials)/scripts/install_pre_push_guard.py" \
+      --repo . [--opt-in] [--adopt-existing]
+  ```
+
+  Read the report it prints, and put its `verification:` block in the step's
+  summary — "ran the installer" is not evidence, and a hook that silently is
+  not installed is worse than no hook because it manufactures confidence.
+  Things to get right:
+
+  - **The hook path is git's answer, not a guess.** The installer resolves it
+    with `git rev-parse --git-path hooks/pre-push`, which honours
+    `core.hooksPath` — and a repo with `core.hooksPath` set makes git ignore
+    `.git/hooks` entirely, so anything dropped there would never run.
+  - **Always the native path; never the pre-commit framework's `pre-push`
+    stage.** The framework drops ref lines whose local sha is all zeros (branch
+    *deletions* never reach any hook it runs) and exposes only the first
+    pushable ref of a multi-ref push. Fine for a convenience hook, not for the
+    enforcement layer — so a repo that uses pre-commit still gets the native
+    install, and pre-commit's generated shim is relocated to
+    `pre-push.d/50-pre-commit` where it runs behind the guard with the ref lines
+    replayed to it. If you ever pass `--mechanism pre-commit`, expect
+    verification to FAIL on the coverage it cannot provide; do not "fix" that by
+    ignoring it.
+  - **An existing hand-authored `pre-push` is never clobbered.** Without
+    `--adopt-existing` the installer reports `BLOCKED` and stops. With it, the
+    old hook moves to `<hooks dir>/pre-push.d/00-legacy-pre-push` and the qute
+    dispatcher runs in front of it, replaying the ref lines so the adopted hook
+    still gets its stdin.
+  - **A hook path resolving outside the repo is refused by default** — judged on
+    the path, not on which config scope set it, because a repo-local
+    `core.hooksPath = /home/me/.githooks` or `../shared-hooks` is exactly as
+    shared as a global one. Read the refusal: it names the resolved path, the
+    repo it is not inside, the config file that set it, and what is already in
+    that directory. Fix the path, or pass `--allow-shared-hooks-path`
+    deliberately — do not pass it just to make the message go away.
+  - **Re-check after any `pre-commit install`.** It reclaims the hook slot and
+    moves the dispatcher to `<slot>.legacy`, where coverage survives intact —
+    **but `pre-commit install -f` deletes that file and silently uninstalls the
+    guard.** Nothing prevents that; only `--check` detects it. Say so in the
+    onboarding report, because it is the kind of thing that quietly stops
+    protecting a repo months after anyone remembers this step.
+  - **A malformed `.claude/git-guard.json` stops pushes, on purpose.** Both
+    branch fields must be strings (`integration_branch` may be an explicit
+    `null`); `{"protected_branch": ["main","dev"]}` or `123` is refused by name
+    rather than silently guarding nothing. If a user hits this, read them the
+    message — it names the field, the value, and the two-slot shape — and do NOT
+    "fix" it by deleting the config, which disarms the guard entirely.
+  - **The installer will not write outside the repo**, including through a
+    symlink checked into the repo. If it reports a symlinked destination, that
+    is worth understanding before overriding anything.
+  - **`git push --no-verify` bypasses it**, as it does every client-side hook.
+    That is the design, not a defect: this catches the accidental push and
+    yields to the deliberate one. It is not a substitute for server-side branch
+    protection — it exists precisely because protection is unavailable on these
+    repos' plan.
 - CI per the type table. If Jimek-managed, review-gate came from step 4;
   otherwise offer it only where independent review is wanted (the gate is
   tier-aware and needs no policy file — installing it is the opt-in).
