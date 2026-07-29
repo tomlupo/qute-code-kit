@@ -756,13 +756,15 @@ def ship_tag(
 ) -> int:
     """Create and push the release tag for a bump that has already merged.
 
-    Four preconditions, all asserted before anything is created:
+    Five preconditions, all asserted before anything is created:
 
-      1. the remote is reachable and has been fetched;
-      2. the local release branch matches its remote — the tag must name the
+      1. the tree is clean, so the release this tag names is the committed one;
+      2. the remote is reachable and has been fetched;
+      3. the local release branch matches its remote — the tag must name the
          commit everyone else can see, not a local one;
-      3. the version declared at the TIP is the version this tag names;
-      4. the tag does not already exist, locally or on the remote.
+      4. the version declared at the TIP is the one this tag names, and matches
+         any explicit `X.Y.Z` given;
+      5. the tag does not already exist.
 
     Then it tags and **pushes**. Not pushing fails silently and late: the tag
     sits local, everything looks green, and it surfaces when a consumer cannot
@@ -770,12 +772,30 @@ def ship_tag(
     release-tag-guard workflow asserts on push that the tagged commit is an
     ancestor of the release branch.
 
-    Deliberately does NOT run first-time setup (it writes, and there is nothing
-    here to set up) and does not run the clean-tree gate: a tag names a commit,
-    so an unrelated dirty file cannot ride into it. What a dirty tree COULD
-    corrupt — the version — is covered by precondition 3, which compares the
-    committed tip against what the project currently declares.
+    Deliberately does NOT run first-time setup: it writes, and there is nothing
+    here to set up.
+
+    **The clean-tree gate does run**, contrary to the first version of this
+    function, which skipped it on the reasoning that "a tag names a commit, so a
+    dirty file cannot ride into it". That reasoning covered the version and
+    nothing else, and review found the hole: a tag is *rendered* from
+    `tag_format`, which lives in `pyproject.toml`, which cz reads from the
+    WORKING TREE. Reproduced before fixing — an uncommitted
+    `tag_format = "release-$version"` over a committed `v$version` made
+    `/ship --tag` create and PUSH `release-0.2.0`, a tag name the released
+    commit never defined. `changelog_file` and the changelog body carried into
+    the tag message have the same shape.
+
+    Requiring the whole tree clean rather than enumerating "release metadata"
+    files is deliberate: any such list is a partial rule that drifts out of step
+    with what cz actually reads, which is how this bug existed in the first
+    place. Being too strict costs a `git stash`; being too lax publishes a
+    mis-named release tag that consumers pin.
     """
+    # ── 1. Clean tree ───────────────────────────────────────────────────────
+    if rc := check_clean_worktree(root, dry_run=parsed.dry_run, why=TAG_DIRTY_REASON):
+        return rc
+
     cz_config = _read_cz_config(pyproject)
     # Read-only cz resolution even though this is not a dry run: `uv run cz`
     # materializes `.venv` before cz executes, and tagging an existing commit
@@ -797,7 +817,7 @@ def ship_tag(
             "was created."
         )
 
-    # ── 1. Fetch ────────────────────────────────────────────────────────────
+    # ── 2. Fetch ────────────────────────────────────────────────────────────
     if remote:
         if _git_out(root, "fetch", "--quiet", "--tags", remote) is None:
             return fail(
@@ -815,7 +835,7 @@ def ship_tag(
             "push. The tag will exist only in this repo."
         )
 
-    # ── 2. Local branch matches its remote ──────────────────────────────────
+    # ── 3. Local branch matches its remote ──────────────────────────────────
     if remote:
         local = _git_out(root, "rev-parse", "HEAD")
         upstream = _git_out(
@@ -851,7 +871,7 @@ def ship_tag(
                 "  re-run; nothing was created."
             )
 
-    # ── 3. The version at the tip is the version being tagged ───────────────
+    # ── 4. The version at the tip is the version being tagged ───────────────
     tip_version = _version_at_tip(root, pyproject)
     if not tip_version:
         return fail(
@@ -859,15 +879,13 @@ def ship_tag(
             f"`{topo.current}`. Nothing was created."
         )
 
-    declared = _current_version(root, pyproject, cz)
-    if declared and declared != tip_version:
-        return fail(
-            f"the working tree declares {declared} but the tip of `{topo.current}` "
-            f"declares {tip_version}.\n"
-            "  A tag names a COMMIT, so it would carry the tip's version while you are\n"
-            "  reading the tree's. Commit or discard the difference and re-run."
-        )
-
+    # The version still comes from the TIP rather than the tree, because that
+    # is what the tag means. A tree-vs-tip comparison used to sit here as the
+    # defence against a dirty version; the clean-tree gate above now makes the
+    # two provably equal, so that comparison could no longer be made to fire
+    # through the CLI. It is gone rather than kept: an assertion no test can
+    # trigger is a claim of safety, not safety — the same reason the `ls-remote`
+    # check below was removed.
     tag = resolve_tag(root, cz, cz_config, tip_version)
 
     if parsed.version and parsed.version != tip_version:
@@ -878,9 +896,9 @@ def ship_tag(
             "  one this branch is at. Nothing was created."
         )
 
-    # ── 4. The tag does not already exist ───────────────────────────────────
+    # ── 5. The tag does not already exist ───────────────────────────────────
     #
-    # The LOCAL ref list is authoritative here only because step 1 fetched
+    # The LOCAL ref list is authoritative here only because step 2 fetched
     # `--tags` and refused to continue if it could not: a tag pushed from
     # another machine is local by the time this runs. A second `ls-remote`
     # check was written and removed — after a required fetch there is no state
@@ -1640,8 +1658,25 @@ def _read_cz_config_regex(pyproject: Path) -> dict[str, object]:
     return config
 
 
-def check_clean_worktree(root: Path, *, dry_run: bool = False) -> int:
-    """Refuse to bump when tracked files carry uncommitted changes.
+BUMP_DIRTY_REASON = (
+    "A release must be cut from a clean tree — the bump commit stages whole\n"
+    "files, so these edits would land inside the release commit and inside the\n"
+    "annotated tag that points at it."
+)
+
+TAG_DIRTY_REASON = (
+    "A release tag must be cut from a clean tree. The tag NAME is rendered from\n"
+    "`tag_format` and its message is built from the changelog — and commitizen\n"
+    "reads both from the WORKING TREE, not from the commit being tagged. So an\n"
+    "uncommitted edit here changes the tag that gets pushed, under a version the\n"
+    "released commit never declared."
+)
+
+
+def check_clean_worktree(
+    root: Path, *, dry_run: bool = False, why: str = BUMP_DIRTY_REASON
+) -> int:
+    """Refuse to release when tracked files carry uncommitted changes.
 
     Mirrors the gate `release-plugin.sh` already applies in plugin mode, in
     both check and spirit: ANY modified tracked file blocks, not just the
@@ -1649,9 +1684,15 @@ def check_clean_worktree(root: Path, *, dry_run: bool = False) -> int:
     unrelated edit would ride into the commit that the release tag points at,
     and consumers pin that tag. Releases come from a clean tree.
 
+    `--tag` runs this too, for a different reason — hence `why`, so the refusal
+    explains the situation the caller is actually in rather than lecturing a
+    tag-only run about the bump commit it is not making.
+
     Untracked files are deliberately ignored (`--untracked-files=no`, same as
     plugin mode): a lockfile, scratch output, or a stray build artifact is
-    routine and must not be able to block a release.
+    routine and must not be able to block a release. It is also sound for the
+    tag path: cz cannot read a version or a format out of a file the project
+    does not track.
 
     `--dry-run` reports instead of refusing. A dry run answers "what would
     ship" and creates neither commit nor tag, so a dirty tree cannot
@@ -1685,9 +1726,8 @@ def check_clean_worktree(root: Path, *, dry_run: bool = False) -> int:
     for line in dirty:
         print(f"  {line}", file=sys.stderr)
     print(
-        "\nA release must be cut from a clean tree — the bump commit stages whole\n"
-        "files, so these edits would land inside the release commit and inside the\n"
-        "annotated tag that points at it. Commit or stash them first, then re-run:\n"
+        f"\n{why}\n"
+        "Commit or stash them first, then re-run:\n"
         "  git commit -am '...'   # or: git stash push -- <paths>\n"
         "Untracked files are ignored and never block a release.",
         file=sys.stderr,

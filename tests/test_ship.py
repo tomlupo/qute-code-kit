@@ -2048,22 +2048,88 @@ class TagCompletesTheRelease(unittest.TestCase):
             self.assertIn("0.2.0", result.stderr)
             self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
 
-    def test_refuses_when_the_working_tree_disagrees_with_the_tip(self):
-        """The tag names a COMMIT; an uncommitted bump is not in it."""
+    def test_an_uncommitted_tag_format_cannot_rename_the_pushed_tag(self):
+        """Review blocker on PR #88 (fourth round), and a real one.
+
+        `--tag` used to skip the clean-tree gate, reasoning that a tag names a
+        commit so a dirty file cannot ride into it. That covered the version and
+        nothing else. A tag is *rendered* from `tag_format`, which lives in
+        `pyproject.toml`, which cz reads from the WORKING TREE — so an
+        uncommitted `tag_format` renamed the tag that got pushed.
+
+        Reproduced against the pre-fix code before this test was written: a
+        committed `v$version` with an uncommitted `release-$version` published
+        `release-0.2.0`, a tag name the released commit never defined.
+        """
         with tempfile.TemporaryDirectory() as d:
             origin, work, env = self._bumped_and_squash_merged(Path(d))
             toml = work / "pyproject.toml"
+            self.assertIn(
+                'tag_format = "v$version"', git(work, "show", "HEAD:pyproject.toml")
+            )
             toml.write_text(
-                toml.read_text(encoding="utf-8").replace("0.2.0", "0.3.0"),
+                toml.read_text(encoding="utf-8").replace(
+                    'tag_format = "v$version"', 'tag_format = "release-$version"'
+                ),
                 encoding="utf-8",
             )
 
             result = run_ship(["--tag"], work, env=env)
 
             self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
-            self.assertIn("0.3.0", result.stderr)
-            self.assertIn("0.2.0", result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            # The refusal explains the situation the caller is in, not the bump
+            # commit a tag-only run is not making.
+            self.assertIn("tag NAME is rendered from", result.stderr)
+            # The mis-named tag exists nowhere — not locally, not on the remote.
             self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+            self.assertNotIn("release-0.2.0", git(origin, "tag", "--list").split())
+
+    def test_an_uncommitted_changelog_cannot_reach_the_tag_message(self):
+        """Same hole, other input: the tag MESSAGE is read from the tree too."""
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            changelog = work / "CHANGELOG.md"
+            changelog.write_text(
+                changelog.read_text(encoding="utf-8").replace(
+                    "## v0.2.0", "## v0.2.0\n\nUNCOMMITTED-NOTE", 1
+                ),
+                encoding="utf-8",
+            )
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_refuses_when_the_working_tree_is_dirty(self):
+        """Any dirty tracked file, not a curated list of 'release metadata'.
+
+        A list is a partial rule that drifts out of step with what cz actually
+        reads — which is how the `tag_format` hole existed at all.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            (work / "README.md").write_text("# demo\nscratch\n", encoding="utf-8")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+            self.assertIn("uncommitted tracked changes", result.stderr)
+            self.assertIn("README.md", result.stderr)
+            self.assertEqual(git(work, "tag", "--list").split(), ["v0.1.0"])
+
+    def test_an_untracked_file_still_does_not_block_a_tag(self):
+        """The gate ignores untracked files; cz cannot read a file it has none of."""
+        with tempfile.TemporaryDirectory() as d:
+            origin, work, env = self._bumped_and_squash_merged(Path(d))
+            (work / "scratch.log").write_text("noise\n", encoding="utf-8")
+
+            result = run_ship(["--tag"], work, env=env)
+
+            self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+            self.assertIn("v0.2.0", git(origin, "tag", "--list").split())
 
     def test_refuses_on_the_integration_branch(self):
         with tempfile.TemporaryDirectory() as d:

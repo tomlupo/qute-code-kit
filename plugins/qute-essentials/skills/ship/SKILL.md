@@ -76,16 +76,20 @@ next real release.
 
 ### `/ship --tag` — completing a two-stage release
 
-Run on the release branch **after** the release PR has merged. It asserts four
+Run on the release branch **after** the release PR has merged. It asserts five
 things before creating anything:
 
-1. the remote is reachable (it fetches `--tags`; offline is a refusal, because
+1. the tree is clean, so the release the tag names is the committed one — a tag
+   is *rendered* from `tag_format` in `pyproject.toml`, which commitizen reads
+   from the working tree, so an uncommitted edit there renames the tag that gets
+   pushed;
+2. the remote is reachable (it fetches `--tags`; offline is a refusal, because
    this step both verifies against and publishes to the remote);
-2. the local branch matches its remote — the tag must name the commit everyone
+3. the local branch matches its remote — the tag must name the commit everyone
    else can see;
-3. the version declared at the **tip** (read out of the commit, not the working
+4. the version declared at the **tip** (read out of the commit, not the working
    tree) is the version being tagged, and matches any `X.Y.Z` you named;
-4. the tag does not already exist.
+5. the tag does not already exist.
 
 Then it creates the annotated tag **and pushes it**. Pushing is deliberate: not
 pushing fails silently and late — the tag sits local, everything looks green,
@@ -337,11 +341,12 @@ the stable way to neuter it.
   instead of via `/ship` — `cz bump` can compute unexpected versions. Don't
   hand-tag; verify with `git tag --list 'v*' | sort -V | tail -5` if a bump
   looks off.
-- **Uncommitted changes to tracked files** → the bump is **refused**, with
-  every dirty path named. Commit or stash them first; a release is cut from a
-  clean tree. `--dry-run` reports them instead of refusing. (`--tag` does not
-  run this gate: a tag names a commit, so a dirty file cannot ride into it, and
-  the version it *could* corrupt is covered by the tip-version assertion.)
+- **Uncommitted changes to tracked files** → **refused**, with every dirty path
+  named. Commit or stash them first; a release is cut from a clean tree.
+  `--dry-run` reports them instead of refusing. This applies to `--tag` as well
+  as to the bump: a tag names a commit, but it is *rendered* from `tag_format`
+  and carries a message built from the changelog, and cz reads both from the
+  working tree — so an uncommitted edit there changes the tag that gets pushed.
 - **Untracked files** → harmless, never block. Lockfiles, scratch output and
   build artifacts are routinely untracked, so they are ignored outright.
 - **"a bump is already in flight"** → the declared version has no tag. Finish
