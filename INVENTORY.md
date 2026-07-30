@@ -71,6 +71,12 @@ Full contents of `claude/` and `templates/`. Use as a map — copy the bits you 
 | `project-quant.json` | Quant-project permissions (Edit/Write src/, notebooks/, models/...) |
 | `project-webdev.json` | Webdev-project permissions |
 
+## Terminal (1)
+
+| File | Use case |
+|---|---|
+| `terminal/tmux.conf` | tmux settings Claude Code needs — passthrough notifications, Shift+Enter, mouse capture, OSC 52 clipboard over SSH. Append to `~/.tmux.conf`. Why each line: [`docs/cheatsheets/tmux-claude-code.md`](docs/cheatsheets/tmux-claude-code.md) |
+
 ## Templates
 
 | Path | Use case |

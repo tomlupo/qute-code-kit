@@ -33,6 +33,7 @@ job (detect jimek + scaffold `conductor.yml`) is Step 4 of `/setup-qute-repo`.
 | `claude/mcp/` | MCP server configs |
 | `claude/settings/` | Claude Code project settings profiles |
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |
+| `claude/terminal/` | Machine-level terminal config (tmux) — appended to `~/.tmux.conf`, not copied per-repo |
 | `plugins/qute-essentials/` | Distributable plugin (its own README + SKILL.md files) |
 | `.claude-plugin/marketplace.json` | Marketplace manifest (regenerated from plugin manifest) |
 | `templates/docs/`, `templates/pyproject/` | Doc / pyproject templates (used by `/ship`'s first-time-setup) |

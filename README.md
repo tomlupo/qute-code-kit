@@ -40,7 +40,7 @@ API keys for the optional integrations (`LAKERA_GUARD_API_KEY`, `LANGFUSE_PUBLIC
 
 ## The personal kit: `claude/`
 
-23 skills (quant research, engineering quality, visual/UX, workflow), 2 agents, 7 MCP server configs, 3 settings profiles. Browse [`INVENTORY.md`](INVENTORY.md) for the full map.
+23 skills (quant research, engineering quality, visual/UX, workflow), 2 agents, 7 MCP server configs, 3 settings profiles, 1 terminal config. Browse [`INVENTORY.md`](INVENTORY.md) for the full map.
 
 Pick what you need; copy by hand:
 
@@ -57,6 +57,9 @@ cp ~/projects/qute-code-kit/claude/mcp/firecrawl.json ~/projects/myrepo/.mcp/fir
 
 # Settings profile
 cp ~/projects/qute-code-kit/claude/settings/project-quant.json ~/projects/myrepo/.claude/settings.json
+
+# tmux config — append to your own ~/.tmux.conf (machine-level, not per-repo)
+cat ~/projects/qute-code-kit/claude/terminal/tmux.conf >> ~/.tmux.conf && tmux source-file ~/.tmux.conf
 ```
 
 For new repos that need release tooling, install the plugin and use `/ship` (it bootstraps commitizen + CHANGELOG + GitHub Actions workflow on first run).
@@ -66,7 +69,7 @@ For new repos that need release tooling, install the plugin and use `/ship` (it 
 - [`INVENTORY.md`](INVENTORY.md) — full kit contents (skills / agents / MCP / settings / templates)
 - [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md) — plugin reference (guards, hooks, skills)
 - [`docs/playbooks/`](docs/playbooks/) — multi-step workflows (compound engineering, multi-agent review, investment research, session continuity, …)
-- [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
+- [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting, tmux
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
 - [`docs/playbooks/skill-router.md`](docs/playbooks/skill-router.md) — which skill, when (the discipline one-pager)
 - [`docs/adr/`](docs/adr/) — architecture decision records (Matt spine, research regime, tracking tiers)
