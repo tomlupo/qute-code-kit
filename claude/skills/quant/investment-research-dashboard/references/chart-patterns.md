@@ -189,8 +189,8 @@ Plotly.newPlot('corr-chart', [{
 }], {
   ...LAYOUT_BASE, height: 280,
   margin: { l: 80, r: 20, t: 10, b: 40 },
-  xaxis: { tickfont: { size: 11 } },
-  yaxis: { tickfont: { size: 11 } },
+  xaxis: { type: 'category', tickfont: { size: 11 } },
+  yaxis: { type: 'category', tickfont: { size: 11 } },
 }, CONFIG);
 ```
 
@@ -371,6 +371,115 @@ layout.annotations = items.map((item, i) => ({
 }));
 ```
 
+## 11. Crisis Comparison Bars
+
+Grouped bars comparing benchmark vs strategy with a protection delta bar. Common for TAA/strategy evaluation.
+
+```javascript
+const names = DATA.crises.map(c => c.name);
+const saaVals = DATA.crises.map(c => c.saa_return * 100);
+const taaVals = DATA.crises.map(c => c.taa_return * 100);
+const protection = DATA.crises.map(c => c.protection * 100);
+
+const traces = [
+  { x: names, y: saaVals, name: 'Benchmark', type: 'bar', marker: { color: '#0EA5E9' },
+    text: saaVals.map(v => v.toFixed(1) + '%'), textposition: 'outside' },
+  { x: names, y: taaVals, name: 'Strategy', type: 'bar', marker: { color: '#10B981' },
+    text: taaVals.map(v => v.toFixed(1) + '%'), textposition: 'outside' },
+  { x: names, y: protection, name: 'Protection', type: 'bar',
+    marker: { color: protection.map(v => v >= 0 ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'),
+      line: { color: protection.map(v => v >= 0 ? '#10B981' : '#EF4444'), width: 2 } },
+    text: protection.map(v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%'),
+    textposition: 'outside',
+    textfont: { color: protection.map(v => v >= 0 ? '#059669' : '#DC2626') } },
+];
+
+Plotly.newPlot('chart-id', traces, {
+  ...LAYOUT_BASE, barmode: 'group',
+  xaxis: { type: 'category' },  // MANDATORY for string labels
+  yaxis: { title: 'Return (%)', ticksuffix: '%' },
+  shapes: [{ type: 'line', x0: -0.5, x1: names.length - 0.5, y0: 0, y1: 0,
+    line: { color: '#64748B', width: 1.5 } }],
+  legend: { orientation: 'h', y: 1.08, x: 0.5, xanchor: 'center' },
+}, CONFIG);
+```
+
+## 12. Conditional Performance (Up/Down Market Split)
+
+Shows annualized excess returns split by market regime. Color-codes bars by sign.
+
+```javascript
+const traces = [
+  { x: entities, y: entities.map(e => DATA[e].excess_down * 100),
+    name: 'Down markets', type: 'bar',
+    marker: { color: entities.map(e => DATA[e].excess_down >= 0 ? '#10B981' : '#EF4444') },
+    text: entities.map(e => (DATA[e].excess_down >= 0 ? '+' : '') + (DATA[e].excess_down * 100).toFixed(2) + '%'),
+    textposition: 'outside' },
+  { x: entities, y: entities.map(e => DATA[e].excess_up * 100),
+    name: 'Up markets', type: 'bar',
+    marker: { color: entities.map(e => DATA[e].excess_up >= 0 ? '#10B981' : '#F59E0B') },
+    text: entities.map(e => (DATA[e].excess_up >= 0 ? '+' : '') + (DATA[e].excess_up * 100).toFixed(2) + '%'),
+    textposition: 'outside' },
+];
+
+Plotly.newPlot('chart-id', traces, {
+  ...LAYOUT_BASE, barmode: 'group',
+  xaxis: { type: 'category' },
+  yaxis: { title: 'Ann. Excess Return (%)', ticksuffix: '%' },
+  shapes: [{ type: 'line', x0: -0.5, x1: entities.length - 0.5, y0: 0, y1: 0,
+    line: { color: '#64748B', width: 1.5 } }],
+}, CONFIG);
+```
+
+## 13. Signal Heatmap (Time × Category)
+
+Diverging heatmap for signal scores or z-scores. Reversed y-axis for chronological top-to-bottom.
+
+```javascript
+Plotly.newPlot('chart-id', [{
+  z: DATA.heatmap.values,
+  x: DATA.heatmap.categories,
+  y: DATA.heatmap.dates,
+  type: 'heatmap',
+  colorscale: [[0,'#DC2626'],[0.25,'#FCA5A5'],[0.5,'#F9FAFB'],[0.75,'#86EFAC'],[1,'#16A34A']],
+  zmin: -4, zmax: 4,  // symmetric range
+  colorbar: { title: 'Score', thickness: 12, len: 0.6 },
+  hovertemplate: '%{x}<br>%{y|%Y-%m}: %{z:.1f}<extra></extra>',
+}], {
+  ...LAYOUT_BASE,
+  margin: { l: 80, r: 20, t: 20, b: 80 },
+  yaxis: { autorange: 'reversed' },
+}, CONFIG);
+```
+
+## 14. Regime Timeline (Multi-Line with Threshold Bands)
+
+Multiple time series with bull/bear threshold bands as dashed horizontal lines.
+
+```javascript
+const l0s = ['FI_SHORT', 'FI_AGG', 'EQ', 'COM'];
+const colors = { FI_SHORT: '#7DD3FC', FI_AGG: '#2563EB', EQ: '#16A34A', COM: '#F59E0B' };
+
+const traces = l0s.map(l0 => ({
+  x: DATA.regimes.map(r => r.date),
+  y: DATA.regimes.map(r => r.l0_scores[l0]),
+  name: l0, type: 'scatter', mode: 'lines',
+  line: { color: colors[l0], width: 1.5 },
+}));
+
+Plotly.newPlot('chart-id', traces, {
+  ...LAYOUT_BASE,
+  yaxis: { title: 'Mean Score' },
+  shapes: [
+    { type: 'line', x0: dates[0], x1: dates[dates.length-1], y0: 0.5, y1: 0.5,
+      line: { color: '#16A34A', width: 1, dash: 'dot' } },  // bull threshold
+    { type: 'line', x0: dates[0], x1: dates[dates.length-1], y0: -0.5, y1: -0.5,
+      line: { color: '#DC2626', width: 1, dash: 'dot' } },  // bear threshold
+  ],
+  legend: { orientation: 'h', y: 1.1, x: 0.5, xanchor: 'center' },
+}, CONFIG);
+```
+
 ## Common Gotchas
 
 1. **Ratio vs %**: JSON stores 0.057, chart needs 5.7. Always `.map(v => v * 100)`.
@@ -379,3 +488,11 @@ layout.annotations = items.map((item, i) => ({
 4. **Transparent bg**: `paper_bgcolor` and `plot_bgcolor` must be `'rgba(0,0,0,0)'` to blend with card backgrounds.
 5. **Legend overlap**: Use `y: 1.1` or higher to push legend above chart area.
 6. **Grid lines**: Always set `gridcolor: '#E5E7EB'` — Plotly defaults are too dark.
+7. **MANDATORY — Categorical axes**: When using string labels (names, profiles, categories) on any axis, always set `type: 'category'` in the axis config. Without this, Plotly auto-detects and often parses strings as dates (showing Jan 1970 timestamps) or numbers. Apply to both `xaxis` and `yaxis` as needed:
+   ```javascript
+   xaxis: { type: 'category' }           // horizontal string labels
+   yaxis: { type: 'category' }           // vertical string labels (e.g., correlation matrix)
+   yaxis: { type: 'category', autorange: 'reversed' }  // horizontal bar charts
+   ```
+8. **Horizontal bar charts**: Need `orientation: 'h'` on traces AND `yaxis: { type: 'category', autorange: 'reversed' }` on layout. Without `autorange: 'reversed'`, categories appear bottom-to-top.
+9. **Bar mode selection**: Use `barmode: 'group'` for comparison (side-by-side), `barmode: 'stack'` for composition (parts of whole). Never mix intentions.

@@ -157,7 +157,7 @@ total_return = (price + dividend / 12) / price.shift(1) - 1
 
 For complete source details, download patterns, and validation methodology, see [references/long_history_construction.md](references/long_history_construction.md).
 
-Reference implementation: `research/risk-profile-calibration/build_asset_data_v2.py`.
+Reference implementation: `research/strategic-asset-allocation/build_asset_data_v2.py`.
 
 ## Ticker Formats
 
