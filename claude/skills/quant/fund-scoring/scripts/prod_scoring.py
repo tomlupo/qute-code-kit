@@ -10,11 +10,12 @@ a freshly-computed cross-section (e.g. 2026-05-22) rather than the stale
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 import pandas as pd
 
-DM = Path(__file__).resolve().parents[3] / "dm-evo"
+DM = Path(os.environ.get("DM_EVO_ROOT") or Path(__file__).resolve().parents[3] / "dm-evo")
 # dm-evo is src-layout: pipelines import `src.X`, src modules import top-level
 # `shared.X`/`fund_scoring.X`. Put BOTH on path so all internal imports resolve
 # to this checkout (else top-level `shared` resolves to a stale site-packages

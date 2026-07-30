@@ -28,12 +28,13 @@ report). v1 = latest date, PLN-only, long-history TAA-registry benchmarks.
 from __future__ import annotations
 
 import sys
+import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-DM = Path(__file__).resolve().parents[3] / "dm-evo"
+DM = Path(os.environ.get("DM_EVO_ROOT") or Path(__file__).resolve().parents[3] / "dm-evo")
 sys.path.insert(0, str(DM))
 OUT = Path(__file__).resolve().parent / "output"
 OUT.mkdir(exist_ok=True)

@@ -11,11 +11,12 @@ fund_prices) so the diff isolates the allocation logic. Read-only.
 """
 
 from __future__ import annotations
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
-DM = Path("/home/tom/workspace/projects/dm-evo")
+DM = Path(os.environ.get("DM_EVO_ROOT") or "/home/tom/workspace/projects/dm-evo")
 OUT = Path(__file__).resolve().parent
 BASE_CSV = DM / "output/portfolio-construction/weekly/2026-06-12/run_20260618/portfolio_allocation.csv"
 
