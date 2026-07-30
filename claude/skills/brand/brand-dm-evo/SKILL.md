@@ -1,5 +1,5 @@
 ---
-name: evo-dm-brand
+name: brand-dm-evo
 description: Applies Evo Dom Maklerski brand identity to web/frontend projects. This skill should be used when creating React components, Tailwind configurations, or CSS for projects requiring the evo dm visual style. Use for any frontend work that needs professional financial services branding.
 ---
 
