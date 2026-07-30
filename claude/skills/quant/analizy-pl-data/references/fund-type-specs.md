@@ -313,7 +313,7 @@ Common foreign fund providers:
 2. Search by TFI name on analizy.pl
 3. Use fund search functionality on the site
 4. Extract from existing datasets
-5. Check `config/fund_master.csv` for known codes
+5. Check `config/instrument_master.csv` for known codes
 
 ---
 

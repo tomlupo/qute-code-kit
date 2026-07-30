@@ -1,0 +1,241 @@
+# Finalized PLN taxonomy + benchmarks — advisor-confirmed, L1 by L1.
+# Status: IN PROGRESS. Governance: propose-to-human; the xlsx stays source of
+# truth. This file records confirmed decisions from the 2026-06-02 walkthrough.
+
+meta:
+  currency: PLN
+  snapshot: 2026-05-08
+  window: 156w weekly, 3-window stability (2026-05, 2025-05, 2024-05)
+
+  # SCORING ARCHITECTURE (confirmed)
+  scoring:
+    raw_score: "retained unchanged — within-L1 4-pillar composite (full history, used for model validation)"
+    segment_score: |
+      NEW, separate column. Per-L2 'market segment' score, benchmark-anchored so
+      the group benchmark = 50 (re-center the composite + standardize dispersion
+      per L2). Supersedes the retired p50-median calibration: swaps the
+      p50-median anchor for a benchmark anchor. Raw and segment scores coexist.
+    segment_score_spec:   # FINALIZED 2026-06-02
+      mechanic: "re-center the FULL 4-pillar composite (incl ML) so benchmark=50; dispersion standardized per L2 (1 std = 10 pts)."
+      benchmark_as_phantom_fund: "score the benchmark series through the same pipeline incl ML (compute its features vs peer group, run trained models)."
+      ml: "INFERENCE-ONLY — run existing trained models on the benchmark's features; models unchanged (training-inclusion = separate future experiment)."
+      scope: "needed YTD ONLY (from 2025-12-31). All benchmark ETFs have real-vol data across that window -> NO synthetic backfill for the segment score; synthetic only ever fed TAA momentum history. Raw scores keep full history."
+      quality_pillar: "KEEP sortino + profit_factor (corr 1.0, model unchanged on 534 risk-bearing funds) + a NO-LOSS GUARD: no-downside series -> cap at the group's finite max. Guard touches only ~3 cash funds. (Candidate study: every high-fidelity proxy still needs a guard; guard-free ulcer/max_dd cost ~0.2 rank-corr — not worth it. omega(0)==profit_factor; info_ratio is NOT fragile.)"
+      consistency_pillar: "info_ratio + hit_rate (both vs L2 median) UNCHANGED — neither blows up (TE=0 is a trivial guard->0)."
+      cash_behaviour: "for riskless cash the quality pillar saturates (guard) -> return/momentum + consistency-vs-median discriminate; yield decides. Emerges naturally, no per-class rule."
+
+  # GROUP STRUCTURE STANDARD (confirmed)
+  group_structure: "each L1 = AT MOST 1 core (0 or 1) + 0..N satellites + 1 Other"
+  # FI_CREDIT confirmed 0-core: a credit-risk asset class is all-satellite (no standalone backbone).
+  core: "the one designated backbone per L1 (0 or 1); broad/coherent. Always standalone_eligible."
+  satellite: "coherent sub-strategy (region/sector/credit/size). standalone_eligible is a PER-GROUP flag."
+  other: "light peer pool + low-confidence flag (like 3p fallback); never standalone_eligible."
+  standalone_eligible: |
+    SEPARATE flag from role (refinement). Can a single fund from this group be a
+    standalone single-instrument recommendation? core = always yes; satellite =
+    yes if BROAD-MARKET (PL Equity, US, Europe), no if concentrated (sector/theme/
+    single-country/size-niche/leverage); other = never.
+
+  benchmark_registry:
+    source: "../dm-evo/config/tactical-signals/data_sources.yaml (authoritative, PIT-cached, backfilled)"
+    # reuse the TAA benchmark series; tickers + backfill already curated there.
+    series:
+      CASH:      "ETFBCASH.WA (Beta ETF Cash) + WIBOR_6M synth backfill pre-2024-01-02"
+      TBSP:      "ETFBTBSP.WA (Beta ETF TBSP, PL govt bond TR)"
+      WIG_TR:    "ETFBW20TR.WA"
+      L2_MWIG40: "ETFBM40TR.WA"
+      EQ_GL:     "URTH + EFA backfill"
+      EQ_US:     "SPY"
+      EQ_EUR:    "EXSA.DE"
+      L2_TECH:   "IXN"
+      EQ_EM:     "EEM + VEIEX backfill"
+      L2_CHINA:  "FXI"
+      L2_JAPAN:  "EWJ"
+      FI_GL:     "BNDW + VBMFX backfill"
+      BM_FI_AGG: "AGG"
+      FI_IG:     "LQD"
+      FI_HY:     "HYG + VWEHX backfill"
+      FI_EM:     "EMB + PREMX backfill"
+      COM_GOLD:  "GLD + GC=F backfill"
+      COM_BROAD: "DJP + ^BCOM backfill"
+    fx: "NBP EURPLN/USDPLN in registry — PLN-convert USD/EUR benchmarks for unhedged funds, local-ccy for hedged."
+    gaps: ["EQ_DM Miners (source GDX)", "MIX blends (construct from EQ_GL+TBSP/FI_GL at profile weights)"]
+
+  benchmark_method:
+    equity: "UCITS ETF (PL/EU-investable) — IWDA(DM), CSPX(US), IMEU(Europe), EIMI(EM), tech/gold-miner UCITS. Native ccy; equity FX-carry NEGLIGIBLE -> ignore, spot-convert only if needed."
+    pl_fi: "Polish Beta ETFs already in TAA registry — TBSP, CASH(+WIBOR synth), WIG20TR, MWIG40."
+    foreign_fi: "index/UCITS ETF WITH hedging-carry treatment (carry matters for bonds): hedged = local TR + (WIBOR - foreign 3M); unhedged = index TR x USDPLN."
+    fallback: "inPZU PLN passive funds as cross-check / where no clean ETF exists."
+    commodities: "ETF-direct (bullion/futures), NOT inPZU PZU80/PZU81 which are commodity-EQUITY/miners -> COM_GOLD=GLD-type, COM_BROAD=DJP-type."
+    source: "UCITS tickers from analizy.pl/yfinance; snapshot into the research line for reproducibility."
+
+  scoring_uniformity: |
+    SINGLE taxonomy, SINGLE scoring path (clear communication + easy selection):
+    every fund -> exactly one L2 group; every group gets BOTH raw composite
+    (peer-z within L1, existing) AND segment score (benchmark=50, per L2).
+    No 'benchmark-scored vs peer-scored' split — segment score works at any peer
+    count. Thin/incoherent groups carry a low-confidence flag. sector/thematic is
+    a TAG (caps + client label), not a separate scoring mechanism.
+
+  inpzu_benchmarks:   # PLN passive funds, one per group (primary benchmark candidates)
+    EQ_DM Global DM Equity: PZU51   # Akcje Rynków Rozwiniętych
+    EQ_DM US Equity: PZU68          # Akcje Amerykańskie
+    EQ_DM European Equity: PZU85    # Akcje Europejskie
+    EQ_EM EM Broad Equity: PZU66    # Akcje Rynków Wschodzących
+    EQ_EM PL Equity: PZU50          # Akcje Polskie
+    EQ_EM PL Equity Small Mid: PZU97
+    FI_GL Global Core Bonds: PZU49  # Obligacje Skarbowe Rynków Rozwiniętych (DM govt)
+    FI_GL US/USD Govt: PZU86        # Obligacje Skarbowe Amerykańskie
+    FI_CREDIT EM Debt: PZU48
+    FI_CREDIT HY Bonds: PZU93
+    FI_PL Govt/Core: PZU47          # Polskie Obligacje Skarbowe
+    FI_PL_SHORT Govt Short: PZU46   # Inwestycji Ostrożnych Obligacje Krótkoterminowe
+    note: "inPZU launched ~2019-2022 -> limited history; backfill with carry-adjusted ETF series for older folds."
+
+L1:
+  FI_PL:
+    status: confirmed
+    core:
+      name: PL Govt/Core Bonds PLN
+      composition: "PL Govt Bonds (24, rho 0.86) + 10 govt-like 'Universal' funds (rho 0.67-0.89) + 3 inbound from FI_GL (CON004/MIL33/NOB27, rho 0.83-0.88 to PL govt)"
+      benchmark: "PZU47 (inPZU PL Govt) primary; backfill TBSP"
+    satellites: []
+    other:
+      name: PL Other Bonds PLN
+      members: [QRS34, PLJ51]      # + PZU96 once it has 3Y history (corp -> maybe seeds a satellite)
+      treatment: low_confidence_peer_pool
+    inbound:
+      - funds: [CON004_A_PLN, MIL33, NOB27]
+        from: "FI_GL / Global Core Bonds (mislabelled)"
+        reason: "Polish bonds: rho 0.83-0.88 to PL Govt vs 0.40-0.60 to Global Core"
+    exits:
+      - funds: [PIO80, PCS86, PCS92]
+        to: "FI_PL_SHORT / PL Govt Short Term"
+        reason: "treasury+municipal short duration (rho 0.47-0.62 to short-govt, 3/3)"
+    notes: "'PL Universal Bonds' dissolved — marketing shelf, not a return-coherent group."
+
+  FI_GL:
+    status: confirmed
+    core:
+      name: Global Core Bonds PLN
+      composition: "29-fund dominant cluster (rho 0.749), PLN-hedged global DM govt/agg"
+      benchmark: "PZU49 (inPZU DM Govt) primary; backfill FI_GL/BNDW hedged-to-PLN (+carry)"
+    satellites:
+      - name: US/USD Govt Bonds PLN
+        members: [PCS54, PIO10, PIO87]
+        rho: 0.93
+        benchmark: "PZU86 (inPZU US Treasury) primary; backfill BM_FI_AGG x USDPLN (unhedged)"
+        note: "split from core on the FX/hedging axis (unhedged USD), not the bonds"
+      - name: IG Corporate Bonds PLN
+        n: 5
+        rho: 0.730
+        benchmark: "FI_IG (LQD), carry/FX-adjusted"
+    other:
+      name: FI_GL Other PLN
+      members: [GSF013_AH_PLN, AXA38A1, PIO13, FOR37, MON24]  # macro / Hungarian / European / universal
+      treatment: low_confidence_peer_pool
+    exits:
+      - funds: [CON004_A_PLN, MIL33, NOB27]
+        to: "FI_PL / PL Govt/Core Bonds"
+        reason: "Polish bonds mislabelled as Global (confirmed rho 0.83-0.88 to PL govt)"
+      - funds: [FOR36]
+        to: "FI_PL_SHORT"
+        reason: "short-term treasury (Krótkoterminowych Skarbowych)"
+
+  FI_CREDIT:
+    status: confirmed
+    core: null                     # 0-core: all-satellite credit-risk asset class
+    satellites:
+      - name: EM Debt PLN
+        n: 13
+        rho: 0.696
+        benchmark: "PZU48 (inPZU EM bonds); backfill FI_EM"
+      - name: HY Bonds PLN
+        n: 12
+        rho: 0.736
+        benchmark: "PZU93 (inPZU HY); backfill FI_HY"
+    other: {name: FI_CREDIT Other PLN, members: [], treatment: low_confidence_peer_pool}
+    notes: "Both coherent + distinct (EM sovereign vs HY corporate). No splits/merges/isolates."
+
+  EQ_DM:
+    status: confirmed
+    core: {name: Global DM Equity, n: 67, benchmark: "IWDA (UCITS MSCI World); inPZU PZU51 cross-check", standalone_eligible: true}
+    satellites:
+      - {name: US Equity, n: 25, tag: regional, benchmark: "CSPX (UCITS S&P500)", standalone_eligible: true}
+      - {name: European Equity, n: 18, tag: regional, benchmark: "IMEU (UCITS MSCI Europe)", standalone_eligible: true}
+      - {name: Technology, n: 8, tag: sector, benchmark: "tech UCITS", standalone_eligible: false}
+      - {name: Gold & Mining Equity, n: ~10, tag: sector, benchmark: "gold-miners UCITS", standalone_eligible: false,
+         composition: "Miners Sector(4) + gold/mining cluster from Other Sectors(6, rho 0.91)"}
+      - {name: Specialist Equity, tag: "sector|thematic per-fund", benchmark: "per-fund theme UCITS",
+         treatment: low_confidence_peer_pool, standalone_eligible: false,
+         composition: "Other Sectors tail: healthcare, real estate, green energy, cyber, space, blockchain, biotech, water",
+         client_label: "concentrated specialist/thematic equity — portfolio component, higher risk"}
+    other: {name: EQ_DM Other, members: [KAH33, KAH34], treatment: quarantine}
+    notes: "'Other Sectors' dissolved -> Gold&Mining satellite + Specialist tail. Regional/sector satellites kept distinct despite 3/3 merge signal (deliberate allocation levers + caps)."
+
+  EQ_EM:
+    status: confirmed
+    core: {name: EM Broad Equity, n: 15, benchmark: "EIMI (UCITS MSCI EM IMI); inPZU PZU66 cross-check", standalone_eligible: true}
+    satellites:
+      - {name: PL Equity, n: 33, tag: home-market, benchmark: "WIG_TR (ETFBW20TR); inPZU PZU50", standalone_eligible: true}
+      - {name: PL Equity Small Mid, n: 18, tag: size, benchmark: "MWIG40 (ETFBM40TR); inPZU PZU97", standalone_eligible: false}
+      - {name: Asia/China Equity, n: 7, tag: regional, benchmark: "MSCI China/EM-Asia UCITS", standalone_eligible: false,
+         composition: "Asia/China cluster from EM Other (rho 0.81)"}
+      - {name: Specialist EM Equity, tag: "single-country/region per-fund", benchmark: "per-region UCITS (L2_CHINA etc.)",
+         treatment: low_confidence_peer_pool, standalone_eligible: false,
+         composition: "EM Other tail: India, Latin America, CEE/Emerging Europe, Frontier, Russia(frozen), Turkey, China A",
+         client_label: "concentrated single-country/region EM — portfolio component, higher risk"}
+    other: {name: EQ_EM Other, members: [QRS07], treatment: quarantine, note: "QRS07 = leverage fund (confirmed)"}
+    notes: "PL Equity+PL Small/Mid kept distinct (size, 3/3 merge) like US/Europe. PL Equity satellite but standalone_eligible (broad home market). 'EM Other' dissolved -> Asia/China satellite + Specialist EM tail."
+
+  COM_GOLD:
+    status: confirmed
+    core: null
+    satellites:
+      - {name: Gold, n: 3, benchmark: "physical-gold UCITS (SGLN)", standalone_eligible: true, note: "pure bullion"}
+      - {name: Precious Metals, n: 3, benchmark: "physical-gold/PM UCITS (same/similar)", standalone_eligible: true}
+    other: {name: COM_GOLD Other, members: [], treatment: low_confidence_peer_pool}
+    notes: "Gold + Precious Metals kept DISTINCT despite 3/3 merge (rho 0.67) — deliberate economic distinction (pure gold vs PM basket), advisor override. Both satellite + standalone."
+
+  COM_BROAD:
+    status: confirmed
+    core: null
+    satellites:
+      - {name: Commodities, n: 10, benchmark: "broad-commodity UCITS (ICOM/BCOM)", standalone_eligible: true}
+    other: {name: COM_BROAD Other, members: [], treatment: low_confidence_peer_pool}
+    notes: "Single coherent commodity diversifier sleeve. Satellite + standalone."
+
+  MIX_AGR:
+    status: confirmed
+    core: {name: Mixed GL Flexible, n: 34, benchmark: "VNGA60/VNGA80 (Vanguard LifeStrategy UCITS)", standalone_eligible: true}
+    satellites:
+      - {name: Mixed PL Flexible, n: 7, tag: home-tilt, benchmark: "VNGA60 + PL tilt", standalone_eligible: true,
+         note: "thin n=7, merges 2/3 — kept distinct (PL mandate)"}
+    other: {name: MIX_AGR Other, members: [], treatment: low_confidence_peer_pool}
+    notes: "Multi-asset = standalone products by design (standalone_eligible everywhere). inPZU Puls Zycia (PZU73-77) are glide-path, NOT fixed-mix benchmarks."
+
+  MIX_DEF:
+    status: confirmed
+    core: {name: Mixed GL Conservative, n: 25, benchmark: "VNGA20/VNGA40 (Vanguard LifeStrategy)", standalone_eligible: true}
+    satellites:
+      - {name: Mixed PL Conservative, n: 33, tag: home-tilt, benchmark: "VNGA20/40 + PL tilt", standalone_eligible: true,
+         note: "larger (33) + tighter (rho 0.80) than GL — advisor may flip core to PL"}
+    other: {name: MIX_DEF Other, members: [], treatment: low_confidence_peer_pool}
+    notes: "Both coherent. GL=core per broad-wins pattern; PL Conservative is a strong alt core (flaggable). Both standalone (multi-asset)."
+
+  FI_PL_SHORT:
+    status: confirmed
+    core:
+      name: PL Govt Short Term PLN
+      composition: "16 + 3 inbound from FI_PL (PIO80, PCS86, PCS92), rho 0.71"
+      benchmark: CASH            # Beta ETF Cash (ETFBCASH.WA) + WIBOR synth backfill; will read slightly >50 (duration premium over pure cash)
+    satellites:
+      - name: PL Corp Short Term PLN
+        n: 50
+        rho: 0.618
+        benchmark: CASH          # measured as excess over cash — must beat cash to earn its credit risk
+    other:
+      name: PL Short Other PLN
+      members: [AGF04]
+      treatment: low_confidence_peer_pool
+    notes: "Govt vs Corp short kept distinct (credit risk differs) despite rho 0.60; merge was only 2/3 windows."

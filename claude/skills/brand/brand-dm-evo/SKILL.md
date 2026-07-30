@@ -1,5 +1,5 @@
 ---
-name: brand-dm-evo
+name: evo-dm-brand
 description: Applies Evo Dom Maklerski brand identity to web/frontend projects. This skill should be used when creating React components, Tailwind configurations, or CSS for projects requiring the evo dm visual style. Use for any frontend work that needs professional financial services branding.
 ---
 
@@ -10,6 +10,62 @@ description: Applies Evo Dom Maklerski brand identity to web/frontend projects. 
 This skill provides the official brand identity for Evo Dom Maklerski, a Polish brokerage house. To apply consistent branding to web and frontend projects, use these guidelines.
 
 **Keywords**: evo dm, branding, corporate identity, visual identity, financial services, tailwind, css variables, react styling, design tokens
+
+## Brand Voice & Tone
+
+### Positioning
+
+Evo is a **butik inwestycyjny** (investment boutique) targeting private banking clients. Third-largest independent brokerage in Poland, 34 specialists, 1.7B PLN AUM. The tone reflects expertise without arrogance, warmth without informality.
+
+### Formality
+
+- **"Ty" form** throughout — approachable professionalism, not distant formality
+- No "Pan/Pani" — the relationship is partnership, not service counter
+- No buzzwords, no financial jargon visible to clients
+
+### Tone Characteristics
+
+| Trait | How it shows |
+|-------|-------------|
+| Calm, strategic | "Inwestycje lubią spokój i strategiczne podejście" — anti-reactive, deliberate |
+| Long-term | "Zbuduj majątek na pokolenia" — generational horizon, not short-term gains |
+| Expert but human | Team credentials stated plainly; no bragging |
+| Transparent | Monthly reports, clear process steps |
+| Partnership | "Wspieramy inwestorów" — we support, not sell |
+
+### Key Slogans (verbatim, use or echo)
+
+- "Zbuduj majątek na pokolenia."
+- "Inwestycje lubią spokój i strategiczne podejście."
+- "Przewaga w inwestowaniu dzięki wiedzy i doświadczeniu."
+- "Wspieramy inwestorów w osiąganiu finansowych celów."
+- "Rozpocznijmy drogę do lepszych inwestycji."
+
+### Writing Rules
+
+- **Lead with purpose, not product** — explain why before what
+- **Explain the "why" behind each ask** — clients should understand what a question serves
+- **Short sentences** — one idea per sentence, no nested clauses
+- **No regulatory jargon to clients** — say "wymóg regulacyjny" not "MiFID II Art. 83g"
+- **Process clarity** — the Evo process is: Cel → Analiza → Inwestycja → Dostosowywanie; mirror this structure in client-facing flows
+
+### Client-Facing Copy Patterns
+
+**Screen / section titles:** Short noun phrase, declarative — "Cel inwestycji", "Sytuacja finansowa", "Zacznijmy od solidnych podstaw"
+
+**Lead paragraphs:** One or two sentences. State the purpose of the screen, then what the client gets from it. No preamble.
+> Dobre inwestycje zaczynają się od dobrego rozpoznania sytuacji. [Sentence about the outcome for the client.]
+
+**Explaining why something is asked or required:** One sentence in plain language — consequence, not regulation.
+> [Co sprawdzamy] — [dlaczego to ważne dla klienta, co z tego wynika]
+
+**Empty / loading states:** Active, reassuring — "Wczytujemy dane…", "Przygotowujemy propozycję"
+
+**CTA style:** Action verb + arrow — "Zacznij →", "Dalej →", "Rozpocznij teraz", "Nasza oferta"
+
+**Error / warning messages:** Calm, solution-oriented — explain what happened and what to do, no blame
+
+**Regulatory footnotes:** Paraphrase, don't quote law — "wymagane przepisami prawa", "wymóg regulacyjny" (not "MiFID II Art. 83g")
 
 ## Brand Colors
 

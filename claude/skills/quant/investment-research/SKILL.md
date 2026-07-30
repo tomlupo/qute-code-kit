@@ -1,6 +1,6 @@
 ---
 name: investment-research
-description: Guides investment research projects from question through data, analysis, and deliverable. Use when starting a new research topic (portfolio construction, risk analysis, factor studies, asset allocation, fund analysis), when structuring a research directory, or when the user mentions research, backtest, calibration, or study. Covers the full lifecycle from data sourcing through simulation to dashboard delivery.
+description: Guides quantitative investment research — both fresh studies and iterative methodology refinement on existing systems. Use when starting a new research topic, structuring a research directory, comparing methodology variants, re-testing hypotheses against updated baselines, deciding between competing approaches, promoting research findings to production, or working with backtest, calibration, and signal design. Covers the full lifecycle from data sourcing through analysis to deliverable, plus the iterative loop of explore → lock → re-test on already-deployed subsystems.
 ---
 
 # Investment Research Workflow
@@ -16,7 +16,43 @@ Structured workflow for quantitative investment research. Guides projects from q
 - Producing research deliverables (dashboards, reports, data files)
 - Reviewing or extending existing research
 
-## Research Lifecycle
+## Branch Lifecycle (Git mechanics)
+
+Research branches are **per-question, short-lived**. Work flow:
+
+```
+1. START      git checkout -b research/{model}-{question-slug} dev
+              mkdir research/{model}/experiments/{exp-id}/
+              update research/{model}/README.md (status: in-progress)
+
+2. ITERATE    add experiments + intermediate results (no merge yet)
+
+3. CONCLUDE   write research/{model}/findings/{question-slug}.md
+              update README.md status: concluded
+
+4. MERGE      PR research/{model}-{slug} → dev
+              findings + experiments + README land on dev; branch deleted
+
+5. PROMOTE    (optional, only if findings warrant prod change)
+              git checkout -b feat/{model}-{change} dev
+              modify /src/, /pipelines/, /config/
+              PR dev → main; /promote → tag prod-{model}-vX.Y.Z-YYYYMMDD
+```
+
+**One branch = one question.** New question = new branch. The `research/{model}/` directory on `dev` is the long-lived home; branches are ephemeral.
+
+**A research branch modifies only `experiments/{exp-id}/`** — not the shared `scripts/` library, not `/src/`, not `/pipelines/`. Shared-methodology changes go on a separate `feat/*` branch (the promotion path).
+
+**Status states** (declared in model `README.md` per question):
+- `in-progress` — branch open, work ongoing
+- `concluded` — findings.md written, branch ready to merge
+- `merged` — findings on `dev`, branch closed
+- `abandoned` — merged with findings.md = "tried, didn't work, here's why"
+- `superseded` — findings replaced by later research
+
+See `.claude/rules/research-workflow.md` and `.claude/rules/git-workflow.md` for the full conventions.
+
+## Methodology Lifecycle
 
 Investment research follows a different pattern than ML research. There's no train/test split — instead there's **expert input → data validation → simulation → calibration → delivery**.
 
@@ -33,33 +69,101 @@ Investment research follows a different pattern than ML research. There's no tra
                       data/processed/    scratch/              templates/        deliverable
 ```
 
+## Signal Research Lifecycle (8 stages)
+
+For **signal-driven** research (TAA, factor models, fund scoring, sector rotation), the Analysis phase decomposes into 8 stages with one artifact each:
+
+| # | Stage | Artifact |
+|---|---|---|
+| 1 | Signal generation | List of candidate raw signals + economic story per signal |
+| 2 | Per-signal anatomy | Per-signal dashboard (distribution + history + crisis traces) |
+| 3 | Per-signal IC | IC table per signal × horizon × era |
+| 4 | Distribution & normalization | Per-component normalization spec |
+| 5 | Ensemble construction | Variants v{N} in EXPERIMENTS.md, ONE change each |
+| 6 | Weight engine | Weight engine spec + corridor sensitivity per profile |
+| 7 | Portfolio backtest | Per-profile + per-regime + per-asset attribution table |
+| 8 | Lock & promote | STATUS update, EXPERIMENTS lock entry, spec §, feat/ branch |
+
+**MANDATORY for stage 7:** Use the `backtest` skill (vbt `run()`). Manual weighted-sum loops over monthly returns inflate IR by ~0.20 (empirically confirmed). See backtest skill Critical Rule #1.
+
+**Stage 4 is a trap.** Normalization choice (per-asset rolling z vs bucket-pooled vs globally-pooled vs percentile rank vs tanh) materially changes which structural information survives — the default "z-score everything per-asset" reflex erases cross-asset structural premia (e.g. EM persistently cheap). Read the reference before designing your normalization layer.
+
+**Stage 4 lookahead hazard.** Pooled normalization (bucket or global) MUST use walk-forward pool stats — at each eval_date T, μ/σ from data `≤ T` (rolling window or expanding). A full-panel pool is lookahead even when per-cat inputs are PIT. Observed cost: ~13% IR inflation on a real project. Rolling 10Y / 5Y-min matches the per-cat rolling_z convention and is ~20 lines. See reference §Stage 4 "Pool normalization MUST be walk-forward".
+
+**Iteration discipline:** ONE change per variant. Don't layer "new normalization + new clip + new weights" into one variant — you can't attribute the result.
+
+Full playbook (per-stage decisions, anti-patterns, dir mapping): see `references/signal-research-lifecycle.md`.
+
 ## Quick Start: Initialize a Research Topic
 
-When starting new research, create this structure:
+A model directory accretes findings + experiments across many questions. Create on first question's branch:
 
 ```
-research/{topic-name}/
-├── README.md                    # What, why, status, how to run
+research/{model}/
+├── README.md                    # Active + concluded questions index, status, prod state
+├── EXPERIMENTS.md               # Append-only chronological log
+├── findings/                    # Per-question findings (one .md per merged question)
+│   └── {question-slug}.md       #   Written on conclusion; lands on dev via merge
+├── experiments/                 # Per-experiment artifacts
+│   └── {exp-id}/                #   Owned by one research branch — don't cross-modify
+├── docs/                        # Methodology spec(s) with LOCKED frontmatter
 ├── data/
 │   ├── raw/                     # Untouched source files (Excel, CSV, API dumps)
 │   ├── intermediate/            # Cleaned/transformed (parquets, merged datasets)
 │   └── processed/               # Final analysis-ready datasets
+├── scripts/                     # Shared methodology library (modified only via feat/* branches)
 ├── templates/                   # HTML templates, JSON schemas, report templates
 ├── output/                      # Timestamped run directories
 │   └── {YYYYMMDD-HHMMSS}/      # Each run is immutable snapshot
 ├── archive/                     # Superseded scripts, old outputs
-├── build_*.py                   # Pipeline scripts (numbered by dependency order)
 └── scratch/                     # Temporary exploration (gitignored)
 ```
 
+**On a research branch**, you only ADD to `experiments/{exp-id}/` and write `findings/{question-slug}.md` on conclusion. The README status update is the other branch-side change.
+
+**On the first-ever question for a model**, the merge to `dev` also creates the `README.md`, `EXPERIMENTS.md`, and any of the directories above that the question populates.
+
+### Mature-stage evolution: 4-track structure
+
+Once a topic accumulates ~10+ build_*.py files **and** the work splits into distinct activities (per-signal EDA + variant experiments + portfolio backtests + methodology comparisons), promote the flat structure to four tracks:
+
+```
+research/{topic-name}/
+├── validation/    ← per-signal EDA  (eq_*, fi_*, dcf, build_dashboard.py)
+├── scoring/       ← composite/variant experiments  (backtest, ic_analysis, com_value_*)
+├── backtesting/   ← portfolio P&L (drift-aware vbt)
+├── comparison/    ← methodology diffs  (v3 vs v4 indicator dashboard)
+├── docs/  config/  data/  scripts/
+├── STATUS.md  EXPERIMENTS.md  README.md  CLAUDE.md
+```
+
+**Don't preemptively split.** Start flat. Split when the flat structure hurts — i.e., when one directory (commonly `validation/` or `analyses/`) starts hosting work that doesn't match its name. The 8-stage lifecycle above maps cleanly: stages 2 → validation/, 3-5 → scoring/, 7 → backtesting/, methodology-diff dashboards → comparison/.
+
 ### README Template
 
-Every research topic gets a README answering:
+Every model README is a living index of questions + production state:
 
 ```markdown
-# {Topic Name}
+# {Model Name}
 
-{One paragraph: what question this research answers and what it produces.}
+{One paragraph: what this model is + what it produces in production.}
+
+## Active questions
+
+| Question | Branch | Status | Findings |
+|---|---|---|---|
+| Does decay improve regime detection? | `research/{model}-momentum-decay` | in-progress | (pending) |
+
+## Concluded questions
+
+| Question | Findings | Promoted? |
+|---|---|---|
+| Should ERP use DCF vs Damodaran T12m? | findings/erp-dcf-vs-damodaran.md | yes — `prod-{model}-v4.0.0-20260408` |
+
+## Production state
+
+Latest tag: `git tag --list 'prod-{model}-*' | sort -V | tail -1`.
+Methodology spec: `docs/signal-definitions-v{N}.md` (latest LOCKED version per the file's frontmatter `version` field).
 
 ## Pipeline
 
@@ -71,13 +175,9 @@ Run in order:
 ## Key Decisions
 - {Decision 1}: {rationale}
 - {Decision 2}: {rationale}
-
-## Status
-- [x] Data sourced and validated
-- [x] Simulation complete
-- [ ] Calibration review with expert
-- [ ] Dashboard delivered
 ```
+
+The README is the model's living index. Adding a question = new row in Active. Concluding = move to Concluded with findings link. Promoting = note prod tag.
 
 ## Phase 1: Question
 
@@ -158,16 +258,21 @@ For portfolio/allocation research, the standard approach is:
 2. **Compute risk metrics for every combination**
 3. **Select from the feasible set** based on criteria + expert input
 
+**For portfolio backtests, MANDATORY:** use the `backtest` skill. Do NOT roll your own monthly weighted-sum loop — manual loops skip intra-period weight drift and produce optimistically biased Sharpe/IR (empirically observed: +0.20 avg IR inflation on a 10-year monthly-rebalanced study, see backtest skill Critical Rule #1).
+
 ```python
-# Typical simulation structure
+# Cross-sectional metric sweep (no time-series rebalance — fine for static metrics)
 results = []
 for weights in weight_combinations:
     portfolio_returns = (returns * weights).sum(axis=1)
     metrics = compute_risk_metrics(portfolio_returns)
     results.append({**weights, **metrics})
 
-results_df = pd.DataFrame(results)
-results_df.to_parquet("data/processed/simulation_results.parquet")
+# Time-series portfolio backtest (use backtest skill, NOT the loop above):
+from src.vectorbt_tools.backtesting import run as vbt_run
+pf = vbt_run(prices, {"Strategy": w_df, "Benchmark": w_bench_df},
+             rebalancing_freq="1M", fees=0.001)
+# pf.stats(), pf.drawdowns.records_readable, etc. — see backtest skill
 ```
 
 ### Standard Risk Metrics
@@ -318,13 +423,15 @@ Research generates throwaway scripts. Archive aggressively:
 
 ## Reference Implementation
 
-`research/risk-profile-calibration/` is the canonical example of this workflow applied to SAA calibration across 5 risk profiles.
+`research/strategic-asset-allocation/` is the canonical example of this workflow applied to SAA calibration across 5 risk profiles.
 
 ## Complementary Skills
 
 | Skill | Use For |
 |-------|---------|
 | `market-datasets` | Sourcing price/return data |
+| `backtest` | **MANDATORY for any portfolio-level backtest** — vbt-based weight-driven simulation with drift, fees, multi-strategy comparison. Manual weighted-sum loops produce optimistically biased Sharpe/IR (~0.20 inflation observed). |
 | `investment-research-dashboard` | Building interactive HTML deliverables |
 | `investment-research-formal` | Formalizing findings for compliance/audit |
 | `analizy-pl-data` | Polish fund data from analizy.pl |
+| `evo-dm-brand` | Applying brand identity to dashboards |

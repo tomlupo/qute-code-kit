@@ -59,7 +59,7 @@ https://dokumenty.analizy.pl/pobierz/fi/{FUND_CODE}/SP/{DATE}
 
 ### Codes Returning 404
 
-Some codes that appear in fund_master.csv don't work for bulk downloads:
+Some codes that appear in instrument_master.csv don't work for bulk downloads:
 - `IPO02` → Use `IPO154` instead
 - `KAH01` → Use `KAH02` instead
 - `UNI01` → Use `UNI02` instead
