@@ -1,72 +1,49 @@
 # qute-code-kit
 
-This repo serves two roles in one tree:
+Tom's **personal skills & templates library** — reusable Claude Code components
+under `claude/` (skills, agents, MCP configs, settings, root-file starters) and
+doc/pyproject templates under `templates/`. Browse and copy what you need into
+target repos; several skills are symlinked into `~/.claude/skills/` and are
+live on edit.
 
-1. **Personal kit** — reusable Claude Code components under `claude/`
-   (skills, agents, MCP configs, settings, root-file templates). Browse and
-   copy what you need into target repos.
-2. **Distributable plugin** — `plugins/qute-essentials/` is the
-   Claude Code plugin published via `.claude-plugin/marketplace.json` and
-   installed with `claude plugin install qute-essentials@qute-marketplace`.
-
-There is no bundle, scaffold, or setup-script flow. The plugin half ships
-itself via the marketplace; the kit half is plain files you copy by hand.
-
-## Regime (ADR-0001..0003, `docs/adr/`)
-
-Matt Pocock's skills are the planning spine (assumed installed, never required);
-qute-essentials is the runtime + research regime. Do not add qute skills that
-duplicate Matt's generic planning roles (grilling, specs, tickets, implementation
-orchestration) — qute skills must be runtime (safety/release/continuity), research
-regime, or domain-specific. ADRs go to `docs/adr/`. The GitHub PR/bot transport
-skill `qute-coder` lives in the jimek repo (ADR-0006 supersedes ADR-0005) — jimek
-installs its `skills/*` globally on boot; don't re-add it here. `qute-reviewer`
-was folded into `/qute-review` (essentials); `jimek-onboard` never shipped — its
-job (detect jimek + scaffold `conductor.yml`) is Step 4 of `/setup-qute-repo`.
+**The `qute-essentials` plugin is NOT here anymore.** It moved to
+`tomlupo/qute-platform` (`agent-kit/plugins/qute-essentials/`, agent-kit
+marketplace) on 2026-07-29, together with the marketplace manifest, the release
+tooling (`release-plugin.sh` / `build-marketplace.py`), and the ADRs
+(`docs/adr/` here is a pointer). This repo has no release cadence — do not add
+plugin manifests, marketplace files, or `/ship` release wiring here. Changes to
+guards, hooks, review/release regime, or plugin skills belong in qute-platform.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `claude/skills/` | Personal-kit skills (`<name>/SKILL.md` + assets) |
+| `claude/skills/` | Personal-kit skills, grouped: `quant/`, `engineering/`, `research/`, `visual/`, `brand/` (`<name>/SKILL.md` + assets) |
 | `claude/agents/` | Personal-kit subagents |
 | `claude/mcp/` | MCP server configs |
 | `claude/settings/` | Claude Code project settings profiles |
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |
-| `plugins/qute-essentials/` | Distributable plugin (its own README + SKILL.md files) |
-| `.claude-plugin/marketplace.json` | Marketplace manifest (regenerated from plugin manifest) |
-| `templates/docs/`, `templates/pyproject/` | Doc / pyproject templates (used by `/ship`'s first-time-setup) |
+| `templates/docs/`, `templates/pyproject/`, `templates/settings/`, `templates/research/` | Doc / pyproject / settings starters + the research pin gate |
 | `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/` | Workflows, references, reusable prompts |
-| `docs/adr/`, `docs/architecture/` | Decision records, architecture/migration notes |
-| `scripts/build-marketplace.py`, `scripts/release-plugin.sh` | Release tooling |
-| `.githooks/pre-commit` | Plugin-version drift detector (enable: `git config core.hooksPath .githooks`) |
+| `docs/adr/` | Pointer to the plugin's ADRs in qute-platform (history in git) |
+| `tests/` | Unit tests for `templates/research/check_research_pins.py` |
 
 ## Conventions
 
-- Conventional Commits with scope (e.g. `feat(skill): ...`, `fix(plugin): ...`).
-- One canonical manifest per plugin — `plugins/<name>/.claude-plugin/plugin.json`. The pre-commit hook + `release-plugin.sh` enforce drift-free version updates.
-- `marketplace.json` is generated, not hand-edited. Edit the plugin manifest; run `python3 scripts/build-marketplace.py`.
+- Conventional Commits with scope (e.g. `feat(skill): ...`, `docs(playbook): ...`).
 - Skills are directories containing `SKILL.md`. Agents can be single `.md` files or directories with `AGENT.md`.
 - No hardcoded secrets — use `${ENV_VAR}` placeholders in MCP configs.
-
-## Releasing the plugin
-
-```bash
-scripts/release-plugin.sh qute-essentials <patch|minor|major|X.Y.Z>
-git push --follow-tags
-```
-
-This bumps `plugins/qute-essentials/.claude-plugin/plugin.json`, regenerates `marketplace.json`, writes a CHANGELOG entry from Conventional Commits since the last tag, commits, and tags. Or use the plugin's own `/ship` skill — it dispatches to this script automatically when the repo root has `.claude-plugin/marketplace.json`.
+- This is a curated tree, not a generated one — no build step, no manifests.
 
 ## Adding a kit component
 
-This is a curated tree, not a generated one. To add a skill / agent / MCP config:
-
 1. Create the file(s) under the appropriate `claude/<type>/` directory.
-2. Add a row to the relevant table in `README.md`.
+2. Add a row to the relevant table in `INVENTORY.md`.
 3. Commit with Conventional Commits (`feat(skill-name): ...`).
 
-Promotion path: when a personal-kit component proves universally useful, move it into `plugins/qute-essentials/skills/` and bump the plugin via `scripts/release-plugin.sh`.
+Promotion path: when a personal-kit component proves universally useful, move
+it into the `qute-essentials` plugin **in qute-platform**
+(`agent-kit/plugins/qute-essentials/skills/`) and release it there — not here.
 
 ## Skill frontmatter properties
 

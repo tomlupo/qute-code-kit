@@ -27,12 +27,12 @@ attached to the code. An issue becomes work only when a Linear task references i
 Specs, PRDs and ticket breakdowns live **in Linear**, not in the repo tree. Nothing
 under `docs/specs/` is committed.
 
-Treat that as the rule, not as something a tool will catch for you. `/ship` does
-carry a forbidden-paths check covering `docs/specs/`, and it now runs before mode
-dispatch so plugin-mode repos (this one included) get it too — but it is a
-backstop that fires at release time, long after the artefact was written and
-reviewed. The tree stays clean because the artefacts are never written into it,
-which is why the rule is stated here rather than left to enforcement.
+Treat that as the rule, not as something a tool will catch for you. `/ship`
+carries a forbidden-paths check covering `docs/specs/` — but this repo cuts no
+releases anymore (the plugin and its release flow moved to qute-platform
+2026-07-29), so nothing here fires it. The tree stays clean because the
+artefacts are never written into it, which is why the rule is stated here
+rather than left to enforcement.
 
 ## Ideas
 

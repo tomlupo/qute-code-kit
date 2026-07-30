@@ -1,8 +1,11 @@
 # qute-code-kit
 
-Reusable Claude Code components and the `qute-essentials` plugin — the runtime
-regime (safety, release, continuity) that other repos adopt. Terms here describe
-that regime, not any single repo that installs it.
+Tom's personal skills & templates library. The `qute-essentials` plugin — the
+runtime regime (safety, release, continuity) that other repos adopt — moved to
+`tomlupo/qute-platform` (`agent-kit/plugins/qute-essentials/`) on 2026-07-29;
+the glossary below describes that regime and is kept here as reference until it
+moves with a future plugin doc pass. Terms describe the regime, not any single
+repo that installs it.
 
 ## Language
 

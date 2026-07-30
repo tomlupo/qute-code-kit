@@ -1,84 +1,65 @@
 # qute-code-kit
 
-Home for **qute-essentials** — a Claude Code plugin providing the agent **runtime layer** (security guards, observability, task-store ops, review, release tooling) plus **research-regime skills** for quant/lab repos — and a curated personal library of skills, agents, MCP configs, and settings that you can copy into target repos.
+Tom's **personal skills & templates library** for Claude Code — a curated tree
+of skills, agents, MCP configs, settings profiles, doc templates, and playbooks
+that you browse and **copy by hand** into target repos. Nothing here installs,
+releases, or self-updates.
 
-qute is **Matt-compatible by design**: [Matt Pocock's skills](https://github.com/mattpocock/skills) own the planning spine (grill → spec → tickets → implement → TDD → code review) and the repo-binding conventions (`docs/agents/*.md`, `docs/adr/`, `CONTEXT.md`); qute keeps that work safe, tracked, reviewed, and shippable — and works standalone when Matt isn't installed. See [ADR-0001](docs/adr/0001-matt-planning-spine-qute-runtime.md).
+> **The `qute-essentials` plugin moved out.** As of **2026-07-29** the plugin
+> (guards, hooks, `/ship`, `/qute-review`, the research-regime skills) lives in
+> [`tomlupo/qute-platform`](https://github.com/tomlupo/qute-platform) under
+> `agent-kit/plugins/qute-essentials/`, published via the agent-kit
+> marketplace. Its ADRs moved with it (see [`docs/adr/`](docs/adr/)). This repo
+> has **no plugin, no marketplace manifest, and no release cadence** anymore —
+> install and update the plugin from qute-platform, not from here.
 
-## The plugin: `qute-essentials`
+## The kit: `claude/`
 
-Essential hooks, guards, and skills for Claude Code. Seven toggleable security guards (block destructive commands, refuse direct commits/pushes on protected + integration branches, scan writes for secrets, screen tool output for prompt injection via Lakera, trace every tool call to Langfuse, auto-run pip-audit after dependency installs, tag automated shared-record writes with an identity marker), a notification layer (ntfy push for blocks/detections), and universal skills covering the release-and-handoff lifecycle plus the standard research regime.
+33 skills across five categories (quant/research, engineering, multi-agent
+research workflows, visual/UX, brand) plus the `workflow` bundle, 2 agents,
+7 MCP server configs, 3 settings profiles, 2 root-file starters. Browse
+[`INVENTORY.md`](INVENTORY.md) for the full map.
 
-```bash
-claude plugin marketplace add tomlupo/qute-code-kit
-claude plugin install qute-essentials@qute-marketplace
-```
-
-### What you get
-
-| | Components |
-|---|---|
-| **Hooks** | ruff-formatter, skill-use-logger, ntfy notifications, auto-audit, langfuse-trace |
-| **Security guards** (toggleable via `/guard`) | destructive (blocks `rm -rf /`, `git reset --hard`, etc.), git-workflow (agent-side speed bump against direct commit/push on a repo's protected + integration branches — covers ordinary invocation forms, not deliberate evasion; `pre-push` is the enforcement layer; opt in per repo with `.claude/git-guard.json`), secrets (blocks writes containing API keys / private keys / tracked `.env`), audit (pip-audit on dependency changes), lakera (prompt-injection screening on untrusted tool output), langfuse (every-tool-call observability), provenance (auto-injects the `[agent:]`/`[session:]` identity tag on automated Linear-MCP / `gh pr` writes) |
-| **Release & lifecycle** | `/ship` (Plugin-mode + Python-mode auto-detect; commitizen + CHANGELOG + tag), `/handoff`, `/pickup`, `/task`, `/board` (Linear write-identity conventions), `/repo-status` (git dashboard + Open tasks glance) |
-| **Workflow** | `/audit`, `/test`, `/decision` (ADRs → `docs/adr/`), `/readme`, `/worktrees`, `/gbu`, `/wtf`, `/qute-review`, `/guard`, `generating-commit-messages` |
-| **Research regime** ([ADR-0002](docs/adr/0002-standard-research-regime.md)) | `/research-line` (open/register a line), `/finding` (verdict-forced results + atomic index update), `/research-status` (drift detector + index regenerator), `/promote` (finding → ADR + prod PR / wiki / plugin) |
-| **Regime setup** | `/setup-qute-repo` (guided onboarding wizard: repo type → tracker → conductor.yml → worktrees → shipping → research regime; supersedes adopt-matt-workflow), `/check-agent-regime` (audit for competing regimes / duplicate task stores) |
-| **Branch protection stand-in** | `pre-push` branch guard — a real git hook (not a Claude hook), so it fires for humans, scripts and agents alike and reads the refs git is about to send instead of parsing a command line. Opt-in per repo via `.claude/git-guard.json`; installed *and verified reachable* by `scripts/install_pre_push_guard.py`, always at git's own resolved hook path — never the pre-commit framework's `pre-push` stage (which cannot see deletions or the tail of a multi-ref push), and never into a hook path that resolves outside the repo without an explicit flag. `git push --no-verify` overrides it deliberately |
-| **PR flow** ([ADR-0005](docs/adr/0005-qute-jimek-boundary-governance-modes.md) / [ADR-0006](docs/adr/0006-essentials-platform-contract-realignment.md)) | optional tier-aware `review-gate.yml` CI template; independent review is `/qute-review` (in essentials, it absorbed the retired `qute-reviewer`); the bot transport skill `/qute-coder` ships from the jimek repo (installed globally on jimek boot); onboarding a repo *to* jimek (`conductor.yml`) is Step 4 of `/setup-qute-repo`, not a separate skill |
-| **CI templates** (`plugins/qute-essentials/templates/`, stamped by `/setup-qute-repo`) | `review-gate.yml` (independent review + sensitive-path audit), `release-tag-guard.yml` (a `v*` tag must be an **ancestor of the release branch**, and the declared versions must equal the tag), `lockfile-check.yml` (`uv lock --check` — a stale `uv.lock` fails CI). All three stay silent in repos they don't apply to (no `v*` tag pushed, no `uv.lock`) — but where they apply they are fail-closed: a check they cannot perform fails rather than passes |
-
-Full plugin reference (including the guard architecture diagram and per-hook event table): [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md).
-
-### Why it exists
-
-- **Default-safe agent operation.** Four PreToolUse guards refuse destructive commands, refuse direct commits/pushes to protected branches, block secret writes, and tag automated shared-record writes with an identity marker before they run. Three PostToolUse guards screen dependency vulnerabilities, prompt injection, and trace every tool call.
-- **Single-command releases.** `/ship` detects whether the repo is a plugin marketplace or a Python project and dispatches accordingly. First-run setup is idempotent — no separate `/ship-setup` step.
-- **Cross-platform.** Hooks tested on Linux/macOS/Windows (Git Bash). No `jq`, `md5sum`, or `curl` dependencies in shell scripts (stdlib python everywhere).
-- **Observable.** Every tool call traces to Langfuse with session/project/host tags; long-running commands and waiting prompts push to ntfy.
-
-API keys for the optional integrations (`LAKERA_GUARD_API_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`) go in your `~/.claude/settings.json` env block; the plugin works without them (those two guards just disable themselves).
-
-## The personal kit: `claude/`
-
-23 skills (quant research, engineering quality, visual/UX, workflow), 2 agents, 7 MCP server configs, 3 settings profiles. Browse [`INVENTORY.md`](INVENTORY.md) for the full map.
-
-Pick what you need; copy by hand:
+Pick what you need; copy (or symlink) by hand:
 
 ```bash
 # Skill — copy directory
-cp -r ~/projects/qute-code-kit/claude/skills/paper-reading ~/projects/myrepo/.claude/skills/
+cp -r ~/workspace/projects/qute-code-kit/claude/skills/quant/paper-reading ~/projects/myrepo/.claude/skills/
+
+# Skill — or symlink into your global skills (edits here are instantly live)
+ln -s ~/workspace/projects/qute-code-kit/claude/skills/visual/ui-ux-pro-max ~/.claude/skills/
 
 # Agent — single file
-cp ~/projects/qute-code-kit/claude/agents/research-synthesizer.md ~/projects/myrepo/.claude/agents/
+cp ~/workspace/projects/qute-code-kit/claude/agents/research-synthesizer.md ~/projects/myrepo/.claude/agents/
 
 # MCP config
 mkdir -p ~/projects/myrepo/.mcp/firecrawl
-cp ~/projects/qute-code-kit/claude/mcp/firecrawl.json ~/projects/myrepo/.mcp/firecrawl/.mcp.json
+cp ~/workspace/projects/qute-code-kit/claude/mcp/firecrawl.json ~/projects/myrepo/.mcp/firecrawl/.mcp.json
 
 # Settings profile
-cp ~/projects/qute-code-kit/claude/settings/project-quant.json ~/projects/myrepo/.claude/settings.json
+cp ~/workspace/projects/qute-code-kit/claude/settings/project-quant.json ~/projects/myrepo/.claude/settings.json
 ```
 
-For new repos that need release tooling, install the plugin and use `/ship` (it bootstraps commitizen + CHANGELOG + GitHub Actions workflow on first run).
+Several skills here are wired into `~/.claude/skills/` by symlink today
+(`research-*`, `architecture-diagram`, `ui-ux-pro-max`) — edits in this repo
+are live immediately for those.
+
+## Templates: `templates/`
+
+Doc starters (ADR, PRD, tech spec, user flows, research-workflow and
+issue-tracker bindings), `pyproject.toml` starters (quant / webdev, uv + ruff +
+pyright + pytest), a `WORKFLOW.md` orchestrator contract, settings profiles,
+and the canonical research gate `templates/research/check_research_pins.py`
+(unit-tested in `tests/`).
 
 ## Browse
 
 - [`INVENTORY.md`](INVENTORY.md) — full kit contents (skills / agents / MCP / settings / templates)
-- [`plugins/qute-essentials/README.md`](plugins/qute-essentials/README.md) — plugin reference (guards, hooks, skills)
 - [`docs/playbooks/`](docs/playbooks/) — multi-step workflows (compound engineering, multi-agent review, investment research, session continuity, …)
 - [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
 - [`docs/playbooks/skill-router.md`](docs/playbooks/skill-router.md) — which skill, when (the discipline one-pager)
-- [`docs/adr/`](docs/adr/) — architecture decision records (Matt spine, research regime, tracking tiers)
+- [`docs/adr/`](docs/adr/) — pointer to the plugin's ADRs in qute-platform (history stays in git)
 - [`docs/resources.md`](docs/resources.md) — curated external links (interesting repos, tools, reading)
 
-## Releasing the plugin
-
-```bash
-scripts/release-plugin.sh qute-essentials <patch|minor|major|X.Y.Z>
-git push --follow-tags
-```
-
-Or use the plugin's own `/ship` skill — it dispatches to this script when run from the marketplace repo.
-
-See [`CLAUDE.md`](CLAUDE.md) for repo conventions and the canonical-manifest model.
+See [`CLAUDE.md`](CLAUDE.md) for repo conventions.
