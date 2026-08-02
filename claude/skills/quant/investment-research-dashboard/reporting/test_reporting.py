@@ -353,6 +353,23 @@ def test_offline_check_catches_all_ref_forms():
     assert not _has_external_refs('<script>var u="https://api.example/x";</script>')
 
 
+def test_profile_section_anchors_unique():
+    idx = pd.date_range("2020-01-01", periods=10, freq="B")
+    r = pd.Series([0.001] * 10, index=idx)
+    s = lambda: backtest_dashboard.series_from_returns(r, color="#000")  # noqa: E731
+    # two titles that slug to the same value must get distinct section anchors
+    payload = {
+        "title": "t",
+        "profiles": {
+            "A B": {"series": {"x": s()}, "metrics": {}},
+            "A_B": {"series": {"y": s()}, "metrics": {}},
+        },
+    }
+    html = backtest_dashboard.render(payload)
+    anchors = re.findall(r'<div class="section" id="([^"]+)"', html)
+    assert len(anchors) == len(set(anchors))  # no colliding nav targets
+
+
 def test_research_story_offline():
     sec = [
         base.section(

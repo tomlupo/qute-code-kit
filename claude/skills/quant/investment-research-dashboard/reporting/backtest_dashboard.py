@@ -260,7 +260,11 @@ def render(payload: dict) -> str:
 <div class="card"><h3>Summary metrics</h3>{metrics_table}</div>
 {weight_card}
 """
-        sections.append(base.section(f"{pid} — {name}", evidence_html=evidence))
+        # pin the section id to the de-duped DOM id so nav anchors stay unique
+        # even when two profile titles slug to the same value.
+        sections.append(
+            base.section(f"{pid} — {name}", id=f"profile-{did}", evidence_html=evidence)
+        )
 
     # report-specific extra sections (e.g. a shadow-turnover reference) rendered
     # after the per-profile sections; each is a base.section(...) dict.
