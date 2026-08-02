@@ -281,31 +281,59 @@ def plot(
         "margin": {"l": 52, "r": 18, "t": 28, "b": 38},
     }
     merged = {**base_layout, **layout}
+    # div_id reaches an HTML attribute AND a JS string -> slug it so both agree
+    # and neither can inject markup; dumps() keeps the JS string safe too.
+    did = _slug(str(div_id))
     return (
-        f'<div class="scroll-x"><div id="{div_id}" style="height:{height}px;min-width:320px"></div></div>'
-        f"<script>Plotly.newPlot({dumps(div_id)},{dumps(traces)},{dumps(merged)},"
+        f'<div class="scroll-x"><div id="{did}" style="height:{int(height)}px;min-width:320px"></div></div>'
+        f"<script>Plotly.newPlot({dumps(did)},{dumps(traces)},{dumps(merged)},"
         f"{{responsive:true,displayModeBar:false}});</script>"
     )
 
 
 def kpi_row(items: list[dict]) -> str:
-    """A KPI strip. Each item = ``{"v": value, "l": label, "c": ""|good|bad|warn}``."""
+    """A KPI strip. Each item = ``{"v": value, "l": label, "c": ""|good|bad|warn}``.
+
+    ``v``/``l`` are plain text (escaped); ``c`` is a tone class (allowlisted).
+    """
     cells = "".join(
-        f'<div class="kpi {it.get("c", "")}"><div class="v">{it["v"]}</div><div class="l">{it["l"]}</div></div>'
+        f'<div class="kpi {_kind(it.get("c"))}"><div class="v">{_esc(it["v"])}</div>'
+        f'<div class="l">{_esc(it["l"])}</div></div>'
         for it in items
     )
     return f'<div class="kpi-row">{cells}</div>'
 
 
 def banner(title: str, body: str, *, kind: str = "") -> str:
-    """A call-out banner (``kind`` = ""|good|warn)."""
-    k = f" {kind}" if kind else ""
-    head = f"<h4>{title}</h4>" if title else ""
+    """A call-out banner. ``title`` is plain text (escaped); ``body`` is trusted
+    HTML; ``kind`` is a tone class (``""|good|bad|warn``, allowlisted)."""
+    k = _kind(kind)
+    k = f" {k}" if k else ""
+    head = f"<h4>{_esc(title)}</h4>" if title else ""
     return f'<div class="banner{k}">{head}{body}</div>'
 
 
 def _esc(s: str) -> str:
-    return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # escape the five characters that matter in text + double-quoted attributes,
+    # so _esc is safe for both element text and attribute values.
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+# allowlist of tone classes accepted on cards/KPIs/banners; anything else -> "".
+_KINDS = {"", "good", "bad", "warn"}
+
+
+def _kind(c) -> str:
+    """Clamp a caller-supplied CSS tone class to the known-safe allowlist."""
+    c = str(c or "").strip()
+    return c if c in _KINDS else ""
 
 
 # ---------------------------------------------------------------------------

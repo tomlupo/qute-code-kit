@@ -15,17 +15,27 @@ from . import base
 
 
 def why(lead: str, body: str, *, kind: str = "") -> str:
-    """A reasoning block — the WHY. ``kind`` = ""|good|warn."""
-    k = f" {kind}" if kind else ""
-    lead_html = f'<span class="lead">{lead}</span>' if lead else ""
+    """A reasoning block — the WHY.
+
+    ``lead`` is plain text (escaped); ``body`` is the trusted HTML fragment;
+    ``kind`` is a tone class (``""|good|bad|warn``, allowlisted).
+    """
+    k = base._kind(kind)
+    k = f" {k}" if k else ""
+    lead_html = f'<span class="lead">{base._esc(lead)}</span>' if lead else ""
     return f'<div class="why{k}">{lead_html}{body}</div>'
 
 
 def card(title: str, inner_html: str, *, note: str | None = None) -> str:
-    """An evidence card. ``note`` renders a small caption under the content."""
+    """An evidence card.
+
+    ``title``/``note`` are plain text (escaped); ``inner_html`` is trusted HTML.
+    """
     head = f"<h3>{base._esc(title)}</h3>" if title else ""
     cap = (
-        f'<div class="section-desc" style="margin:6px 0 0">{note}</div>' if note else ""
+        f'<div class="section-desc" style="margin:6px 0 0">{base._esc(note)}</div>'
+        if note
+        else ""
     )
     return f'<div class="card">{head}{inner_html}{cap}</div>'
 

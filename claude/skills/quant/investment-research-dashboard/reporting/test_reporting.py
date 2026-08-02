@@ -200,6 +200,43 @@ def test_subsample_preserves_drawdown_trough():
     assert trough in sub.index
 
 
+def test_plot_div_id_sanitized():
+    frag = base.plot([{"x": [1], "y": [1]}], {}, 'p" onload="x')
+    assert 'onload="x"' not in frag
+    slug = base._slug('p" onload="x')
+    assert f'id="{slug}"' in frag
+
+
+def test_kpi_row_escapes_and_allowlists():
+    html = base.kpi_row([{"v": "<b>1</b>", "l": "<i>x</i>", "c": "evil zzz"}])
+    assert "<b>1</b>" not in html and "<i>x</i>" not in html
+    assert 'class="kpi "' in html  # bad tone class clamped to ""
+
+
+def test_kpi_row_keeps_valid_tone():
+    assert 'class="kpi good"' in base.kpi_row([{"v": "1", "l": "x", "c": "good"}])
+
+
+def test_banner_escapes_title_and_allowlists_kind():
+    html = base.banner("<b>t</b>", "<em>body ok</em>", kind="evil")
+    assert "<b>t</b>" not in html
+    assert "<em>body ok</em>" in html  # body is trusted HTML
+    assert 'class="banner"' in html  # kind clamped
+
+
+def test_why_escapes_lead_allowlists_kind():
+    html = research_story.why("<b>lead</b>", "<em>body</em>", kind="nope")
+    assert "<b>lead</b>" not in html
+    assert "<em>body</em>" in html
+    assert 'class="why"' in html
+
+
+def test_card_escapes_title_and_note_keeps_inner():
+    html = research_story.card("<b>t</b>", "<em>inner</em>", note="<i>n</i>")
+    assert "<b>t</b>" not in html and "<i>n</i>" not in html
+    assert "<em>inner</em>" in html
+
+
 def test_research_story_offline():
     sec = [
         base.section(
