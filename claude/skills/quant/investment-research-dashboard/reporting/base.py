@@ -65,8 +65,18 @@ def _clean(o):
 
 
 def dumps(o) -> str:
-    """Compact JSON with NaN/Inf scrubbed to null."""
-    return json.dumps(_clean(o), separators=(",", ":"))
+    """Compact JSON with NaN/Inf scrubbed to null.
+
+    Safe to embed inside a ``<script>`` block: ``</`` (and the U+2028/U+2029
+    line separators) are escaped so payload data containing ``</script>`` cannot
+    terminate the script element or inject markup.
+    """
+    s = json.dumps(_clean(o), separators=(",", ":"))
+    return (
+        s.replace("</", "<\\/")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -204,13 +214,20 @@ def section(
 
 
 def _section_html(sec: dict) -> str:
-    step = f'<span class="step">{sec["step"]}</span>' if sec.get("step") else ""
+    # title/step are plain text -> HTML-escape; id is an attribute -> slug it.
+    # Only reasoning_html/evidence_html are trusted raw HTML (caller-built).
+    step = (
+        f'<span class="step">{_esc(str(sec["step"]))}</span>' if sec.get("step") else ""
+    )
     reasoning = sec.get("reasoning_html", "") or ""
     evidence = sec.get("evidence_html", "") or ""
-    return f'<div class="section" id="{sec["id"]}">{step}<h2>{sec["title"]}</h2>{reasoning}{evidence}</div>'
+    sec_id = _slug(str(sec["id"]))
+    return f'<div class="section" id="{sec_id}">{step}<h2>{_esc(str(sec["title"]))}</h2>{reasoning}{evidence}</div>'
 
 
-def table(df: pd.DataFrame, *, scroll: bool = True, fmt: dict | None = None, cls: str = "t") -> str:
+def table(
+    df: pd.DataFrame, *, scroll: bool = True, fmt: dict | None = None, cls: str = "t"
+) -> str:
     """Render a DataFrame as an HTML table, wrapped in ``.scroll-x`` by default.
 
     ``fmt`` maps column name -> a callable ``value -> str`` for cell formatting.
@@ -226,7 +243,11 @@ def table(df: pd.DataFrame, *, scroll: bool = True, fmt: dict | None = None, cls
             if c in fmt:
                 cells.append(f"<td>{fmt[c](v)}</td>")
             else:
-                disp = "" if (v is None or (isinstance(v, float) and pd.isna(v))) else _esc(str(v))
+                disp = (
+                    ""
+                    if (v is None or (isinstance(v, float) and pd.isna(v)))
+                    else _esc(str(v))
+                )
                 cells.append(f"<td>{disp}</td>")
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
     html = f'<table class="{cls}"><thead><tr>{head}</tr></thead><tbody>{"".join(body_rows)}</tbody></table>'
@@ -235,7 +256,9 @@ def table(df: pd.DataFrame, *, scroll: bool = True, fmt: dict | None = None, cls
     return html
 
 
-def plot(fig_or_traces, layout: dict | None = None, div_id: str = "plot", height: int = 340) -> str:
+def plot(
+    fig_or_traces, layout: dict | None = None, div_id: str = "plot", height: int = 340
+) -> str:
     """A Plotly div + its ``Plotly.newPlot`` call, using the INLINED bundle (no CDN).
 
     ``fig_or_traces`` may be a list of trace dicts or a full figure dict
@@ -249,7 +272,10 @@ def plot(fig_or_traces, layout: dict | None = None, div_id: str = "plot", height
         traces = fig_or_traces
         layout = layout or {}
     base_layout = {
-        "font": {"family": "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif", "size": 12},
+        "font": {
+            "family": "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif",
+            "size": 12,
+        },
         "paper_bgcolor": "rgba(0,0,0,0)",
         "plot_bgcolor": "rgba(0,0,0,0)",
         "margin": {"l": 52, "r": 18, "t": 28, "b": 38},
@@ -320,10 +346,15 @@ def page(
         )
         import urllib.parse
 
-        favicon_link = f'<link rel="icon" href="data:image/svg+xml,{urllib.parse.quote(svg)}">'
+        favicon_link = (
+            f'<link rel="icon" href="data:image/svg+xml,{urllib.parse.quote(svg)}">'
+        )
 
     nav_items = [s for s in sections if isinstance(s, dict)]
-    nav_html = "".join(f'<a href="#{s["id"]}">{_esc(s.get("nav_label") or s["title"])}</a>' for s in nav_items)
+    nav_html = "".join(
+        f'<a href="#{_slug(str(s["id"]))}">{_esc(s.get("nav_label") or s["title"])}</a>'
+        for s in nav_items
+    )
 
     if header_html is None:
         eb = f'<div class="eyebrow">{eyebrow}</div>' if eyebrow else ""
@@ -331,12 +362,16 @@ def page(
         th = f'<p class="thesis">"{thesis}"</p>' if thesis else ""
         badge_html = ""
         if badges:
-            badge_html = '<div class="badges">' + "".join(f'<span class="badge">{b}</span>' for b in badges) + "</div>"
-        header_html = (
-            f'<div class="header"><div class="wrap">{eb}<h1>{_esc(title)}</h1>{th}{sub}{badge_html}</div></div>'
-        )
+            badge_html = (
+                '<div class="badges">'
+                + "".join(f'<span class="badge">{b}</span>' for b in badges)
+                + "</div>"
+            )
+        header_html = f'<div class="header"><div class="wrap">{eb}<h1>{_esc(title)}</h1>{th}{sub}{badge_html}</div></div>'
 
-    body_sections = "".join(_section_html(s) if isinstance(s, dict) else str(s) for s in sections)
+    body_sections = "".join(
+        _section_html(s) if isinstance(s, dict) else str(s) for s in sections
+    )
     footer = f'<div class="footer">{footer_html}</div>' if footer_html else ""
 
     return f"""<!DOCTYPE html>

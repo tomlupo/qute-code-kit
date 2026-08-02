@@ -58,7 +58,12 @@ from . import base
 
 
 def series_from_returns(
-    rets: pd.Series, *, color: str, dash: str | None = None, benchmark: bool = False, subsample_n: int = 260
+    rets: pd.Series,
+    *,
+    color: str,
+    dash: str | None = None,
+    benchmark: bool = False,
+    subsample_n: int = 260,
 ) -> dict:
     """Build a series entry (equity + drawdown) from a daily/periodic return series."""
     r = rets.fillna(0.0)
@@ -77,7 +82,12 @@ def series_from_returns(
 
 
 def series_from_equity(
-    equity: pd.Series, *, color: str, dash: str | None = None, benchmark: bool = False, subsample_n: int = 260
+    equity: pd.Series,
+    *,
+    color: str,
+    dash: str | None = None,
+    benchmark: bool = False,
+    subsample_n: int = 260,
 ) -> dict:
     """Build a series entry from an equity (growth-of-1) curve."""
     eq = _subsample(equity, subsample_n)
@@ -126,6 +136,12 @@ const CFG={responsive:true,displayModeBar:false};
 function pct(v,d){return v==null?'—':(v*100).toFixed(d==null?1:d)+'%';}
 function num(v,d){return v==null?'—':Number(v).toFixed(d==null?3:d);}
 function fmtMetric(v,kind,dp){return kind==='pct'?pct(v,dp):num(v,dp);}
+// drawdown is optional per the payload contract — derive from equity when absent
+function ddOf(s){
+  if(s.drawdown) return s.drawdown;
+  let peak=-Infinity;
+  return (s.equity||[]).map(v=>{ if(v==null) return null; if(v>peak) peak=v; return peak>0?v/peak-1:0; });
+}
 
 Object.keys(D.profiles).forEach(pid=>{
   const prof=D.profiles[pid];
@@ -141,7 +157,7 @@ Object.keys(D.profiles).forEach(pid=>{
   // drawdown overlay
   const ddTraces=labels.map(lab=>{
     const s=prof.series[lab];
-    return {x:s.dates,y:s.drawdown.map(v=>v==null?null:v*100),name:lab,mode:'lines',
+    return {x:s.dates,y:ddOf(s).map(v=>v==null?null:v*100),name:lab,mode:'lines',
       fill:s.benchmark?'none':'tozeroy',line:{color:s.color,width:s.benchmark?1.2:1.4,dash:s.dash||'solid'}};
   });
   Plotly.newPlot('dd_'+pid,ddTraces,{...LB,legend:{orientation:'h',y:1.14,x:0.5,xanchor:'center',font:{size:10}},
@@ -170,7 +186,9 @@ def render(payload: dict) -> str:
         metrics = prof.get("metrics", {})
 
         # metrics table
-        mt_head = "<th>metric</th>" + "".join(f"<th>{base._esc(lab)}</th>" for lab in labels)
+        mt_head = "<th>metric</th>" + "".join(
+            f"<th>{base._esc(lab)}</th>" for lab in labels
+        )
         mt_rows = []
         for key, lbl, kind, dp in metrics_order:
             cells = []

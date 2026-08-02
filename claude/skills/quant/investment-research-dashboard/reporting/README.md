@@ -59,6 +59,7 @@ Plain package tree — no install needed; add its parent dir to `sys.path`.
 ```python
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # dir holding reporting/
 from reporting import base, backtest_dashboard, research_story
 ```
@@ -68,6 +69,7 @@ from reporting import base, backtest_dashboard, research_story
 ```python
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[N]))  # the research/ dir
 from _lib.reporting import base, backtest_dashboard, research_story
 ```

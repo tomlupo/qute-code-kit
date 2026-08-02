@@ -24,7 +24,9 @@ def why(lead: str, body: str, *, kind: str = "") -> str:
 def card(title: str, inner_html: str, *, note: str | None = None) -> str:
     """An evidence card. ``note`` renders a small caption under the content."""
     head = f"<h3>{base._esc(title)}</h3>" if title else ""
-    cap = f'<div class="section-desc" style="margin:6px 0 0">{note}</div>' if note else ""
+    cap = (
+        f'<div class="section-desc" style="margin:6px 0 0">{note}</div>' if note else ""
+    )
     return f'<div class="card">{head}{inner_html}{cap}</div>'
 
 
