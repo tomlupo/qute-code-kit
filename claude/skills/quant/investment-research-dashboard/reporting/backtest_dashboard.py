@@ -203,7 +203,14 @@ def _dom_ids(profiles: dict) -> dict:
 def render(payload: dict) -> str:
     """Render the canonical backtest dashboard to a self-contained HTML string."""
     metrics_order = payload.get("metrics_order") or DEFAULT_METRICS_ORDER
-    profiles = payload["profiles"]
+    # Normalize profile keys to strings up front: JSON object keys are strings,
+    # so 1 and "1" would collide in the browser and silently drop a profile.
+    profiles = {}
+    for k, v in payload["profiles"].items():
+        sk = str(k)
+        if sk in profiles:
+            raise ValueError(f"duplicate profile id after string-normalization: {sk!r}")
+        profiles[sk] = v
     dom = _dom_ids(profiles)
 
     sections = []

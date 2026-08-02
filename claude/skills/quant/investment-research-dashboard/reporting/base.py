@@ -259,7 +259,8 @@ def table(
                 )
                 cells.append(f"<td>{disp}</td>")
         body_rows.append("<tr>" + "".join(cells) + "</tr>")
-    html = f'<table class="{cls}"><thead><tr>{head}</tr></thead><tbody>{"".join(body_rows)}</tbody></table>'
+    safe_cls = _css_classes(cls, "t")
+    html = f'<table class="{safe_cls}"><thead><tr>{head}</tr></thead><tbody>{"".join(body_rows)}</tbody></table>'
     if scroll:
         return f'<div class="scroll-x">{html}</div>'
     return html
@@ -343,6 +344,21 @@ def _kind(c) -> str:
     """Clamp a caller-supplied CSS tone class to the known-safe allowlist."""
     c = str(c or "").strip()
     return c if c in _KINDS else ""
+
+
+import re as _re  # noqa: E402
+
+_CSS_TOKEN = _re.compile(r"^-?[_a-zA-Z][-_a-zA-Z0-9]*$")
+
+
+def _css_classes(value, default: str) -> str:
+    """Keep only well-formed CSS identifier tokens from a class string.
+
+    Prevents ``cls='t" onclick="..."'`` from breaking out of the ``class``
+    attribute; anything that isn't a valid identifier token is dropped.
+    """
+    toks = [t for t in str(value or "").split() if _CSS_TOKEN.match(t)]
+    return " ".join(toks) or default
 
 
 # ---------------------------------------------------------------------------

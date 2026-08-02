@@ -22,11 +22,37 @@ sys.path.insert(
 )  # dir holding reporting/
 from reporting import backtest_dashboard, base, research_story  # noqa: E402
 
-_EXTERNAL_REF = re.compile(r'<(?:script|link|img)[^>]*(?:src|href)="https?://[^"]+"')
+# Catch every external-reference form, not just double-quoted http(s):
+#   - a fetching tag (link/script/img/source/iframe/embed/object/video/audio/
+#     track/input) with src/href/data/poster = http(s):// or protocol-relative //
+#   - CSS url(...) and @import pointing off-box (incl. protocol-relative)
+# Data URIs (data:) and in-page anchors stay allowed — those are self-contained.
+_REMOTE = r"(?:https?:)?//"
+_FETCH_TAG = r"link|script|img|source|iframe|embed|object|video|audio|track|input"
+_EXTERNAL_REFS = [
+    re.compile(
+        rf"""<(?:{_FETCH_TAG})\b[^>]*?\b(?:src|href|data|poster)\s*=\s*["']?\s*{_REMOTE}""",
+        re.I,
+    ),
+    re.compile(rf"""url\(\s*["']?\s*{_REMOTE}""", re.I),
+    re.compile(rf"""@import\s+["']?\s*{_REMOTE}""", re.I),
+]
+
+# The vendored plotly.min.js is inlined verbatim and contains http(s) URLs as JS
+# *string data* (help links etc.) — not DOM references. Strip only INLINE
+# <script> bodies (those with no src attribute) before scanning, so we test the
+# real markup without losing a genuinely external <script src=...>.
+_INLINE_SCRIPT = re.compile(
+    r"<script\b(?![^>]*\bsrc\s*=)[^>]*>.*?</script>", re.I | re.S
+)
 
 
 def _has_external_refs(html: str) -> list[str]:
-    return _EXTERNAL_REF.findall(html)
+    markup = _INLINE_SCRIPT.sub("<script></script>", html)
+    hits: list[str] = []
+    for pat in _EXTERNAL_REFS:
+        hits += pat.findall(markup)
+    return hits
 
 
 # --- 2. script-safe JSON -----------------------------------------------------
@@ -286,6 +312,45 @@ def test_series_from_equity_drawdown_not_understated():
     s = backtest_dashboard.series_from_equity(eq, color="#000", subsample_n=20)
     # trough drawdown is 1.5/3.0 - 1 = -0.5; must be present in the emitted dd
     assert min(v for v in s["drawdown"] if v is not None) <= -0.49
+
+
+def test_table_cls_allowlisted():
+    df = pd.DataFrame({"x": [1]})
+    html = base.table(df, cls='t" onclick="alert(1)')
+    assert 'onclick="alert(1)"' not in html
+    assert 'class="t"' in html  # the injected junk token dropped, valid one kept
+
+
+def test_profile_key_string_collision_rejected():
+    idx = pd.date_range("2020-01-01", periods=5, freq="B")
+    r = pd.Series([0.001] * 5, index=idx)
+    s = backtest_dashboard.series_from_returns(r, color="#000")
+    # 1 and "1" collide as JSON object keys — must be rejected, not silently dropped
+    payload = {
+        "title": "t",
+        "profiles": {
+            1: {"series": {"a": s}, "metrics": {}},
+            "1": {"series": {"b": s}, "metrics": {}},
+        },
+    }
+    try:
+        backtest_dashboard.render(payload)
+        raise AssertionError("expected ValueError on colliding profile keys")
+    except ValueError:
+        pass
+
+
+def test_offline_check_catches_all_ref_forms():
+    # the helper must flag single-quoted, unquoted, protocol-relative, and CSS refs
+    assert _has_external_refs("<img src='http://x/a.png'>")
+    assert _has_external_refs("<script src=//cdn.example/x.js></script>")
+    assert _has_external_refs('<link href="https://cdn/x.css">')
+    assert _has_external_refs("<style>a{background:url(//evil/x.png)}</style>")
+    assert _has_external_refs("<style>@import '//evil/x.css';</style>")
+    # but data URIs and in-page anchors are fine, and JS-string URLs are ignored
+    assert not _has_external_refs('<img src="data:image/png;base64,AAAA">')
+    assert not _has_external_refs('<a href="#section">x</a>')
+    assert not _has_external_refs('<script>var u="https://api.example/x";</script>')
 
 
 def test_research_story_offline():
