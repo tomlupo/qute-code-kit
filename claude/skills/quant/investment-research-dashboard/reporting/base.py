@@ -357,14 +357,16 @@ def page(
     )
 
     if header_html is None:
-        eb = f'<div class="eyebrow">{eyebrow}</div>' if eyebrow else ""
-        sub = f'<p class="subtitle">{subtitle}</p>' if subtitle else ""
-        th = f'<p class="thesis">"{thesis}"</p>' if thesis else ""
+        # eyebrow/subtitle/thesis/badges are plain-string API params -> escape.
+        # (pass header_html for fully custom, trusted markup.)
+        eb = f'<div class="eyebrow">{_esc(eyebrow)}</div>' if eyebrow else ""
+        sub = f'<p class="subtitle">{_esc(subtitle)}</p>' if subtitle else ""
+        th = f'<p class="thesis">"{_esc(thesis)}"</p>' if thesis else ""
         badge_html = ""
         if badges:
             badge_html = (
                 '<div class="badges">'
-                + "".join(f'<span class="badge">{b}</span>' for b in badges)
+                + "".join(f'<span class="badge">{_esc(b)}</span>' for b in badges)
                 + "</div>"
             )
         header_html = f'<div class="header"><div class="wrap">{eb}<h1>{_esc(title)}</h1>{th}{sub}{badge_html}</div></div>'

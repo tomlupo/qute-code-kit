@@ -138,6 +138,68 @@ def test_backtest_dashboard_offline():
     assert "Plotly.newPlot" in html
 
 
+def test_header_fields_escaped():
+    html = base.page(
+        "T",
+        [base.section("S", evidence_html="x")],
+        eyebrow="<script>e</script>",
+        subtitle="<img src=x onerror=alert(1)>",
+        thesis="</h1><b>t</b>",
+        badges=["<i>b</i>"],
+    )
+    # tags only the payload could introduce must not appear un-escaped
+    # (the page skeleton legitimately contains <h1>/<p>/<div>, so we check
+    # payload-specific tokens: an injected <script>e, <img, and <i>b</i>).
+    for tag in ("<script>e", "<img", "<i>b</i>", "onerror=alert(1)>"):
+        assert tag not in html
+    # and the escaped forms are present (proves the data went through _esc)
+    assert "&lt;script&gt;e" in html and "&lt;img" in html and "&lt;i&gt;b" in html
+
+
+def test_profile_ids_sanitized_and_consistent():
+    idx = pd.date_range("2020-01-01", periods=20, freq="B")
+    r = pd.Series([0.001] * 20, index=idx)
+    bad = 'P1" onload="alert(1)'
+    payload = {
+        "title": "t",
+        "profiles": {
+            bad: {
+                "series": {
+                    "s": backtest_dashboard.series_from_returns(r, color="#000")
+                },
+                "metrics": {},
+            }
+        },
+    }
+    html = backtest_dashboard.render(payload)
+    assert 'onload="alert(1)"' not in html  # raw key must not reach an attribute
+    slug = base._slug(bad)
+    assert f'id="eq_{slug}"' in html and f'id="dd_{slug}"' in html  # HTML anchors
+    assert "'eq_'+dom" in html  # JS targets the same sanitized id via D.dom
+    assert not _has_external_refs(html)
+
+
+def test_profile_ids_deduped():
+    # two distinct keys that slug to the same base must get unique DOM ids
+    dom = backtest_dashboard._dom_ids({"A B": 1, "A_B": 1})
+    assert len(set(dom.values())) == 2
+
+
+def test_subsample_preserves_drawdown_trough():
+    # equity rises to a high peak, dips (deep drawdown), recovers to a new low-ish
+    # level whose absolute min != the drawdown trough
+    import numpy as np
+
+    idx = pd.date_range("2020-01-01", periods=400, freq="B")
+    eq = pd.Series(
+        np.linspace(1.0, 3.0, 200).tolist() + np.linspace(3.0, 1.5, 200).tolist(),
+        index=idx,
+    )
+    trough = (eq / eq.cummax() - 1.0).idxmin()
+    sub = backtest_dashboard._subsample(eq, 50)
+    assert trough in sub.index
+
+
 def test_research_story_offline():
     sec = [
         base.section(

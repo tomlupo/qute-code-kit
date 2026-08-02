@@ -107,9 +107,13 @@ def _subsample(s: pd.Series, n: int) -> pd.Series:
         return s
     step = max(1, len(s) // n)
     sub = s.iloc[::step]
-    ei = s.idxmin()
-    if ei not in sub.index:
-        sub = pd.concat([sub, s.loc[[ei]]]).sort_index()
+    # preserve both the global minimum AND the max-drawdown trough (deepest point
+    # below the running peak) — the two can differ when a later dip falls from a
+    # higher peak, and the drawdown chart must not miss its trough.
+    keep = {s.idxmin(), (s / s.cummax() - 1.0).idxmin()}
+    missing = [i for i in keep if i not in sub.index]
+    if missing:
+        sub = pd.concat([sub, s.loc[missing]]).sort_index()
     return sub
 
 
@@ -145,6 +149,7 @@ function ddOf(s){
 
 Object.keys(D.profiles).forEach(pid=>{
   const prof=D.profiles[pid];
+  const dom=(D.dom&&D.dom[pid])||pid;   // sanitized DOM id (matches the HTML anchors)
   const labels=Object.keys(prof.series);
   // equity overlay
   const eqTraces=labels.map(lab=>{
@@ -152,7 +157,7 @@ Object.keys(D.profiles).forEach(pid=>{
     return {x:s.dates,y:s.equity,name:lab,mode:'lines',
       line:{color:s.color,width:s.benchmark?1.4:2,dash:s.dash||'solid'}};
   });
-  Plotly.newPlot('eq_'+pid,eqTraces,{...LB,legend:{orientation:'h',y:1.14,x:0.5,xanchor:'center',font:{size:10}},
+  Plotly.newPlot('eq_'+dom,eqTraces,{...LB,legend:{orientation:'h',y:1.14,x:0.5,xanchor:'center',font:{size:10}},
     yaxis:{title:'growth of 1',gridcolor:'#E5E7EB'},xaxis:{gridcolor:'#E5E7EB'}},CFG);
   // drawdown overlay
   const ddTraces=labels.map(lab=>{
@@ -160,27 +165,46 @@ Object.keys(D.profiles).forEach(pid=>{
     return {x:s.dates,y:ddOf(s).map(v=>v==null?null:v*100),name:lab,mode:'lines',
       fill:s.benchmark?'none':'tozeroy',line:{color:s.color,width:s.benchmark?1.2:1.4,dash:s.dash||'solid'}};
   });
-  Plotly.newPlot('dd_'+pid,ddTraces,{...LB,legend:{orientation:'h',y:1.14,x:0.5,xanchor:'center',font:{size:10}},
+  Plotly.newPlot('dd_'+dom,ddTraces,{...LB,legend:{orientation:'h',y:1.14,x:0.5,xanchor:'center',font:{size:10}},
     yaxis:{ticksuffix:'%',gridcolor:'#E5E7EB'},xaxis:{gridcolor:'#E5E7EB'}},CFG);
   // weight evolution (optional)
   if(prof.weights){
     const w=prof.weights;
     const stack=w.cats.map((cat,i)=>({x:w.dates,y:w.values.map(row=>row[i]),name:cat,
       type:'scatter',mode:'lines',stackgroup:'one',hovertemplate:'%{y:.1%}<extra>%{fullData.name}</extra>'}));
-    Plotly.newPlot('wt_'+pid,stack,{...LB,legend:{orientation:'h',y:-0.18,font:{size:9}},
+    Plotly.newPlot('wt_'+dom,stack,{...LB,legend:{orientation:'h',y:-0.18,font:{size:9}},
       yaxis:{tickformat:'.0%',range:[0,1],gridcolor:'#E5E7EB'},xaxis:{gridcolor:'#E5E7EB'}},CFG);
   }
 });
 """
 
 
+def _dom_ids(profiles: dict) -> dict:
+    """Map each profile key to a sanitized, unique DOM id (attribute-safe).
+
+    Profile keys come from caller data, so they can contain quotes/spaces that
+    would break ``id="..."`` attributes or produce invalid DOM ids. Slug them
+    and de-dup so the HTML anchors and the JS ``Plotly.newPlot`` targets agree.
+    """
+    seen: dict[str, int] = {}
+    out: dict = {}
+    for i, pid in enumerate(profiles):
+        slug = base._slug(str(pid)) or f"p{i}"
+        n = seen.get(slug, 0)
+        seen[slug] = n + 1
+        out[pid] = slug if n == 0 else f"{slug}-{n}"
+    return out
+
+
 def render(payload: dict) -> str:
     """Render the canonical backtest dashboard to a self-contained HTML string."""
     metrics_order = payload.get("metrics_order") or DEFAULT_METRICS_ORDER
     profiles = payload["profiles"]
+    dom = _dom_ids(profiles)
 
     sections = []
     for pid, prof in profiles.items():
+        did = dom[pid]
         name = prof.get("name", pid)
         labels = list(prof["series"].keys())
         metrics = prof.get("metrics", {})
@@ -212,15 +236,15 @@ def render(payload: dict) -> str:
             wlab = prof["weights"].get("series", labels[-1])
             weight_card = (
                 f'<div class="card"><h3>Weight evolution — {base._esc(str(wlab))} (stacked)</h3>'
-                f'<div class="scroll-x"><div id="wt_{pid}" style="height:360px;min-width:340px"></div></div></div>'
+                f'<div class="scroll-x"><div id="wt_{did}" style="height:360px;min-width:340px"></div></div></div>'
             )
 
         evidence = f"""
 <div class="chart-row">
   <div class="chart-box"><h3>Equity (growth of 1)</h3>
-    <div class="scroll-x"><div id="eq_{pid}" style="height:300px;min-width:320px"></div></div></div>
+    <div class="scroll-x"><div id="eq_{did}" style="height:300px;min-width:320px"></div></div></div>
   <div class="chart-box"><h3>Drawdown</h3>
-    <div class="scroll-x"><div id="dd_{pid}" style="height:300px;min-width:320px"></div></div></div>
+    <div class="scroll-x"><div id="dd_{did}" style="height:300px;min-width:320px"></div></div></div>
 </div>
 <div class="card"><h3>Summary metrics</h3>{metrics_table}</div>
 {weight_card}
@@ -235,7 +259,7 @@ def render(payload: dict) -> str:
     # Only the per-profile chart DATA is embedded for the runtime script — never
     # the HTML-bearing keys (extra_sections/footer/subtitle), whose nested
     # <script>/quotes would corrupt this outer script block.
-    client = {"profiles": payload["profiles"]}
+    client = {"profiles": payload["profiles"], "dom": dom}
     extra_script = f"const PAYLOAD={base.dumps(client)};\n{_SCRIPT}"
 
     return base.page(
