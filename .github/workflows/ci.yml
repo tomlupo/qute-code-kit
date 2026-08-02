@@ -26,3 +26,15 @@ jobs:
       - name: pytest
         # pyyaml: templates/research/check_research_pins.py imports yaml
         run: uvx --with pyyaml pytest tests -q
+
+  reporting-contract:
+    # Enforce the bundled reporting lib's self-contained + injection-safe
+    # contract shipped with the investment-research-dashboard skill.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: pytest (reporting contract)
+        run: >-
+          uvx --with pandas --with numpy --with plotly pytest
+          claude/skills/quant/investment-research-dashboard/reporting/test_reporting.py -q

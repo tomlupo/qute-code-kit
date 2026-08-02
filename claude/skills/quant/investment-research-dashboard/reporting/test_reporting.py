@@ -237,6 +237,57 @@ def test_card_escapes_title_and_note_keeps_inner():
     assert "<em>inner</em>" in html
 
 
+def test_table_fmt_escaped_by_default():
+    df = pd.DataFrame({"x": [1]})
+    html = base.table(df, fmt={"x": lambda v: "<b>hi</b>"})
+    assert "<b>hi</b>" not in html
+    assert "&lt;b&gt;hi" in html
+
+
+def test_table_html_fmt_opt_in():
+    df = pd.DataFrame({"x": [1]})
+    html = base.table(df, fmt={"x": lambda v: "<b>hi</b>"}, html_fmt=True)
+    assert "<b>hi</b>" in html
+
+
+def test_metric_label_escaped():
+    import numpy as np
+
+    idx = pd.date_range("2020-01-01", periods=20, freq="B")
+    r = pd.Series([0.001] * 20, index=idx)
+    payload = {
+        "title": "t",
+        "metrics_order": [("CAGR", "<b>lbl</b>", "pct", 2)],
+        "profiles": {
+            "P1": {
+                "series": {
+                    "s": backtest_dashboard.series_from_returns(r, color="#000")
+                },
+                "metrics": {"s": {"CAGR": 0.1}},
+            }
+        },
+    }
+    html = backtest_dashboard.render(payload)
+    assert "<b>lbl</b>" not in html
+    assert "&lt;b&gt;lbl" in html
+    assert not np.isnan(0.0)  # keep numpy import used
+
+
+def test_series_from_equity_drawdown_not_understated():
+    import numpy as np
+
+    # peak at t=200 is skipped by aggressive subsampling; full-series DD must
+    # still reflect the deep dip from that peak.
+    idx = pd.date_range("2020-01-01", periods=400, freq="B")
+    eq = pd.Series(
+        np.linspace(1.0, 3.0, 200).tolist() + np.linspace(3.0, 1.5, 200).tolist(),
+        index=idx,
+    )
+    s = backtest_dashboard.series_from_equity(eq, color="#000", subsample_n=20)
+    # trough drawdown is 1.5/3.0 - 1 = -0.5; must be present in the emitted dd
+    assert min(v for v in s["drawdown"] if v is not None) <= -0.49
+
+
 def test_research_story_offline():
     sec = [
         base.section(

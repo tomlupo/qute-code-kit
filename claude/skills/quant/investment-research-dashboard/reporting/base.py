@@ -226,11 +226,19 @@ def _section_html(sec: dict) -> str:
 
 
 def table(
-    df: pd.DataFrame, *, scroll: bool = True, fmt: dict | None = None, cls: str = "t"
+    df: pd.DataFrame,
+    *,
+    scroll: bool = True,
+    fmt: dict | None = None,
+    cls: str = "t",
+    html_fmt: bool = False,
 ) -> str:
     """Render a DataFrame as an HTML table, wrapped in ``.scroll-x`` by default.
 
     ``fmt`` maps column name -> a callable ``value -> str`` for cell formatting.
+    Formatter output is **HTML-escaped by default** (``value -> str`` is plain
+    text); set ``html_fmt=True`` only if your formatters intentionally return
+    trusted HTML (e.g. gradient-colored cells).
     """
     fmt = fmt or {}
     cols = list(df.columns)
@@ -241,7 +249,8 @@ def table(
         for c in cols:
             v = row[c]
             if c in fmt:
-                cells.append(f"<td>{fmt[c](v)}</td>")
+                out = fmt[c](v)
+                cells.append(f"<td>{out if html_fmt else _esc(str(out))}</td>")
             else:
                 disp = (
                     ""

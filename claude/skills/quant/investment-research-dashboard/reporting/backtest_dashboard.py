@@ -90,8 +90,12 @@ def series_from_equity(
     subsample_n: int = 260,
 ) -> dict:
     """Build a series entry from an equity (growth-of-1) curve."""
+    # compute drawdown on the FULL series (so a peak skipped by subsampling can't
+    # understate max DD), then reindex to the sampled dates — matches
+    # series_from_returns().
+    dd_full = equity / equity.cummax() - 1.0
     eq = _subsample(equity, subsample_n)
-    dd = eq / eq.cummax() - 1.0
+    dd = dd_full.reindex(eq.index)
     return {
         "dates": [d.strftime("%Y-%m-%d") for d in eq.index],
         "equity": [round(float(v), 5) for v in eq.values],
@@ -225,7 +229,7 @@ def render(payload: dict) -> str:
                 else:
                     disp = f"{float(v):.{dp}f}"
                 cells.append(f"<td>{disp}</td>")
-            mt_rows.append(f"<tr><td>{lbl}</td>{''.join(cells)}</tr>")
+            mt_rows.append(f"<tr><td>{base._esc(str(lbl))}</td>{''.join(cells)}</tr>")
         metrics_table = (
             f'<div class="scroll-x"><table class="t"><thead><tr>{mt_head}</tr></thead>'
             f"<tbody>{''.join(mt_rows)}</tbody></table></div>"
