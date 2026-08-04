@@ -22,7 +22,7 @@ and copy commands.
 | `gpw-benchmark-scraper` | Scrape gpwbenchmark.pl (WIBID/WIBOR reference rates, index list with ISINs, per-index OHLC history) |
 | `investment-research` | Iterative investment research from question to deliverable |
 | `investment-research-formal` | Structured, auditable research with hypotheses + evidence chain |
-| `investment-research-dashboard` | Self-contained Plotly.js HTML dashboards for finance |
+| `investment-research-dashboard` | Self-contained (offline, no CDN) Plotly HTML dashboards for finance; bundles the canonical `reporting/` lib (`base`/`backtest_dashboard`/`research_story`), reuse-first |
 | `market-datasets` | Fetch market data from Stooq, NBP, Yahoo, FRED, Tiingo, CCXT, FinancialData |
 | `paper-reading` | Active reading and analysis of research papers |
 | `pipeline-docs` | 4-doc pattern (instruction / dataset / methodology / reference) |

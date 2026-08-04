@@ -16,6 +16,52 @@ Build professional, self-contained HTML dashboards for quantitative finance rese
 - Asset allocation studies (efficient frontier, rebalancing analysis)
 - Any quantitative finance presentation needing interactive charts
 
+## Reuse the canonical dashboard FIRST
+
+**Before building anything, search for an existing canonical report builder and
+reuse it. Only create a new one if none fits.** Rationale: stop re-implementing
+bespoke dashboards — one canonical, self-contained template, reused.
+
+This skill bundles the canonical reporting library at `reporting/`
+(`base` primitives + `backtest_dashboard` + `research_story`, mastered from
+`dm-evo-lab/research/_lib/reporting/`). It is the default path.
+
+**Step 0 — glob for an existing builder** before writing a line of HTML:
+
+```bash
+# this skill's own bundled lib
+ls "$SKILL_DIR"/reporting/{base,backtest_dashboard,research_story}.py
+# the canonical source in a research workspace
+ls **/research/_lib/reporting/*.py
+# any existing bespoke builders in the target repo
+ls **/build_*dashboard*.py **/build_*report*.py **/*_dashboard.py
+```
+
+**Decision:**
+
+1. **A canonical template fits** (`backtest_dashboard` for an equity/DD/metrics
+   backtest; `research_story` for a numbered narrative; `base` for a custom
+   layout) → **import it and pass a payload. Do NOT hand-roll a new template.**
+
+   ```python
+   import sys; from pathlib import Path
+   sys.path.insert(0, str(Path(__file__).resolve().parent))  # dir holding reporting/
+   from reporting import backtest_dashboard, research_story, base
+
+   html = backtest_dashboard.render(payload)     # see reporting/README.md for schema
+   Path("output/dashboard.html").write_text(html, encoding="utf-8")
+   ```
+
+2. **An existing bespoke builder in the repo already covers it** → reuse/extend
+   that, don't fork a parallel one.
+
+3. **Nothing suitable exists** → only then build from scratch — and even then,
+   **use the bundled `reporting.base` primitives** (`page`, `section`, `table`,
+   `plot`, `kpi_row`, `inline_plotly`) so the result is self-contained *by
+   construction*. The from-scratch guidance below applies to this case.
+
+Read `reporting/README.md` for the full API + payload contracts.
+
 ## Quick Start
 
 A dashboard has two parts: **Python data builder** and **HTML template**.
@@ -64,7 +110,9 @@ Self-contained file with a `DATA` placeholder:
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard Title</title>
-<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<!-- Plotly is INLINED (no CDN). Inject reporting.base.inline_plotly() output here
+     so the file is truly offline — zero external refs. -->
+__PLOTLY_INLINE__
 <style>/* CSS here */</style>
 </head>
 <body>
@@ -82,12 +130,24 @@ const DATA = {};
 Injects JSON into the template:
 
 ```python
+import sys; from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # dir holding reporting/
+from reporting import base  # bundled canonical primitives
+
 DATA_PLACEHOLDER = "const DATA = {};"
 template = Path("templates/dashboard_template.html").read_text(encoding="utf-8")
 data_str = json.dumps(data, separators=(",", ":"))
-html = template.replace(DATA_PLACEHOLDER, f"const DATA = {data_str};")
+html = (
+    template
+    .replace("__PLOTLY_INLINE__", base.inline_plotly())  # embed plotly.min.js — no CDN
+    .replace(DATA_PLACEHOLDER, f"const DATA = {data_str};")
+)
 Path(run_dir / "dashboard.html").write_text(html, encoding="utf-8")
 ```
+
+`base.inline_plotly()` reads `plotly.min.js` from the installed `plotly` package
+and returns a `<script>…</script>` — the file is then fully offline with zero
+external references.
 
 ## Architecture
 
@@ -435,7 +495,7 @@ The CSS variable system means brand changes propagate automatically — no need 
 
 ## Guidelines
 
-- **Single file output**: The final HTML must be fully self-contained (only external dependency: Plotly.js CDN)
+- **Single file output**: The final HTML must be **truly offline — zero external references, no CDN**. Inline Plotly via `reporting.base.inline_plotly()` (reads `plotly.min.js` from the installed package). A rendered report must have no external `<script src>`, `<link href>`, or remote `<img>`. Verify: `grep -Eo '<(script|link|img)[^>]*(src|href)="https?://[^"]+"' report.html` returns nothing.
 - **No framework**: Pure HTML/CSS/JS. No React, no build step, no npm
 - **Responsive**: Use CSS flex/grid with media queries for mobile
 - **Sticky nav**: Always include for dashboards with 3+ sections
@@ -446,10 +506,24 @@ The CSS variable system means brand changes propagate automatically — no need 
 
 ## Reference Implementation
 
-See `research/strategic-asset-allocation/` for the canonical example:
-- `templates/exec_summary_template.html` — full dashboard template
-- `build_dashboard_data.py` — Python data builder
-- `build_dashboard_html.py` — HTML builder with JSON injection
+The canonical reference is the **bundled `reporting/` lib** — read it as the
+worked example, don't reinvent it:
+
+- `reporting/base.py` — self-contained primitives (`page`, `section`, `table`,
+  `plot`, `kpi_row`, `inline_plotly`); the one place Plotly is de-CDN'd.
+- `reporting/backtest_dashboard.py` — `render(payload)` for equity / drawdown /
+  summary-metrics / weight-evolution backtest reports (payload schema in its
+  docstring).
+- `reporting/research_story.py` — `render(sections, …)` for a numbered
+  thesis → KPI → reasoning-block-plus-evidence narrative.
+- `reporting/README.md` — API + import + payload contracts.
+
+These templates back the regenerated **SAA finalization** reports in dm-evo-lab
+(`research/saa-finalization/output/`: `saa_research_story.html` via
+`research_story`, `backtest_report.html` + `saa_finalization_report.html` via
+`backtest_dashboard`) and the **auto-allocation** report
+(`research/auto-allocation/output/auto_allocation_report.html` via `base`) — all
+self-contained, zero external refs.
 
 ## Detailed References
 
