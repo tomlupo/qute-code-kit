@@ -1,6 +1,6 @@
 # Tracker binding
 
-<!-- qute-tracker: linear team=TOM -->
+<!-- qute-tracker: linear team=TOM project=infra -->
 
 ## Task source — Linear
 
