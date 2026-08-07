@@ -1,11 +1,13 @@
 # Tracker binding
 
-<!-- qute-tracker: linear team=TOM -->
+<!-- qute-tracker: linear team=TOM project=infra -->
 
 ## Task source — Linear
 
 **Linear is the task source** (ADR-0004): all work items — tasks, planning,
-priority, agent assignment — live in Linear (team `TOM`). Jimek monitors Linear for
+priority, agent assignment — live in Linear (team `TOM`, project `infra`). This repo
+is one of the three the `infra` landing card lists, alongside `qute-platform` and
+`qute-plugins`. Jimek monitors Linear for
 assigned tasks; `conductor.yml` (stamped by `/setup-qute-repo` Step 4) declares how
 work runs in Jimek-managed repos. Humans and agents pull work from Linear only.
 
