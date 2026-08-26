@@ -6,7 +6,8 @@ and copy commands.
 
 > The `qute-essentials` plugin (guards, hooks, `/ship`, `/qute-review`,
 > research-regime skills) is **not** in this inventory — it moved to
-> `tomlupo/qute-platform` (`agent-kit/plugins/qute-essentials/`) on 2026-07-29.
+> [`tomlupo/qute-plugins`](https://github.com/tomlupo/qute-plugins)
+> (`plugins/qute-essentials/`) on 2026-07-29.
 
 ## Skills (33, grouped by directory under `claude/skills/`)
 

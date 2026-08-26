@@ -56,7 +56,7 @@ Diagnose and fix Claude Code session problems. Match your symptom, follow the fi
 
 3. Reinstall plugins:
    ```bash
-   claude plugin install qute-essentials@qute-marketplace
+   claude plugin install qute-essentials@qute-plugins
    ```
 
 **Why this order**: if you clear the cache while `enabledPlugins` still references plugins, every hook fires and immediately errors — all tool calls fail until fixed.
@@ -76,14 +76,14 @@ Diagnose and fix Claude Code session problems. Match your symptom, follow the fi
 
 2. Check `forced-eval` hook is active (required for reliable skill activation):
    ```bash
-   grep -r "forced" ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/hooks/hooks.json
+   grep -r "forced" ~/.claude/plugins/cache/qute-plugins/qute-essentials/*/hooks/hooks.json
    ```
 
 3. Read the skill's `description` field — does it contain clear trigger phrases matching the user's exact wording?
 
 **Fixes**:
 - Missing skill file → copy from `claude/skills/skill-name/` or re-run `setup-project.sh`
-- `forced-eval` absent → reinstall qute-essentials: `claude plugin install qute-essentials@qute-marketplace`
+- `forced-eval` absent → reinstall qute-essentials: `claude plugin install qute-essentials@qute-plugins`
 - Weak description → edit the `description:` frontmatter in `SKILL.md` to add more trigger phrases in the user's language
 
 ---
@@ -95,13 +95,13 @@ Diagnose and fix Claude Code session problems. Match your symptom, follow the fi
 **Diagnosis**:
 ```bash
 # Validate hooks.json is valid JSON
-python3 -m json.tool ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/hooks/hooks.json
+python3 -m json.tool ~/.claude/plugins/cache/qute-plugins/qute-essentials/*/hooks/hooks.json
 
 # List scripts to verify paths
-ls ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/scripts/
+ls ~/.claude/plugins/cache/qute-plugins/qute-essentials/*/scripts/
 
 # Test a suspect script directly
-python3 ~/.claude/plugins/cache/qute-marketplace/qute-essentials/*/scripts/suspect-script.py
+python3 ~/.claude/plugins/cache/qute-plugins/qute-essentials/*/scripts/suspect-script.py
 ```
 
 **Common causes**:

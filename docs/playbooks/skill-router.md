@@ -2,7 +2,7 @@
 
 The one file to follow for discipline (the `ask-matt` pattern, extended to the whole
 stack). Read top-down: find your situation, run what's listed, in order.
-Doctrine behind it: ADR-0001..0004, moved with the plugin to qute-platform (`agent-kit/plugins/qute-essentials/docs/adr/`; pointer in `docs/adr/`).
+Doctrine behind it: ADR-0001..0004, which left with the plugin on 2026-07-29 and are preserved in this repo's git history (see [`docs/adr/`](../adr/)).
 
 ```text
 Matt skills   = planning spine (grill → spec → tickets → implement → TDD → review)

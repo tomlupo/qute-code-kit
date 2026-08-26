@@ -7,11 +7,17 @@ releases, or self-updates.
 
 > **The `qute-essentials` plugin moved out.** As of **2026-07-29** the plugin
 > (guards, hooks, `/ship`, `/qute-review`, the research-regime skills) lives in
-> [`tomlupo/qute-platform`](https://github.com/tomlupo/qute-platform) under
-> `agent-kit/plugins/qute-essentials/`, published via the agent-kit
-> marketplace. Its ADRs moved with it (see [`docs/adr/`](docs/adr/)). This repo
-> has **no plugin, no marketplace manifest, and no release cadence** anymore —
-> install and update the plugin from qute-platform, not from here.
+> [`tomlupo/qute-plugins`](https://github.com/tomlupo/qute-plugins) under
+> `plugins/qute-essentials/`, published via the `qute-plugins` marketplace:
+>
+> ```bash
+> claude plugin marketplace add tomlupo/qute-plugins
+> claude plugin install qute-essentials@qute-plugins
+> ```
+>
+> This repo has **no plugin, no marketplace manifest, and no release cadence**
+> anymore — install and update the plugin from qute-plugins, not from here.
+> See [`docs/adr/`](docs/adr/) for where the plugin's decision records went.
 
 ## The kit: `claude/`
 
@@ -59,7 +65,7 @@ and the canonical research gate `templates/research/check_research_pins.py`
 - [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
 - [`docs/playbooks/skill-router.md`](docs/playbooks/skill-router.md) — which skill, when (the discipline one-pager)
-- [`docs/adr/`](docs/adr/) — pointer to the plugin's ADRs in qute-platform (history stays in git)
+- [`docs/adr/`](docs/adr/) — pointer to where the plugin's ADRs went (history stays in git)
 - [`docs/resources.md`](docs/resources.md) — curated external links (interesting repos, tools, reading)
 
 See [`CLAUDE.md`](CLAUDE.md) for repo conventions.

@@ -6,13 +6,14 @@ doc/pyproject templates under `templates/`. Browse and copy what you need into
 target repos; several skills are symlinked into `~/.claude/skills/` and are
 live on edit.
 
-**The `qute-essentials` plugin is NOT here anymore.** It moved to
-`tomlupo/qute-platform` (`agent-kit/plugins/qute-essentials/`, agent-kit
-marketplace) on 2026-07-29, together with the marketplace manifest, the release
-tooling (`release-plugin.sh` / `build-marketplace.py`), and the ADRs
-(`docs/adr/` here is a pointer). This repo has no release cadence — do not add
-plugin manifests, marketplace files, or `/ship` release wiring here. Changes to
-guards, hooks, review/release regime, or plugin skills belong in qute-platform.
+**The `qute-essentials` plugin is NOT here anymore.** It ships from
+[`tomlupo/qute-plugins`](https://github.com/tomlupo/qute-plugins)
+(`plugins/qute-essentials/`, marketplace `qute-plugins`). It left this repo on
+2026-07-29 together with the marketplace manifest, the release tooling
+(`release-plugin.sh` / `build-marketplace.py`), and the ADRs (`docs/adr/` here
+is a pointer). This repo has no release cadence — do not add plugin manifests,
+marketplace files, or `/ship` release wiring here. Changes to guards, hooks,
+review/release regime, or plugin skills belong in qute-plugins.
 
 ## Layout
 
@@ -25,7 +26,7 @@ guards, hooks, review/release regime, or plugin skills belong in qute-platform.
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |
 | `templates/docs/`, `templates/pyproject/`, `templates/settings/`, `templates/research/` | Doc / pyproject / settings starters + the research pin gate |
 | `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/` | Workflows, references, reusable prompts |
-| `docs/adr/` | Pointer to the plugin's ADRs in qute-platform (history in git) |
+| `docs/adr/` | Pointer to where the plugin's ADRs went (history in git) |
 | `tests/` | Unit tests for `templates/research/check_research_pins.py` |
 
 ## Conventions
@@ -42,8 +43,8 @@ guards, hooks, review/release regime, or plugin skills belong in qute-platform.
 3. Commit with Conventional Commits (`feat(skill-name): ...`).
 
 Promotion path: when a personal-kit component proves universally useful, move
-it into the `qute-essentials` plugin **in qute-platform**
-(`agent-kit/plugins/qute-essentials/skills/`) and release it there — not here.
+it into the `qute-essentials` plugin **in qute-plugins**
+(`plugins/qute-essentials/skills/`) and release it there — not here.
 
 ## Skill frontmatter properties
 

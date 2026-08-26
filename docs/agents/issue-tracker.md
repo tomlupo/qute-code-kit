@@ -31,7 +31,7 @@ under `docs/specs/` is committed.
 
 Treat that as the rule, not as something a tool will catch for you. `/ship`
 carries a forbidden-paths check covering `docs/specs/` — but this repo cuts no
-releases anymore (the plugin and its release flow moved to qute-platform
+releases anymore (the plugin and its release flow moved to qute-plugins
 2026-07-29), so nothing here fires it. The tree stays clean because the
 artefacts are never written into it, which is why the rule is stated here
 rather than left to enforcement.

@@ -1,6 +1,6 @@
 # This repo is a personal skills + templates library, not a Python package
 # and (since 2026-07-29) no longer a plugin marketplace — the qute-essentials
-# plugin, its manifests, and its release tooling moved to tomlupo/qute-platform.
+# plugin, its manifests, and its release tooling moved to tomlupo/qute-plugins.
 # This file exists only to pin the ruff config CI lints with.
 
 [tool.ruff.lint]

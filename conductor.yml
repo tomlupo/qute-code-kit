@@ -14,7 +14,7 @@ version: 1
 
 # ── Board state machine ──────────────────────────────────────────────────────
 # qute-code-kit is a low-volume personal skills + templates library, solo-tracked.
-# (The qute-essentials plugin moved to qute-platform 2026-07-29.) Generic
+# (The qute-essentials plugin moved to qute-plugins 2026-07-29.) Generic
 # dispatchable-vs-done Status values, same as the template.
 board_states:
   active:   [Todo, In Progress, Human Review, Merging]
@@ -74,7 +74,7 @@ turns:
 # ── Auto-classification signals (consumed by the #159 classifier) ────────────
 # The classifier reads these to bucket a change into a rigor tier. This repo's
 # risky surfaces are the CI workflow and the tested research gate (the plugin +
-# release tooling moved to qute-platform 2026-07-29).
+# release tooling moved to qute-plugins 2026-07-29).
 classify:
   trivial_globs: ["**/*.md", "docs/**", "**/CHANGELOG*"]
   complex_globs:
@@ -131,7 +131,7 @@ escalation:
 taskThreshold: 12           # TASKS.md → GitHub Issues graduation threshold
 
 # Ship-verb release namespace. This repo cuts NO releases anymore — the
-# qute-essentials plugin and its release tooling moved to qute-platform
+# qute-essentials plugin and its release tooling moved to qute-plugins
 # (2026-07-29). tagPattern kept for the historical v* tags; forbiddenPaths
 # guards against committing skill artifacts (none tracked here today).
 release:
@@ -141,8 +141,8 @@ release:
 
 adrDir: docs/adr            # kept for schema completeness, but this repo keeps NO
                             # ADRs of its own since 2026-07-29 — the eight plugin
-                            # ADRs moved with qute-essentials to qute-platform
-                            # (agent-kit/plugins/qute-essentials/docs/adr/); the
-                            # local dir holds only a pointer README. Record new
-                            # plugin/regime decisions there, not here.
+                            # ADRs left with qute-essentials on 2026-07-29 and
+                            # survive in git history; the local dir holds only a
+                            # pointer README. Record new plugin/regime decisions
+                            # in tomlupo/qute-plugins, not here.
 adrTemplate: ""             # '' = built-in template

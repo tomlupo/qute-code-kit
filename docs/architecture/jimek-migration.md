@@ -1,6 +1,6 @@
 # Jimek migration plan — GitHub verbs move out of qute-essentials
 
-> **Superseded by ADR-0005 (qute-essentials, now in qute-platform `agent-kit/plugins/qute-essentials/docs/adr/`)** (2026-07-21).
+> **Superseded by ADR-0005 (qute-essentials)** (2026-07-21). That record left this repo with the plugin on 2026-07-29; see [`docs/adr/`](../adr/).
 > The target split below still holds, with two changes: `.github/qute-pr.yml` is **deleted**, not
 > moved (the rigor tier is the sole merge authority; the gate reads the `jimek-tier:` label), and
 > governance now runs on a **with/without-jimek** axis chosen at onboarding, with a shared
@@ -10,7 +10,7 @@
 > detailed target-split rationale.
 
 Companion to ADR-0001 and
-ADR-0003 (both now in qute-platform, see `docs/adr/`). This is a **relocation, not a
+ADR-0003 (both left with the plugin, see `docs/adr/`). This is a **relocation, not a
 deprecation**: `/qute-coder` and `/qute-reviewer` are how Jimek's agents/workers talk to
 GitHub — they belong with the conductor.
 

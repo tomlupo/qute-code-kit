@@ -19,7 +19,7 @@
     "code-review@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
-    "qute-essentials@qute-marketplace": true,
+    "qute-essentials@qute-plugins": true,
     "compound-engineering@every-marketplace": true,
     "document-skills@anthropic-agent-skills": true,
     "example-skills@anthropic-agent-skills": true
