@@ -59,12 +59,11 @@ rigor:
     reviewers_min: 1
     merge: human            # a human merges
 
-# ── Worktree mechanism (REFERENCE only) ──────────────────────────────────────
-# Jimek does not reimplement worktrees; qute-essentials owns the mechanics.
-# This block only records which mechanism writers isolate with.
+# ── Worktree isolation ───────────────────────────────────────────────────────
+# Where a worker's working directory stands relative to the repo's checkout.
+# An invariant, not a mechanism: isolated-tree (default) | shared-checkout
 worktree:
-  mechanism: qute-essentials
-  skill: qute-essentials:worktrees
+  isolation: isolated-tree
 
 # ── Run limits ───────────────────────────────────────────────────────────────
 turns:
