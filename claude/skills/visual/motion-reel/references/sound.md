@@ -4,9 +4,10 @@
 
 `render.py info` writes `cues.json`: the timing (`dur`, `bpm`, scene `starts`), the
 groove window, the silence window, and one named time or list of times for every
-picture event that should be heard. It comes from `cueSheet()` in `reel.js`, computed
-from the same expressions the scenes animate with. `score.py` places sounds only from
-it, so re-timing the picture re-times the sound on the next `./make.sh audio`.
+picture event that should be heard. It comes from `cueSheet()` in `reel.js`, which
+reads the same per-scene timing records the scenes animate with (and exports the
+count-up's ticks by inverting its easing). `score.py` places sounds only from it, so
+re-timing the picture re-times the sound on the next `./make.sh audio`.
 
 One family of sound per kind of picture event:
 

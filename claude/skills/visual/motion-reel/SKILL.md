@@ -45,15 +45,15 @@ Playwright's Chromium is installed on first use.
    brand. A calm brand gets eased motion, no flashes and no chromatic glitches; a
    showreel may punch. `LIGHT` lists the grounds that take dark type.
 
-5. **Review loop, cheap.** `./make.sh sheets` first runs `render.py check`, which
-   draws every quarter second of the film and two seconds around every cut at one
-   sample each and fails on the first script error, then renders 8 frames per scene
-   into `review/sheet-*.png` (4 PNGs, seconds). Sheets alone sample too sparsely to
+5. **Review loop, about a minute.** `./make.sh sheets` first runs `render.py check`,
+   which draws every quarter second of the film and two seconds around every cut at
+   one sample each and fails on the first script error (about 50 s for 56 s of film),
+   then renders 8 frames per scene into `review/sheet-*.png` (4 PNGs, seconds). Sheets alone sample too sparsely to
    prove a scene runs: a template once shipped with an error between two samples.
    **Read every sheet** before
    rendering in full: clipped or colliding text, a transition that does not cover the
-   frame, a scene that reads too small. Fix `reel.js`, re-run, repeat. The full
-   render costs minutes; a sheet costs seconds.
+   frame, a scene that reads too small. Fix `reel.js`, re-run, repeat. The loop costs
+   about a minute; the full render about five.
 
 6. **Render, score, encode.** `./make.sh all`: every frame with motion blur
    (`render.py frames`, parallel workers), the soundtrack (`synth.py`), the video
@@ -73,10 +73,14 @@ Playwright's Chromium is installed on first use.
 ## Editing reel.js
 
 - **Contract.** A scene is `draw(ctx, t, lt, tf)`. `lt` is choreography time inside
-  the scene (entrances count from 0, exits from `ND(i)`, the choreographed end);
+  the scene (entrances count from 0, exits from `choreoLen(i)`, the choreographed end);
   `t` is absolute time (kick pulse, flashes); `tf` is the frame's own time, used for
   anything discrete (which card is showing, a count) so a cut never blends two states
   inside one motion-blurred frame.
+- **One timing record per scene.** Every time a sound hangs on (`T_MIX`, `T_SIG`,
+  `T_RANK`, `T_CHECK`, `T_RES`, `T_END`, `scaleContacts()`, `COUNT_SPAN`) lives in one
+  record that both the scene and `cueSheet()` read, so re-timing a scene moves its
+  sound with it. Never type a cue time twice.
 - **Pure function of time.** No state between calls; randomness only from
   `mulberry32(seed)`, never `Math.random`. Anything that must persist is recomputed.
 - **Adding a scene:** one record in `SCENES` (`id`, HUD `name` and `spec`, process

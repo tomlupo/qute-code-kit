@@ -176,14 +176,10 @@ def score(s):
     for k, t in enumerate(c["cards"]):
         if k != c["quiet"]:
             hit(plink(midi(PENTA[k % len(PENTA)]), 0.6), t, 0.14, -0.3 + 0.1 * k)
-    if c["count"]:  # an odometer while the number counts up
-        last = 0
-        for step in range(1, 600):
-            tt = step / 600 * span("count")
-            n = int(40 * (1 - 2 ** (-10 * tt / span("count"))))
-            if n > last:
-                hit(tick(0.02), c["count"][0] + tt, 0.05, 0.2)
-                last = n
+    for t in c[
+        "countTicks"
+    ]:  # an odometer, ticking as fast as the number on screen climbs
+        hit(tick(0.02), t, 0.05, 0.2)
     card = c["cards"][1] - c["cards"][0] if len(c["cards"]) > 1 else beat
     for i in range(int((c["cards"][-1] + card - c["cards"][0]) / (beat / 2))):
         t = c["cards"][0] + i * beat / 2 + beat / 4

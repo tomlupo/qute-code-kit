@@ -72,7 +72,7 @@ const CONTENT = {
   cards: [ // one per slot of the rhythm scene; a `quiet` card is held in silence
     { big: '5', label: 'levels', bg: 'accent' }, { big: '3', label: 'parts', bg: 'paper' }, { count: 1000, label: 'items', bg: 'dark' },
     { word: 'daily', label: 'SIGNALS', bg: 'soft' }, { word: 'weekly', label: 'RANKING', bg: 'accent' },
-    { word: 'monthly', label: 'REPORT', bg: 'paper' }, { word: 'quarterly', label: 'REVIEW', bg: 'mid' }, { quiet: 'calm.', bg: 'dark' },
+    { word: 'monthly', label: 'REPORT', bg: 'paper' }, { word: 'quarterly', label: 'REVIEW', bg: 'mid' }, { quiet: 'breathe.', bg: 'dark' },
   ],
   end: { name: 'Acme Signals', line: 'Built to last', recap: 'SCALE · MIX · SIGNAL · RANKING · CHECK · RESULT' },
 };
@@ -248,6 +248,11 @@ function wrap(ctx, text, maxW) {
 const SC = { x0: 380, x1: 1540, FY: 690, R: 18 };
 const SQ = 0.035; // how long a ball stays squashed on a contact
 const B0 = { t0: 0.95, c0: 3 * BEAT, step: BEAT, settle: 0.22 };
+// the hop contacts and the settle, in choreography time: the ball and the sound both read these
+function scaleContacts() {
+  const n = CONTENT.scale.levels.length, hops = Array.from({ length: n }, (_, k) => B0.c0 + k * B0.step);
+  return { hops, settle: hops[n - 1] + SQ + B0.settle };
+}
 const levelX = (k, n) => (n > 1 ? SC.x0 + (k * (SC.x1 - SC.x0)) / (n - 1) : (SC.x0 + SC.x1) / 2);
 const hopH = (k, n) => lerp(70, 290, n > 2 ? k / (n - 2) : 1);
 function scaleBall(u) {
@@ -262,7 +267,7 @@ function scaleBall(u) {
       return { x: lerp(levelX(k, n), levelX(k + 1, n), f), y: rest - 4 * h * f * (1 - f), v: (-4 * h * (1 - 2 * f)) / T, sq: 0, v0 };
     }
   }
-  const s0 = c0 + (n - 1) * step + SQ, s1 = s0 + B0.settle, h = 28, xl = levelX(n - 1, n);
+  const s1 = scaleContacts().settle, s0 = s1 - B0.settle, h = 28, xl = levelX(n - 1, n);
   if (u < s1) { const f = (u - s0) / (s1 - s0); return { x: xl, y: rest - 4 * h * f * (1 - f), v: (-4 * h * (1 - 2 * f)) / B0.settle, sq: 0, v0 }; }
   if (u < s1 + SQ) return { x: xl, y: rest, v: 0, sq: Math.sin(Math.PI * clamp((u - s1) / SQ)) * 0.3, v0 };
   return { x: xl, y: rest, v: 0, sq: 0, v0 };
@@ -290,7 +295,7 @@ function sScale(ctx, t, lt) {
   ctx.textAlign = 'right'; ctx.fillText(S.high, X(n - 1) + 40, gy + 30);
   // the spacing chart: where the ball was, every third frame
   ctx.fillStyle = THEME.sky; ctx.globalAlpha = 0.8 * fade;
-  const lastHop = B0.c0 + (n - 1) * B0.step + 0.3;
+  const { hops } = scaleContacts(), lastHop = hops[n - 1] + 0.3;
   for (let f = 3; f / FPS <= Math.min(lt, lastHop); f += 3) {
     const st = scaleBall(f / FPS);
     if (st.y < -10) continue;
@@ -298,7 +303,7 @@ function sScale(ctx, t, lt) {
   }
   ctx.textAlign = 'center';
   S.levels.forEach((lv, k) => {
-    const x = X(k), ck = B0.c0 + k * B0.step, hit = lt >= ck, ap = seg(lt, 0.5 + 0.12 * k, 0.9 + 0.12 * k) * fade;
+    const x = X(k), ck = hops[k], hit = lt >= ck, ap = seg(lt, 0.5 + 0.12 * k, 0.9 + 0.12 * k) * fade;
     if (hit && lt < ck + 0.7) {
       const s = (lt - ck) / 0.7;
       ctx.globalAlpha = (1 - s) * 0.7 * fade; ctx.strokeStyle = THEME.sky; ctx.lineWidth = 2;
@@ -324,6 +329,7 @@ function sScale(ctx, t, lt) {
 // One stacked column per level rises on a spring, each with the allowed range of one
 // part beside it. The eye is led to the focus column, then the camera dives into it.
 const PARTC = ['dark', 'accent', 'warm']; // THEME keys of the parts, in order
+const T_MIX = { rise: 0.5, stagger: 0.22, dive: [1.5, 0.3] }; // dive: seconds before the scene's end
 function mixGeom(n) {
   const pitch = Math.min(250, 1250 / n), w = pitch * 0.6;
   return { pitch, w, x0: (W - (n * w + (n - 1) * (pitch - w))) / 2, HC: 480, base: 820 };
@@ -333,8 +339,8 @@ function sMix(ctx, t, lt) {
   ctx.fillStyle = THEME.paper; ctx.fillRect(0, 0, W, H);
   const F = M.focus, P = M.divePart, row = M.rows[F];
   const fx = colX(F) + geo.w / 2, fy = geo.base - (geo.HC * (row.slice(0, P).reduce((a, b) => a + b, 0) + row[P] / 2)) / 100;
-  const zE = E.inExpo(seg(lt, D - 1.5, D - 0.3)), mv = E.inOutCubic(seg(lt, D - 1.5, D - 0.6));
-  camera(ctx, (1 + 0.02 * seg(lt, 0.5, D - 1.5)) * (1 + 24 * zE) * pump(t), (W / 2 - fx) * mv, (H / 2 - fy) * mv, fx, fy);
+  const zE = E.inExpo(seg(lt, D - T_MIX.dive[0], D - T_MIX.dive[1])), mv = E.inOutCubic(seg(lt, D - T_MIX.dive[0], D - 0.6));
+  camera(ctx, (1 + 0.02 * seg(lt, T_MIX.rise, D - T_MIX.dive[0])) * (1 + 24 * zE) * pump(t), (W / 2 - fx) * mv, (H / 2 - fy) * mv, fx, fy);
   const out = 1 - seg(lt, D - 1.55, D - 1.1), focus = E.inOutCubic(seg(lt, D - 3.1, D - 2.5));
   ctx.globalAlpha = out;
   headline(ctx, M.title, M.sub, THEME.text, lt, 0.35);
@@ -348,7 +354,7 @@ function sMix(ctx, t, lt) {
     lx -= w + 60;
   }
   M.rows.forEach((r, k) => {
-    const x = colX(k), g = spring(lt - 0.5 - 0.22 * k, 1.2, 6), a = k === F ? 1 : out * (1 - 0.6 * focus);
+    const x = colX(k), g = spring(lt - T_MIX.rise - T_MIX.stagger * k, 1.2, 6), a = k === F ? 1 : out * (1 - 0.6 * focus);
     if (g <= 0) return;
     const hTot = geo.HC * g;
     ctx.globalAlpha = a;
@@ -385,17 +391,19 @@ function sMix(ctx, t, lt) {
 // ================================================================== SIGNAL
 // Three inputs fold into one composite, which moves a weight inside its range and
 // snaps to the grid. Illustrative numbers are labelled as such on screen.
+const T_SIG = { inputs: 0.7, stagger: 0.25, fold: [2.9, 3.7], connector: [4.0, 4.6], slide: [4.5, 5.3], snap: 5.4 };
 function sSignal(ctx, t, lt) {
   const S = CONTENT.signal, gz = S.gauge, ground = PARTC[CONTENT.mix.divePart], ink = inkOn(ground);
   ctx.fillStyle = THEME[ground]; ctx.fillRect(0, 0, W, H);
   camera(ctx, pump(t));
   headline(ctx, S.title, S.sub, ink, lt, 0.2);
   const AX0 = 500, AX1 = 1020, AC = (AX0 + AX1) / 2, AH = (AX1 - AX0) / 2, yC = 790, comp = S.composite;
-  const fold = E.inOutCubic(seg(lt, 2.9, 3.7));
+  const fold = E.inOutCubic(seg(lt, ...T_SIG.fold));
   ctx.fillStyle = ink;
   S.inputs.forEach(({ name, value }, i) => {
-    const y = lerp(470 + 92 * i, yC, fold), g = E.outExpo(seg(lt, 0.7 + 0.25 * i, 1.6 + 0.25 * i)), val = lerp(value, comp, fold) * g;
-    ctx.globalAlpha = seg(lt, 0.5 + 0.25 * i, 0.9 + 0.25 * i) * (1 - fold);
+    const at0 = T_SIG.inputs + T_SIG.stagger * i; // this input's bar starts growing
+    const y = lerp(470 + 92 * i, yC, fold), g = E.outExpo(seg(lt, at0, at0 + 0.9)), val = lerp(value, comp, fold) * g;
+    ctx.globalAlpha = seg(lt, at0 - 0.2, at0 + 0.2) * (1 - fold);
     setFont(ctx, FAM.sans, 30, 600); ctx.textAlign = 'left'; ctx.fillText(name, 150, y + 10);
     ctx.globalAlpha = 0.28 * seg(lt, 0.3, 0.8) * (i === 0 ? 1 : 1 - fold);
     ctx.fillRect(AX0, y - 1, AX1 - AX0, 2); ctx.fillRect(AC - 1, y - 14, 2, 28);
@@ -403,12 +411,12 @@ function sSignal(ctx, t, lt) {
       ctx.globalAlpha = 1;
       const x0 = Math.min(AC, AC + val * AH), w = Math.abs(val * AH);
       ctx.beginPath(); ctx.roundRect(x0, y - 11, Math.max(2, w), 22, 11); ctx.fill();
-      ctx.globalAlpha = seg(lt, 1.2 + 0.25 * i, 1.6 + 0.25 * i) * (1 - fold);
+      ctx.globalAlpha = seg(lt, at0 + 0.5, at0 + 0.9) * (1 - fold);
       setFont(ctx, FAM.mono, 19, 500); ctx.textAlign = value >= 0 ? 'left' : 'right';
       ctx.fillText(signed(value), AC + val * AH + (value >= 0 ? 18 : -18), y + 7);
     }
   });
-  const ca = seg(lt, 3.5, 4.0);
+  const ca = seg(lt, T_SIG.fold[1] - 0.2, T_SIG.fold[1] + 0.3);
   if (ca > 0) {
     ctx.globalAlpha = ca; setFont(ctx, FAM.sans, 30, 600); ctx.textAlign = 'left'; ctx.fillText(S.label, 150, yC + 10);
     setFont(ctx, FAM.mono, 20, 500); ctx.fillText(signed(comp), AC + comp * AH + 18, yC + 8);
@@ -433,19 +441,19 @@ function sSignal(ctx, t, lt) {
   ctx.globalAlpha = cb; setFont(ctx, FAM.mono, 14, 400); ctx.textAlign = 'left'; ctx.fillText(`${gz.rangeLabel} ${fmt(lo)}–${fmt(hi)}%`, gx(lo), GY - 32);
   ctx.globalAlpha = cb * 0.9; ctx.fillRect(gx(gz.neutral) - 1.5, GY - 24, 3, 48);
   setFont(ctx, FAM.mono, 14, 400); ctx.textAlign = 'center'; ctx.globalAlpha = cb * 0.8; ctx.fillText(`${gz.neutralLabel} ${pct(gz.neutral)}`, gx(gz.neutral), GY + 78);
-  const cp = seg(lt, 4.0, 4.6);
+  const cp = seg(lt, ...T_SIG.connector);
   if (cp > 0) {
     ctx.globalAlpha = 0.6; ctx.strokeStyle = ink; ctx.lineWidth = 2; ctx.setLineDash([1400 * cp, 1400]);
     ctx.beginPath(); ctx.moveTo(AC + comp * AH + 110, yC); ctx.bezierCurveTo(1110, yC, 1110, GY, gx(gz.neutral) - 34, GY); ctx.stroke(); ctx.setLineDash([]);
   }
-  let v = gz.neutral + (gz.overshoot - gz.neutral) * E.outExpo(seg(lt, 4.5, 5.3));
-  if (lt > 5.4) v = lerp(gz.overshoot, gz.target, spring(lt - 5.4, 2.2, 7));
-  const snap = seg(lt, 5.4, 5.45) * (1 - seg(lt, 5.9, 6.3));
+  let v = gz.neutral + (gz.overshoot - gz.neutral) * E.outExpo(seg(lt, ...T_SIG.slide));
+  if (lt > T_SIG.snap) v = lerp(gz.overshoot, gz.target, spring(lt - T_SIG.snap, 2.2, 7));
+  const snap = seg(lt, T_SIG.snap, T_SIG.snap + 0.05) * (1 - seg(lt, T_SIG.snap + 0.5, T_SIG.snap + 0.9));
   if (snap > 0) { ctx.globalAlpha = snap; ctx.fillRect(gx(gz.target) - 1.5, GY + 6, 3, 26); }
   ctx.globalAlpha = cb; ctx.fillStyle = ink;
   ctx.beginPath(); ctx.arc(gx(v), GY, 14, 0, TAU); ctx.fill();
   ctx.fillStyle = THEME[ground]; ctx.beginPath(); ctx.arc(gx(v), GY, 5, 0, TAU); ctx.fill();
-  const tl = seg(lt, 5.45, 5.8);
+  const tl = seg(lt, T_SIG.snap + 0.05, T_SIG.snap + 0.4);
   if (tl > 0) { ctx.globalAlpha = tl; ctx.fillStyle = ink; setFont(ctx, FAM.mono, 16, 500); ctx.textAlign = 'center'; ctx.fillText(`${gz.targetLabel} ${pct(gz.target)}`, gx(gz.target), GY - 64); }
   ctx.globalAlpha = 1;
 }
@@ -462,6 +470,7 @@ function sphereXY(k, r) { // r: film seconds since the check scene began (negati
   const Z = z2 * SPH.R, s = 1300 / (1500 + Z);
   return [SPH.cx + x1 * SPH.R * s, SPH.cy + y1 * SPH.R * s, Z, s];
 }
+const T_RANK = { move: 0.9, land: 0.8, stars: 3.6, starStep: 0.12, fly: [1.2, 0.3] }; // fly: seconds before the end
 const QCOL = ['#34507A', '#2B4FA8', THEME.accent, THEME.accent2, THEME.white]; // score fifths, low to high
 function star(ctx, x, y, r) {
   ctx.beginPath();
@@ -471,10 +480,10 @@ function star(ctx, x, y, r) {
 function sRank(ctx, t, lt) {
   const R = CONTENT.rank, D = choreoLen(at.rank), I = G.items;
   ctx.fillStyle = THEME.dark; ctx.fillRect(0, 0, W, H);
-  const deep = seg(lt, D - 1.2, D - 0.5);
+  const flyAt = D - T_RANK.fly[0], deep = seg(lt, flyAt, D - 0.5);
   if (deep > 0) { ctx.globalAlpha = deep; ctx.fillStyle = THEME.deep; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
-  camera(ctx, pump(t) * (1 + 0.02 * seg(lt, 1.0, D - 1.2) * (1 - E.inOutCubic(seg(lt, D - 1.2, D - 0.2)))), 0, 0, W / 2, 700);
-  const out = 1 - seg(lt, D - 1.3, D - 0.9), x0 = I.x0, span = I.span;
+  camera(ctx, pump(t) * (1 + 0.02 * seg(lt, 1.0, flyAt) * (1 - E.inOutCubic(seg(lt, flyAt, D - 0.2)))), 0, 0, W / 2, 700);
+  const out = 1 - seg(lt, flyAt - 0.1, flyAt + 0.3), x0 = I.x0, span = I.span;
   ctx.globalAlpha = out;
   headline(ctx, R.title, R.sub, THEME.white, lt, 0.2);
   const ax = seg(lt, 0.6, 1.2) * out;
@@ -493,7 +502,8 @@ function sRank(ctx, t, lt) {
       bx += segW;
     });
   }
-  const stars = seg(lt, 3.6, 3.9) * out, focus = seg(lt, 3.5, 3.8) * (1 - seg(lt, D - 1.3, D - 1.1)), fly = seg(lt, D - 1.2, D - 0.3);
+  const stars = seg(lt, T_RANK.stars, T_RANK.stars + 0.3) * out, focus = seg(lt, T_RANK.stars - 0.1, T_RANK.stars + 0.2) * (1 - seg(lt, flyAt - 0.1, flyAt + 0.1));
+  const fly = seg(lt, flyAt, D - T_RANK.fly[1]);
   for (let q = 0; q < 5; q++) {
     const idx = I.groups[q];
     ctx.fillStyle = css(mixc(hex(QCOL[q]), RGB.sky, fly), q < 4 ? 1 - 0.45 * focus : 1);
@@ -501,11 +511,11 @@ function sRank(ctx, t, lt) {
     for (let j = 0; j < idx.length; j++) {
       const i = idx[j];
       const cxp = I.cx[i] + 14 * Math.sin(lt * 0.8 + I.ph[i]), cyp = I.cy[i] + 9 * Math.cos(lt * 0.7 + I.ph[i]);
-      const m = E.inOutCubic(seg(lt, I.del[i], I.del[i] + 0.9));
+      const m = E.inOutCubic(seg(lt, I.del[i], I.del[i] + T_RANK.move));
       let x = lerp(cxp, I.sx[i], m), y = lerp(cyp, I.sy[i], m);
       if (m > 0 && m < 1) { const dx = I.sx[i] - cxp, dy = I.sy[i] - cyp, L = Math.hypot(dx, dy) + 1e-6, sw = Math.sin(Math.PI * m) * 70 * I.sgn[i]; x += (-dy / L) * sw; y += (dx / L) * sw; }
       let z = lerp(5, I.dot, m);
-      const f = E.inOutCubic(seg(lt, D - 1.2 + I.sd[i], D - 0.3 + I.sd[i]));
+      const f = E.inOutCubic(seg(lt, flyAt + I.sd[i], D - T_RANK.fly[1] + I.sd[i]));
       if (f > 0) { const [px, py, , s] = sphereXY(I.perm[i], t - ST[at.check]); x = lerp(x, px, f); y = lerp(y, py, f); z = lerp(z, 1.5 + 2.6 * s, f); }
       ctx.rect(x - z / 2, y - z / 2, z, z);
     }
@@ -515,7 +525,7 @@ function sRank(ctx, t, lt) {
     const b0 = I.topFrom, sx0 = x0 + b0 * I.binW, sw = (I.bins - b0) * I.binW - 8, sy = HIST.base - I.topH - 60;
     ctx.fillStyle = THEME.white;
     for (let k = 0; k < 5; k++) {
-      const sp = spring(lt - 3.6 - 0.12 * k, 2, 7);
+      const sp = spring(lt - T_RANK.stars - T_RANK.starStep * k, 2, 7);
       if (sp <= 0) continue;
       ctx.globalAlpha = stars; star(ctx, sx0 + 26 + ((sw - 52) * k) / 4, sy, 13 * sp);
     }
@@ -528,38 +538,39 @@ function sRank(ctx, t, lt) {
 // ================================================================== CHECK
 // The same items as a slowly turning sphere. A scan passes over it and every item
 // takes its group's colour; the flagged group steps out. Then it all folds into a ring.
+const T_CHECK = { scan: [1.0, 3.6], flag: 3.8, collapse: [1.15, 0.35], collapseStagger: 0.3 }; // collapse: before the end
 function sCheck(ctx, t, lt) {
   const C = CONTENT.check, D = choreoLen(at.check), N = G.sph.length;
   ctx.fillStyle = THEME.deep; ctx.fillRect(0, 0, W, H);
   camera(ctx, pump(t));
-  const out = 1 - seg(lt, D - 1.3, D - 0.9);
+  const out = 1 - seg(lt, D - T_CHECK.collapse[0] - 0.15, D - T_CHECK.collapse[0] + 0.25), scanEnd = T_CHECK.scan[1];
   ctx.globalAlpha = out;
   headline(ctx, C.title, C.sub, THEME.white, lt, 0.3);
   const silR = SPH.R * 0.9; // the sphere's projected silhouette: the scan stays inside it
-  const scanY = lerp(SPH.cy - silR, SPH.cy + silR, E.inOutCubic(seg(lt, 1.0, 3.6)));
-  const flag = spring(lt - 3.8, 1.2, 5);
+  const scanY = lerp(SPH.cy - silR, SPH.cy + silR, E.inOutCubic(seg(lt, ...T_CHECK.scan)));
+  const flag = spring(lt - T_CHECK.flag, 1.2, 5);
   const cls = G.cls, fills = [...C.groups.map(gr => THEME[gr.color] || THEME.muted), css(RGB.sky, 0.85), THEME.accent];
   const unscanned = C.groups.length, ringed = C.groups.length + 1;
   const pts = [];
   for (let k = 0; k < N; k++) {
     let [x, y, Z, s] = sphereXY(k, lt / pace(at.check));
-    if (cls[k] === C.flag && lt > 3.8) { const push = 1 + 0.09 * flag; x = SPH.cx + (x - SPH.cx) * push; y = SPH.cy + (y - SPH.cy) * push; }
-    const m = E.inOutCubic(seg(lt, D - 1.15 + 0.3 * (k / N), D - 0.35 + 0.3 * (k / N)));
+    if (cls[k] === C.flag && lt > T_CHECK.flag) { const push = 1 + 0.09 * flag; x = SPH.cx + (x - SPH.cx) * push; y = SPH.cy + (y - SPH.cy) * push; }
+    const lag = T_CHECK.collapseStagger * (k / N), m = E.inOutCubic(seg(lt, D - T_CHECK.collapse[0] + lag, D - T_CHECK.collapse[1] + lag));
     if (m > 0) { const a = (TAU * k) / N - Math.PI / 2; x = lerp(x, DNC.cx + 272 * Math.cos(a), m); y = lerp(y, DNC.cy + 272 * Math.sin(a), m); s = lerp(s, 0.95, m); Z = lerp(Z, 0, m); }
-    pts.push([x, y, Z, s, m > 0.5 ? ringed : y < scanY || lt > 3.7 ? cls[k] : unscanned]);
+    pts.push([x, y, Z, s, m > 0.5 ? ringed : y < scanY || lt > scanEnd + 0.1 ? cls[k] : unscanned]);
   }
   for (const back of [true, false]) {
     for (let g = 0; g < fills.length; g++) {
       ctx.fillStyle = fills[g]; ctx.globalAlpha = back ? 0.45 : 1; ctx.beginPath();
       for (const [x, y, Z, s, gg] of pts) {
         if (gg !== g || (Z > 0) !== back) continue;
-        const r = (2.6 + 4.2 * (s - 0.7)) * (gg === C.flag && lt > 3.8 ? 1 + 0.6 * Math.exp(-(lt - 3.8) * 3) : 1);
+        const r = (2.6 + 4.2 * (s - 0.7)) * (gg === C.flag && lt > T_CHECK.flag ? 1 + 0.6 * Math.exp(-(lt - T_CHECK.flag) * 3) : 1);
         ctx.moveTo(x + r, y); ctx.arc(x, y, Math.max(0.8, r), 0, TAU);
       }
       ctx.fill();
     }
   }
-  const sa = seg(lt, 0.9, 1.2) * (1 - seg(lt, 3.5, 3.8));
+  const sa = seg(lt, T_CHECK.scan[0] - 0.1, T_CHECK.scan[0] + 0.2) * (1 - seg(lt, scanEnd - 0.1, scanEnd + 0.2));
   if (sa > 0) {
     const dy = scanY - SPH.cy, rx = 1.08 * Math.sqrt(Math.max(0, silR * silR - dy * dy));
     ctx.globalAlpha = sa; ctx.strokeStyle = THEME.accent2; ctx.lineWidth = 2.5; ctx.shadowColor = THEME.accent; ctx.shadowBlur = 24;
@@ -567,16 +578,16 @@ function sCheck(ctx, t, lt) {
     ctx.shadowBlur = 0;
   }
   const lx = 1370;
-  ctx.globalAlpha = out * seg(lt, 3.2, 3.6); setFont(ctx, FAM.sans, 30, 700); ctx.fillStyle = THEME.white; ctx.textAlign = 'left';
+  ctx.globalAlpha = out * seg(lt, scanEnd - 0.4, scanEnd); setFont(ctx, FAM.sans, 30, 700); ctx.fillStyle = THEME.white; ctx.textAlign = 'left';
   ctx.fillText(C.legend, lx, 450);
   C.groups.forEach(({ name, count, color }, k) => {
-    const a = out * seg(lt, 3.4 + 0.18 * k, 3.8 + 0.18 * k), y = 510 + 50 * k;
+    const a = out * seg(lt, scanEnd - 0.2 + 0.18 * k, scanEnd + 0.2 + 0.18 * k), y = 510 + 50 * k;
     if (a <= 0) return;
     ctx.globalAlpha = a; ctx.fillStyle = THEME[color] || THEME.muted; ctx.beginPath(); ctx.arc(lx + 8, y - 8, 8, 0, TAU); ctx.fill();
     ctx.fillStyle = THEME.white; setFont(ctx, FAM.sans, 24, 500); ctx.textAlign = 'left'; ctx.fillText(name, lx + 32, y);
     setFont(ctx, FAM.mono, 20, 500); ctx.textAlign = 'right'; ctx.fillText(fmt(count), 1770, y);
   });
-  ctx.globalAlpha = out * seg(lt, 4.2, 4.6) * 0.6; setFont(ctx, FAM.mono, 13, 400, 2); ctx.textAlign = 'left'; ctx.fillStyle = THEME.white;
+  ctx.globalAlpha = out * seg(lt, scanEnd + 0.6, scanEnd + 1.0) * 0.6; setFont(ctx, FAM.mono, 13, 400, 2); ctx.textAlign = 'left'; ctx.fillStyle = THEME.white;
   ctx.fillText(CONTENT.asOf, lx, 510 + 50 * C.groups.length + 30);
   ctx.globalAlpha = 1;
 }
@@ -585,6 +596,7 @@ function sCheck(ctx, t, lt) {
 // The ring becomes the result: classes inside, items flying into place outside, the
 // names on the right. During the hold each class steps forward in turn.
 const DN = { r0: 150, r1: 212, r2: 224, r3: 318 };
+const T_RES = { sweep: [0.2, 1.6], items: 0.9, itemStep: 0.2, lock: 0.25, focus: 3.2, focusLen: 1.0, flood: [1.1, 0.1] }; // flood: before the end
 function ring(ctx, rin, rout, a0, a1, push = 0) {
   const am = (a0 + a1) / 2, ox = Math.cos(am) * push, oy = Math.sin(am) * push;
   ctx.beginPath(); ctx.arc(DNC.cx + ox, DNC.cy + oy, rout, a0, a1); ctx.arc(DNC.cx + ox, DNC.cy + oy, rin, a1, a0, true); ctx.closePath(); ctx.fill();
@@ -592,11 +604,11 @@ function ring(ctx, rin, rout, a0, a1, push = 0) {
 function sResult(ctx, t, lt) {
   const Rz = CONTENT.result, D = choreoLen(at.result);
   ctx.fillStyle = THEME.paper; ctx.fillRect(0, 0, W, H);
-  camera(ctx, pump(t) * (1 + 0.015 * seg(lt, 1.0, D - 1.1)), 0, 0, DNC.cx, DNC.cy);
+  camera(ctx, pump(t) * (1 + 0.015 * seg(lt, 1.0, D - T_RES.flood[0])), 0, 0, DNC.cx, DNC.cy);
   headline(ctx, Rz.title, Rz.sub, THEME.text, lt, 0.3);
-  const focusOf = c => bump(lt, 3.2 + c, 4.2 + c, 0.3);
+  const focusOf = c => bump(lt, T_RES.focus + c * T_RES.focusLen, T_RES.focus + (c + 1) * T_RES.focusLen, 0.3);
   const anyFocus = Math.max(0, ...Rz.classes.map((_, c) => focusOf(c)));
-  const rot = -Math.PI / 2 + 0.035 * lt, gap = 0.012, A = TAU * E.outExpo(seg(lt, 0.2, 1.6));
+  const rot = -Math.PI / 2 + 0.035 * lt, gap = 0.012, A = TAU * E.outExpo(seg(lt, ...T_RES.sweep));
   let a = 0;
   Rz.classes.forEach(({ weight, color }, c) => {
     const a0 = a, a1 = a + (TAU * weight) / 100, f = focusOf(c);
@@ -607,7 +619,7 @@ function sResult(ctx, t, lt) {
   });
   a = 0;
   Rz.items.forEach(({ weight, color, cls }, k) => {
-    const a0 = a, a1 = a + (TAU * weight) / 100, s = lt - 0.9 - 0.2 * k, sp = spring(s, 1.0, 6), f = focusOf(cls);
+    const a0 = a, a1 = a + (TAU * weight) / 100, s = lt - T_RES.items - T_RES.itemStep * k, sp = spring(s, 1.0, 6), f = focusOf(cls);
     a = a1;
     if (sp <= 0) return;
     const off = 1 - sp;
@@ -638,13 +650,15 @@ function sResult(ctx, t, lt) {
     y += 14;
   });
   ctx.globalAlpha = 1;
-  const fr = 2200 * E.inOutCubic(seg(lt, D - 1.1, D - 0.1)), next = CONTENT.cards[0];
+  const fr = 2200 * E.inOutCubic(seg(lt, D - T_RES.flood[0], D - T_RES.flood[1])), next = CONTENT.cards[0];
   if (fr > 1) { ctx.fillStyle = THEME[next ? next.bg : 'accent']; ctx.beginPath(); ctx.arc(DNC.cx, DNC.cy, fr, 0, TAU); ctx.fill(); }
 }
 
 // ================================================================== RHYTHM
 // Cards on the beat grid: the numbers, then the cadence. A `quiet` card is the
 // punchline: one small word, held in total silence.
+const COUNT_SPAN = 0.55; // share of a card the count-up takes
+const COUNT_TICKS = 40; // odometer ticks the soundtrack plays while the number climbs
 const cardIndex = tf => clamp(Math.floor((tf - ST[at.rhythm]) / CARD + 1e-6), 0, CONTENT.cards.length - 1);
 function sRhythm(ctx, t, lt, tf) {
   const k = cardIndex(tf), c = t - (ST[at.rhythm] + k * CARD), cd = CONTENT.cards[k], fg = inkOn(cd.bg);
@@ -671,7 +685,7 @@ function sRhythm(ctx, t, lt, tf) {
   } else {
     const yb = H / 2 + 70, size = 320;
     if (cd.count) {
-      const n = Math.round(cd.count * E.outExpo(clamp(c / (CARD * 0.55))));
+      const n = Math.round(cd.count * E.outExpo(clamp(c / (CARD * COUNT_SPAN))));
       setFont(ctx, FAM.sans, size, 800, -6);
       const wFinal = ctx.measureText(fmt(cd.count)).width;
       reveal(ctx, fmt(n), W / 2 + wFinal / 2, yb, size, 800, fg, c, { dur: rv, align: 'right', spacing: -6 });
@@ -686,6 +700,7 @@ function sRhythm(ctx, t, lt, tf) {
 // ================================================================== END
 // The name on the downbeat after the silence; the ball from the first scene returns to
 // land as the full stop of the closing line.
+const T_END = { drop: 1.35, contacts: [4 * BEAT, 5 * BEAT], recap: [2.6, 0.8], fade: 0.725 }; // contacts on beats 5 and 6; fade: before the end
 function sEnd(ctx, t, lt) {
   const En = G.end, D = choreoLen(at.end);
   ctx.fillStyle = THEME.dark; ctx.fillRect(0, 0, W, H);
@@ -709,11 +724,11 @@ function sEnd(ctx, t, lt) {
   });
   ctx.restore();
   const b = En.ball, st = b.state(lt);
-  if (lt > 1.1) drawBall(ctx, lerp(En.px + 220, En.px, E.outCubic(clamp((lt - 1.1) / (b.settle - 1.1)))), st, En.rP, b.v0, THEME.accent);
+  if (lt > T_END.drop) drawBall(ctx, lerp(En.px + 220, En.px, E.outCubic(clamp((lt - T_END.drop) / (b.settle - T_END.drop)))), st, En.rP, b.v0, THEME.accent);
   ctx.globalAlpha = 1;
-  typed(ctx, En.recap, W / 2 - En.recapW / 2, En.yb + 270, THEME.white, lt - 2.3, 0.8, { spacing: 4, alpha: 0.6 });
+  typed(ctx, En.recap, W / 2 - En.recapW / 2, En.yb + 270, THEME.white, lt - T_END.recap[0], T_END.recap[1], { spacing: 4, alpha: 0.6 });
   flash(ctx, t, ST[at.end], 0.1, 6);
-  const fo = E.inCubic(seg(lt, D - 0.725, D));
+  const fo = E.inCubic(seg(lt, D - T_END.fade, D));
   if (fo > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = fo; ctx.fillStyle = THEME.dark; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
 }
 
@@ -856,30 +871,40 @@ function initEnd(x) {
   const tot = ws.reduce((a, b) => a + b, 0) + sp * (words.length - 1);
   let cx = W / 2 - tot / 2 - 8;
   const pos = words.map((w, i) => { const o = { text: w, x: cx }; cx += ws[i] + sp; return o; });
-  const ball = makeBounce({ y0: -30, rest: yb2 - rP, tDrop: 1.1, c0: 1.6, c1: 1.96, sq: 0.035 });
+  const ball = makeBounce({ y0: -30, rest: yb2 - rP, tDrop: T_END.drop, c0: T_END.contacts[0], c1: T_END.contacts[1], sq: SQ });
   setFont(x, FAM.mono, 16, 400, 4);
   return { fs, L, yb, yb2, rP, px: W / 2 - tot / 2 - 8 + tot + 5 + rP, ball, words: pos, recap: e.recap, recapW: x.measureText(e.recap).width };
 }
-// the cue sheet: score.py places every sound from these film times
+// the cue sheet: score.py places every sound from these film times. Every entry reads the same
+// timing record its scene animates with, so re-timing a scene moves its sound with it.
 function cueSheet() {
-  const r = v => +v.toFixed(4), n = CONTENT.scale.levels.length, countAt = CONTENT.cards.findIndex(c => c.count);
+  const r = v => +v.toFixed(4), countAt = CONTENT.cards.findIndex(c => c.count), end = i => choreoLen(i);
   const win = (i, a, b) => [r(absTime(i, a)), r(absTime(i, b))];
+  const { hops, settle } = scaleContacts();
+  const countStart = ST[at.rhythm] + countAt * CARD, countLen = COUNT_SPAN * CARD;
+  const invOutExpo = y => (y >= 1 ? 1 : -Math.log2(1 - y) / 10); // when outExpo reaches y
   return {
     bpm: BPM, scenes: SCENES.map(s => s.id), bars: SCENES.map(s => s.bars), starts: ST.map(r), silence: SIL.map(r), groove: GROOVE.map(r),
-    scale: Array.from({ length: n }, (_, k) => r(absTime(at.scale, B0.c0 + k * B0.step))),
-    scaleSettle: r(absTime(at.scale, B0.c0 + (n - 1) * B0.step + SQ + B0.settle)),
+    scale: hops.map(u => r(absTime(at.scale, u))), scaleSettle: r(absTime(at.scale, settle)),
     arrive: r(ST[at.mix]),
-    columns: CONTENT.mix.rows.map((_, k) => r(absTime(at.mix, 0.5 + 0.22 * k))), dive: win(at.mix, choreoLen(at.mix) - 1.5, choreoLen(at.mix) - 0.3), cut: r(ST[at.signal]),
-    inputs: CONTENT.signal.inputs.map((_, i) => r(absTime(at.signal, 0.7 + 0.25 * i))), fold: r(absTime(at.signal, 2.9)), connector: r(absTime(at.signal, 4.0)),
-    slide: win(at.signal, 4.5, 5.3), snap: r(absTime(at.signal, 5.4)), push: [r(ST[at.rank] - PUSH), r(ST[at.rank])],
-    landings: Array.from(G.items.del, d => r(absTime(at.rank, d + 0.8))), stars: [0, 1, 2, 3, 4].map(k => r(absTime(at.rank, 3.6 + 0.12 * k))),
-    fly: win(at.rank, choreoLen(at.rank) - 1.2, choreoLen(at.rank) - 0.1),
-    scan: win(at.check, 1.0, 3.6), flag: r(absTime(at.check, 3.8)), collapse: win(at.check, choreoLen(at.check) - 1.15, choreoLen(at.check) - 0.05),
-    iris: r(ST[at.result]), sweep: r(absTime(at.result, 0.2)), items: CONTENT.result.items.map((_, k) => r(absTime(at.result, 0.9 + 0.2 * k + 0.25))),
-    focus: CONTENT.result.classes.map((_, c) => r(absTime(at.result, 3.2 + c))), flood: win(at.result, choreoLen(at.result) - 1.1, choreoLen(at.result) - 0.1),
+    columns: CONTENT.mix.rows.map((_, k) => r(absTime(at.mix, T_MIX.rise + T_MIX.stagger * k))),
+    dive: win(at.mix, end(at.mix) - T_MIX.dive[0], end(at.mix) - T_MIX.dive[1]), cut: r(ST[at.signal]),
+    inputs: CONTENT.signal.inputs.map((_, i) => r(absTime(at.signal, T_SIG.inputs + T_SIG.stagger * i))),
+    fold: r(absTime(at.signal, T_SIG.fold[0])), connector: r(absTime(at.signal, T_SIG.connector[0])),
+    slide: win(at.signal, ...T_SIG.slide), snap: r(absTime(at.signal, T_SIG.snap)), push: [r(ST[at.rank] - PUSH), r(ST[at.rank])],
+    landings: Array.from(G.items.del, d => r(absTime(at.rank, d + T_RANK.land))),
+    stars: [0, 1, 2, 3, 4].map(k => r(absTime(at.rank, T_RANK.stars + T_RANK.starStep * k))),
+    fly: [r(absTime(at.rank, end(at.rank) - T_RANK.fly[0])), r(ST[at.check])],
+    scan: win(at.check, ...T_CHECK.scan), flag: r(absTime(at.check, T_CHECK.flag)),
+    collapse: win(at.check, end(at.check) - T_CHECK.collapse[0], end(at.check) - T_CHECK.collapse[1] + T_CHECK.collapseStagger),
+    iris: r(ST[at.result]), sweep: r(absTime(at.result, T_RES.sweep[0])),
+    items: CONTENT.result.items.map((_, k) => r(absTime(at.result, T_RES.items + T_RES.itemStep * k + T_RES.lock))),
+    focus: CONTENT.result.classes.map((_, c) => r(absTime(at.result, T_RES.focus + c * T_RES.focusLen))),
+    flood: win(at.result, end(at.result) - T_RES.flood[0], end(at.result) - T_RES.flood[1]),
     cards: CONTENT.cards.map((_, k) => r(ST[at.rhythm] + k * CARD)), quiet: QUIET,
-    count: countAt < 0 ? null : [r(ST[at.rhythm] + countAt * CARD), r(ST[at.rhythm] + (countAt + 0.55) * CARD)],
-    end: r(ST[at.end]), endBall: G.end.ball.contacts.map(c => r(absTime(at.end, c))), fade: [r(absTime(at.end, choreoLen(at.end) - 0.725)), r(DUR)],
+    count: countAt < 0 ? null : [r(countStart), r(countStart + countLen)],
+    countTicks: countAt < 0 ? [] : Array.from({ length: COUNT_TICKS }, (_, k) => r(countStart + countLen * invOutExpo((k + 1) / COUNT_TICKS))),
+    end: r(ST[at.end]), endBall: G.end.ball.contacts.map(c => r(absTime(at.end, c))), fade: [r(absTime(at.end, end(at.end) - T_END.fade)), r(DUR)],
   };
 }
 async function init() {

@@ -26,6 +26,7 @@ blends two cards. Continuous motion uses `t`.
 
 | job | time |
 |---|---|
+| `render.py check`, 1,065 frames of 56 s at one sample | about 50 s |
 | review sheets, 64 frames | 5–6 s |
 | 900 frames × 8 sub-frames | 42–69 s |
 | 3,375 frames (56 s) × 8 sub-frames | 134–146 s |
