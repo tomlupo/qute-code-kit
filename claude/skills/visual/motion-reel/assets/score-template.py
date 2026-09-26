@@ -82,20 +82,21 @@ def score(s):
             wet=0.1,
         )
     hit(plink(midi(89)), c["scaleSettle"], 0.09, 0.6)
-    hit(whoosh(1.2, 200, 2500, 0.92, (0, 0)), c["arrive"] - 1.1, 0.12)
+    # the ball rises into the ring: a swell that peaks on the arrival
+    rise = c["rise"][0]
+    hit(whoosh(c["arrive"] - rise + 0.1, 200, 2500, 0.92, (0, 0)), rise, 0.12)
     hit(soft_impact(2.6), c["arrive"], 0.55, wet=0.2)
 
-    # ---- the groove: kick on 1 and the and-of-2, rim on 3, eighth ticks, bass, pads
+    # ---- the groove: the kicks reel.js pulses on (KICK), rim on 3, eighth ticks, bass, pads
     bars = []
     b = g0
     while b < g1 - 1e-6:
         bars.append(b)
         b += bar
+    for t in c["kicks"]:  # a kick on a bar line hits harder
+        s.kick(t, 0.72 if min(abs(t - x) for x in bars) < 1e-3 else 0.5)
     for j, b in enumerate(bars):
         notes, root = CHORDS[j % len(CHORDS)]
-        for off, gain in ((0, 0.72), (1.5 * beat, 0.5)):
-            if b + off < g1:
-                s.kick(b + off, gain)
         if b + 2 * beat < g1:
             r = rim()
             s.drums.add(r, b + 2 * beat, 0.2, 0.1)
@@ -138,8 +139,8 @@ def score(s):
     hit(soft_impact(1.6), c["cut"], 0.25)
     for k, t in enumerate(c["inputs"]):
         hit(woodblock(midi(84 + 2 * k) * 1.5, 0.08), t, 0.1)
-    hit(whoosh(0.8, 400, 2500, 0.6, (-0.3, 0.3)), c["fold"], 0.08)
-    hit(whoosh(0.6, 600, 3000, 0.5, (-0.2, 0.4)), c["connector"], 0.05)
+    hit(whoosh(span("fold"), 400, 2500, 0.6, (-0.3, 0.3)), c["fold"][0], 0.08)
+    hit(whoosh(span("connector"), 600, 3000, 0.5, (-0.2, 0.4)), c["connector"][0], 0.05)
     hit(glide(660, 780, span("slide")) * 0.5, c["slide"][0], 0.1, 0.4)
     hit(woodblock(2600, 0.06), c["snap"], 0.22, 0.4)
     hit(whoosh(span("push") + 0.1, 250, 4000, 0.8, (0, 0)), c["push"][0], 0.14)
@@ -162,7 +163,7 @@ def score(s):
         0.14,
     )
     hit(soft_impact(1.6), c["iris"], 0.22)
-    hit(whoosh(1.4, 300, 2000, 0.5, (-0.4, 0.4)), c["sweep"], 0.1)
+    hit(whoosh(span("sweep"), 300, 2000, 0.5, (-0.4, 0.4)), c["sweep"][0], 0.1)
     for k, t in enumerate(c["items"]):
         hit(
             woodblock(midi(PENTA[k % len(PENTA)] - 5) * 2, 0.09),
@@ -176,12 +177,10 @@ def score(s):
     for k, t in enumerate(c["cards"]):
         if k != c["quiet"]:
             hit(plink(midi(PENTA[k % len(PENTA)]), 0.6), t, 0.14, -0.3 + 0.1 * k)
-    for t in c[
-        "countTicks"
-    ]:  # an odometer, ticking as fast as the number on screen climbs
+    # an odometer, ticking as fast as the number on screen climbs
+    for t in c["countTicks"]:
         hit(tick(0.02), t, 0.05, 0.2)
-    card = c["cards"][1] - c["cards"][0] if len(c["cards"]) > 1 else beat
-    for i in range(int((c["cards"][-1] + card - c["cards"][0]) / (beat / 2))):
+    for i in range(int((c["cards"][-1] + c["card"] - c["cards"][0]) / (beat / 2))):
         t = c["cards"][0] + i * beat / 2 + beat / 4
         if t < g1:
             s.drums.add(tick(0.03), t, 0.03, -0.35)
@@ -189,6 +188,7 @@ def score(s):
     # ---- the end: after the silence, a warm arrival and the last chord; the ball lands as the full stop
     if c["silence"][1] > c["silence"][0]:
         s.silence(*c["silence"])
+    s.fade_out = span("fade")  # the sound fades with the picture
     hit(soft_impact(3.2), c["end"], 0.7, wet=0.25)
     s.pad.add(
         pad(FINAL, s.dur - c["end"] - 0.3, attack=0.01, release=0.3), c["end"], 1.25

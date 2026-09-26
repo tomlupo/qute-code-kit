@@ -211,12 +211,11 @@ def cmd_still(project, a):
 
 def cmd_frames(project, a):
     info = with_page(project, lambda page: page.evaluate("window.INFO"))
-    total = info["frames"]
-    frames = list(range(total)) if not a.range else parse_range(a.range)
+    frames = list(range(info["frames"]))
     out = project / "frames"
-    if not a.range and out.exists():
+    if out.exists():  # every frame from this reel.js, never a mix of two versions
         shutil.rmtree(out)
-    out.mkdir(exist_ok=True)
+    out.mkdir()
     port, workers = serve(project), max(1, min(a.workers, len(frames)))
     t0 = time.time()
     print(f"rendering {len(frames)} frames, {a.sub} sub-frames each, {workers} workers")
@@ -234,17 +233,6 @@ def cmd_frames(project, a):
         raise SystemExit(f"{len(missing)} frames missing, first {missing[:5]}")
 
 
-def parse_range(s):
-    out = []
-    for part in s.split(","):
-        if "-" in part:
-            lo, hi = map(int, part.split("-"))
-            out += range(lo, hi + 1)
-        elif part:
-            out.append(int(part))
-    return out
-
-
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -258,7 +246,6 @@ def main():
         help="motion-blur sub-frames (default 8 for frames/still, 1 for sheets)",
     )
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
-    ap.add_argument("--range", default="", help="frames only: e.g. 0-299,600")
     ap.add_argument("--t", type=float, default=0.0, help="still only: time in seconds")
     a = ap.parse_args()
     project = a.project.resolve()

@@ -27,83 +27,78 @@ Playwright's Chromium is installed on first use.
    the one command for every later step. The template is a complete 8-scene,
    56-second demo with placeholder copy: it renders before you change anything.
 
-2. **Pin the story and the facts before any pixels.** Read the numbers from their
-   source (config, data, a document the user points to) and write them into
-   `CONTENT` with the as-of date; the template's numbers are invented placeholders, and
-   none may survive into a real film. A number with no source does not go on screen. An
-   illustrative value is labelled on screen (`CONTENT.signal.tag`). No performance
-   or return claims unless the user supplies them with their source. Copy follows the
-   brand's voice and language; `CONTENT.locale` formats every number.
+2. **Pin the story and the facts before any pixels.** Read every number from its
+   source (config, data, a document the user points to) into `CONTENT`, with the
+   as-of date. The template's numbers are invented placeholders: none may survive
+   into a real film, and a number with no source does not go on screen. What else may
+   appear (illustrations, performance claims, a real brand) is in
+   `references/craft.md` under "Honesty on screen". Copy follows the brand's voice and
+   language; `CONTENT.locale` formats every number.
 
 3. **Pace it: each scene's `bars` in `SCENES`.** A scene is choreographed for `nom`
-   bars at 128 BPM and stretches or squeezes to the bars it gets. The defaults (3–4 bars a scene, 56 s)
-   were set after a 15-second cut of the same content came back "too fast": a scene
-   that carries numbers needs about 7 s. All 1s is a 15-second teaser for mood, not
-   for reading. Reading rules are in `references/craft.md`.
+   bars at 128 BPM and stretches or squeezes to the bars it gets. A scene that
+   carries numbers needs about 4 bars (7.5 s); all 1s is a 15-second teaser for mood,
+   not for reading. Reading time and re-timing: `references/craft.md`, "The grid".
 
-4. **Look: `THEME`, `FAM`, `GRAIN`, and each scene's `bloom` and `vig`.** Take colours and type from the
-   brand. A calm brand gets eased motion, no flashes and no chromatic glitches; a
-   showreel may punch. `LIGHT` lists the grounds that take dark type.
+4. **Look: `THEME`, `FAM`, `GRAIN`, and each scene's `bloom` and `vig`.** Take colours
+   and type from the brand, and pick one register per film, calm or punchy
+   (`references/craft.md`, "Restraint"). `LIGHT` lists the grounds that take dark type.
 
-5. **Review loop, about a minute.** `./make.sh sheets` first runs `render.py check`,
-   which draws every quarter second of the film and two seconds around every cut at
-   one sample each and fails on the first script error (about 50 s for 56 s of film),
-   then renders 8 frames per scene into `review/sheet-*.png` (4 PNGs, seconds). Sheets alone sample too sparsely to
-   prove a scene runs: a template once shipped with an error between two samples.
-   **Read every sheet** before
-   rendering in full: clipped or colliding text, a transition that does not cover the
-   frame, a scene that reads too small. Fix `reel.js`, re-run, repeat. The loop costs
-   about a minute; the full render about five.
+5. **Review loop, about a minute.** `./make.sh sheets` runs `render.py check` (about
+   50 s; what it proves is in `references/pipeline.md`, "Checks that fail loudly") and
+   then writes 8 frames per scene into `review/sheet-*.png`. **Read every sheet**
+   before rendering in full: clipped or colliding text, a transition that does not
+   cover the frame, a scene that reads too small. Sheets are quarter size; for small
+   type, `./make.sh still 39.9` renders that second at full size. Fix `reel.js`,
+   re-run, repeat.
 
-6. **Render, score, encode.** `./make.sh all`: every frame with motion blur
-   (`render.py frames`, parallel workers), the soundtrack (`synth.py`), the video
-   (`encode.py`: a CRF-14 master plus `NAME.mp4`, the lowest CRF under `--max-mb`,
-   default 29 MiB for chat uploads), and a contact sheet pulled from the encoded
-   file. Each step exits non-zero when it cannot vouch for its output: a page error, a
-   missing frame, a decoded frame count that differs from `cues.json`, a silence
-   window that is not silent.
+6. **Render, score, encode.** `./make.sh all`: every frame with motion blur (a few
+   minutes), the soundtrack, the video (a CRF-14 master plus `NAME.mp4`, the lowest
+   CRF under `--max-mb`, default 29 MiB for chat uploads), and a contact sheet pulled
+   from the encoded file. Every step exits non-zero when it cannot vouch for its
+   output.
 
 7. **Verify what ships, then report.** Look at `review/NAME-sheet.png` (frames of
-   the ENCODED file) and at 1:1 crops of the densest text, e.g.
-   `ffmpeg -ss 12.5 -i NAME.mp4 -frames:v 1 -vf crop=1100:560:760:300 crop.png`.
-   Quote what `encode.py` printed (frames, duration, size) and the levels `synth.py`
-   printed at its checks. You cannot listen: say that the mix is measured, not judged
-   by ear.
+   the ENCODED file) and at 1:1 crops of the densest text, in the template the result
+   legend: `./make.sh review --at 39.9 --crop 1100:560:760:300`. Quote what `encode.py`
+   printed (frames, duration, size) and the levels `synth.py` printed at its checks.
+   You cannot listen: say that the mix is measured, not judged by ear.
 
 ## Editing reel.js
 
 - **Contract.** A scene is `draw(ctx, t, lt, tf)`. `lt` is choreography time inside
-  the scene (entrances count from 0, exits from `choreoLen(i)`, the choreographed end);
-  `t` is absolute time (kick pulse, flashes); `tf` is the frame's own time, used for
-  anything discrete (which card is showing, a count) so a cut never blends two states
-  inside one motion-blurred frame.
-- **One timing record per scene.** Every time a sound hangs on (`T_MIX`, `T_SIG`,
-  `T_RANK`, `T_CHECK`, `T_RES`, `T_END`, `scaleContacts()`, `COUNT_SPAN`) lives in one
-  record that both the scene and `cueSheet()` read, so re-timing a scene moves its
-  sound with it. Never type a cue time twice.
+  the scene: entrances count from 0, exits back from `choreoLen(i)`, the choreographed
+  end. `t` is film time (the kick pulse, flashes). `tf` is the frame's own time, for
+  anything discrete, such as which card shows or a count (why: `references/pipeline.md`,
+  "Motion blur").
+- **One timing record per scene.** Every time a sound hangs on lives in one record
+  that both the scene and `cueSheet()` read: `T_SCALE`, `T_MIX`, `T_SIG`, `T_RANK`,
+  `T_CHECK`, `T_RES`, `COUNT`, `T_END`, and `KICK` for the groove. A sound on an eased
+  motion sits where the easing gets there (`reach(ease, y)`), a sound on a spring where
+  it lands (`springLands(f)`). Re-timing a scene then moves its sound with it. Never
+  type a cue time twice.
 - **Pure function of time.** No state between calls; randomness only from
   `mulberry32(seed)`, never `Math.random`. Anything that must persist is recomputed.
 - **Adding a scene:** one record in `SCENES` (`id`, HUD `name` and `spec`, process
   `step`, `nom` and `bars`, `ground`, `bloom`, `vig`, `draw`), its copy in `CONTENT`,
-  its sound cues in `cueSheet()`, their sounds in `score.py`. Refer to scenes by id
-  (`ST[at.check]`), never by position. Transitions live in `TRANS`, windowed in film
-  time via `absTime(i, u)`, which maps choreography time `u` of scene `i` to the film.
+  its timing record, its cues in `cueSheet()`, their sounds in `score.py`. Refer to
+  scenes by id (`ST[at.check]`), never by position. Transitions live in `TRANS`,
+  windowed in film time via `absTime(i, u)`, which maps choreography time `u` of
+  scene `i` to the film.
 - **Layout** assumes 1920×1080 at 60 fps. Another aspect ratio means revisiting
   every scene's coordinates; review sheets will show where.
 
 ## Sound
 
-`score.py` is a function `score(s)` over a `Session`: six buses (`drums`, `bass`,
-`pad`, `keys`, `fx`, `send` for reverb), instruments from `synth.py`, `s.kick(t)` for
-kicks that also duck the pads, `s.silence(t0, t1)` for gated silence, and
-`s.check(label, t)` for levels to print after the mix. Place every sound from `s.cues`,
-never from a typed time. See `references/sound.md`.
+`score.py` is a function `score(s)` over a `Session` from `synth.py`. Place every
+sound from `s.cues`, never from a typed time. The buses, the instruments, gated
+silence and the level checks are in `references/sound.md`.
 
 ## References
 
 - `references/craft.md`: timing grid, easing and spring settings, reading time,
-  holds that stay alive, the transition catalogue, restraint.
+  holds that stay alive, the transition catalogue, restraint, honesty on screen.
 - `references/pipeline.md`: motion blur, `t` versus `tf`, headless canvas and font
-  pitfalls, encoding and file sizes, render costs.
+  pitfalls, the checks, encoding and file sizes, render costs.
 - `references/sound.md`: scoring to the cue sheet, the instrument set, the mix,
   checking a soundtrack you cannot hear.

@@ -11,6 +11,8 @@ writes make.sh, which runs every later step:
     ./make.sh sheets    check the whole timeline, then review contact sheets
     ./make.sh all       check, frames with motion blur, soundtrack, video, review sheet
     ./make.sh info | check | frames | audio | encode | review    one step at a time
+    ./make.sh still 12.5                         one frame at full size, before the render
+    ./make.sh review --at 12.5 [--crop W:H:X:Y]  one frame of the encoded video
 """
 
 import argparse
@@ -23,7 +25,7 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parent.parent
 MAKE = """#!/usr/bin/env bash
 # motion-reel project. Every step reads reel.js (picture) and score.py (sound).
-USAGE="usage: ./make.sh [sheets|all|info|check|frames|audio|encode|review]"
+USAGE="usage: ./make.sh [sheets|all|info|check|frames|audio|encode|review|still SECONDS]"
 set -euo pipefail
 cd "$(dirname "$0")"
 SCRIPTS="{scripts}"
@@ -36,7 +38,8 @@ case "${{1:-all}}" in
   frames) run render.py info . && run render.py check . && run render.py frames . ;;
   audio)  run render.py info . && run synth.py . ;;
   encode) run encode.py . --name "$NAME" ;;
-  review) run encode.py review "$NAME.mp4" ;;
+  review) run encode.py review "$NAME.mp4" "${{@:2}}" ;;
+  still)  run render.py still . --t "${{2:?$USAGE}}" ;;
   all)    run render.py info . && run render.py check . && run render.py frames . && run synth.py . \\
             && run encode.py . --name "$NAME" && run encode.py review "$NAME.mp4" ;;
   *) echo "$USAGE" >&2; exit 2 ;;

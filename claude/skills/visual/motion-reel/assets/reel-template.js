@@ -118,6 +118,7 @@ const CARD = sceneLen(at.rhythm) / CONTENT.cards.length;
 const QUIET = CONTENT.cards.findIndex(c => c.quiet);
 const SIL = QUIET < 0 ? [ST[at.end], ST[at.end]] : [ST[at.rhythm] + QUIET * CARD, ST[at.rhythm] + (QUIET + 1) * CARD];
 const GROOVE = [ST[at.mix], SIL[0]]; // the drums play from the second scene until the silence
+const KICK = [0, 1.5]; // the groove's kicks, in beats after each bar line (half time); [0, 1, 2, 3] is four on the floor
 const TAU = Math.PI * 2;
 
 // ------------------------------------------------------------------ colour and number helpers
@@ -144,8 +145,15 @@ const E = {
   inExpo: x => (x <= 0 ? 0 : 2 ** (10 * x - 10)),
   inOutExpo: x => (x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? 2 ** (20 * x - 10) / 2 : (2 - 2 ** (-20 * x + 10)) / 2),
 };
+// where a rising easing reaches y (bisection), so a sound hung on an eased motion follows the easing
+function reach(ease, y) {
+  let a = 0, b = 1;
+  for (let i = 0; i < 40; i++) { const m = (a + b) / 2; if (ease(m) < y) a = m; else b = m; }
+  return b;
+}
 // damped spring: seconds since release -> 0..1, overshooting on the way (f in Hz, d = decay)
 const spring = (s, f = 3, d = 7) => (s <= 0 ? 0 : 1 - Math.exp(-d * s) * Math.cos(TAU * f * s));
+const springLands = f => 1 / (4 * f); // when spring(s, f) first reaches its target
 const bump = (t, a, b, edge) => seg(t, a, a + edge) * (1 - seg(t, b - edge, b));
 const hash = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 function mulberry32(a) {
@@ -173,11 +181,16 @@ function camera(ctx, z = 1, dx = 0, dy = 0, cx = W / 2, cy = H / 2) {
   ctx.scale(z, z);
   ctx.translate(-cx, -cy);
 }
-// the half-time kick as the picture feels it: beat one and the and-of-two, within the groove
+// the kick as the picture feels it: a pulse on every kick of KICK, within the groove
 function kick(t) {
   if (t < GROOVE[0] || t >= GROOVE[1]) return 0;
-  const u = (t - GROOVE[0]) % BAR, last = u >= 1.5 * BEAT ? 1.5 * BEAT : 0;
+  const u = (t - GROOVE[0]) % BAR, last = Math.max(...KICK.map(k => k * BEAT).filter(o => o <= u + 1e-9));
   return Math.exp(-(u - last) * 8);
+}
+function kickTimes() { // every kick in the groove, for the soundtrack
+  const out = [];
+  for (let b = GROOVE[0]; b < GROOVE[1] - 1e-6; b += BAR) for (const k of KICK) if (b + k * BEAT < GROOVE[1] - 1e-6) out.push(b + k * BEAT);
+  return out;
 }
 const pump = t => 1 + 0.005 * kick(t);
 // text rising out of a mask under its own baseline
@@ -218,7 +231,10 @@ function drawBall(ctx, x, st, r, v0, col) {
 }
 // a ball that falls, lands on c0, bounces to land again on c1, and settles with the same restitution
 function makeBounce({ y0, rest, tDrop, c0, c1, sq }) {
+  if (!(tDrop < c0 && c0 + sq < c1)) throw new Error(`makeBounce: need drop < first contact < second contact, got ${tDrop} / ${c0} / ${c1}`);
   const h0 = rest - y0, g = (2 * h0) / (c0 - tDrop) ** 2, air0 = c1 - c0 - sq, h1 = (g * (air0 / 2) ** 2) / 2, e2 = h1 / h0;
+  // a second contact too late for the drop means each bounce is higher than the last: it would never settle
+  if (!(e2 < 1)) throw new Error(`makeBounce: contacts ${c0} and ${c1} after a drop at ${tDrop} bounce higher than the drop; bring the second contact closer`);
   const contacts = [c0], vin = [Math.sqrt(2 * g * h0)], air = [];
   let h = h1, tc = c0;
   while (h > 1.2) { const a = 2 * Math.sqrt((2 * h) / g); air.push(a); tc += sq + a; contacts.push(tc); vin.push(Math.sqrt(2 * g * h)); h *= e2; }
@@ -247,33 +263,36 @@ function wrap(ctx, text, maxW) {
 // is the risk. Then it rises, takes the accent colour and opens into the next scene.
 const SC = { x0: 380, x1: 1540, FY: 690, R: 18 };
 const SQ = 0.035; // how long a ball stays squashed on a contact
-const B0 = { t0: 0.95, c0: 3 * BEAT, step: BEAT, settle: 0.22 };
+// drop: the ball starts falling; c0, step: the first contact and one hop per beat; settle: the
+// last little hop; rise, iris: seconds before the scene's end, the ball rises to the centre and
+// the ring opens into the next scene
+const T_SCALE = { drop: 0.95, c0: 3 * BEAT, step: BEAT, settle: 0.22, rise: [1.025, 0.525], iris: 0.45 };
 // the hop contacts and the settle, in choreography time: the ball and the sound both read these
 function scaleContacts() {
-  const n = CONTENT.scale.levels.length, hops = Array.from({ length: n }, (_, k) => B0.c0 + k * B0.step);
-  return { hops, settle: hops[n - 1] + SQ + B0.settle };
+  const n = CONTENT.scale.levels.length, hops = Array.from({ length: n }, (_, k) => T_SCALE.c0 + k * T_SCALE.step);
+  return { hops, settle: hops[n - 1] + SQ + T_SCALE.settle };
 }
 const levelX = (k, n) => (n > 1 ? SC.x0 + (k * (SC.x1 - SC.x0)) / (n - 1) : (SC.x0 + SC.x1) / 2);
 const hopH = (k, n) => lerp(70, 290, n > 2 ? k / (n - 2) : 1);
 function scaleBall(u) {
-  const n = CONTENT.scale.levels.length, { t0, c0, step } = B0, y0 = -60, rest = SC.FY - SC.R;
-  const g = (2 * (rest - y0)) / (c0 - t0) ** 2, v0 = g * (c0 - t0);
-  if (u < c0) { const s = Math.max(0, u - t0); return { x: levelX(0, n), y: y0 + 0.5 * g * s * s, v: g * s, sq: 0, v0 }; }
+  const n = CONTENT.scale.levels.length, { hops, settle } = scaleContacts(), t0 = T_SCALE.drop, y0 = -60, rest = SC.FY - SC.R;
+  const g = (2 * (rest - y0)) / (hops[0] - t0) ** 2, v0 = g * (hops[0] - t0);
+  if (u < hops[0]) { const s = Math.max(0, u - t0); return { x: levelX(0, n), y: y0 + 0.5 * g * s * s, v: g * s, sq: 0, v0 }; }
   for (let k = 0; k < n; k++) {
-    const ck = c0 + k * step, strength = Math.min(1, Math.sqrt((k === 0 ? rest - y0 : hopH(k - 1, n)) / 290));
+    const ck = hops[k], strength = Math.min(1, Math.sqrt((k === 0 ? rest - y0 : hopH(k - 1, n)) / 290));
     if (u < ck + SQ) return { x: levelX(k, n), y: rest, v: 0, sq: Math.sin(Math.PI * clamp((u - ck) / SQ)) * strength, v0 };
-    if (k < n - 1 && u < c0 + (k + 1) * step) {
-      const s0 = ck + SQ, T = c0 + (k + 1) * step - s0, f = (u - s0) / T, h = hopH(k, n);
+    if (k < n - 1 && u < hops[k + 1]) {
+      const s0 = ck + SQ, T = hops[k + 1] - s0, f = (u - s0) / T, h = hopH(k, n);
       return { x: lerp(levelX(k, n), levelX(k + 1, n), f), y: rest - 4 * h * f * (1 - f), v: (-4 * h * (1 - 2 * f)) / T, sq: 0, v0 };
     }
   }
-  const s1 = scaleContacts().settle, s0 = s1 - B0.settle, h = 28, xl = levelX(n - 1, n);
-  if (u < s1) { const f = (u - s0) / (s1 - s0); return { x: xl, y: rest - 4 * h * f * (1 - f), v: (-4 * h * (1 - 2 * f)) / B0.settle, sq: 0, v0 }; }
+  const s1 = settle, s0 = s1 - T_SCALE.settle, h = 28, xl = levelX(n - 1, n);
+  if (u < s1) { const f = (u - s0) / (s1 - s0); return { x: xl, y: rest - 4 * h * f * (1 - f), v: (-4 * h * (1 - 2 * f)) / T_SCALE.settle, sq: 0, v0 }; }
   if (u < s1 + SQ) return { x: xl, y: rest, v: 0, sq: Math.sin(Math.PI * clamp((u - s1) / SQ)) * 0.3, v0 };
   return { x: xl, y: rest, v: 0, sq: 0, v0 };
 }
 function irisGeom(t) {
-  if (t < ST[at.mix]) return { hole: 24 * E.outCubic(seg(t, absTime(at.scale, choreoLen(at.scale) - 0.45), ST[at.mix])), outer: 44 };
+  if (t < ST[at.mix]) return { hole: 24 * E.outCubic(seg(t, absTime(at.scale, choreoLen(at.scale) - T_SCALE.iris), ST[at.mix])), outer: 44 };
   const e = E.outExpo(seg(t, ST[at.mix], absTime(at.mix, 0.65))), hole = lerp(24, 1260, e);
   return { hole, outer: hole + lerp(20, 3, e) };
 }
@@ -321,7 +340,7 @@ function sScale(ctx, t, lt) {
   });
   ctx.globalAlpha = 1;
   if (t >= ST[at.mix]) { ctx.fillStyle = THEME.accent; ctx.beginPath(); ctx.arc(W / 2, H / 2, irisGeom(t).outer, 0, TAU); ctx.fill(); return; }
-  const st = scaleBall(lt), rise = E.inOutCubic(seg(lt, D - 1.025, D - 0.525));
+  const st = scaleBall(lt), rise = E.inOutCubic(seg(lt, D - T_SCALE.rise[0], D - T_SCALE.rise[1]));
   drawBall(ctx, lerp(st.x, W / 2, rise), { y: lerp(st.y, H / 2, rise), v: st.v * (1 - rise), sq: st.sq * (1 - rise) }, lerp(SC.R, 44, rise), st.v0, css(mixc(RGB.white, RGB.accent, rise)));
 }
 
@@ -470,7 +489,9 @@ function sphereXY(k, r) { // r: film seconds since the check scene began (negati
   const Z = z2 * SPH.R, s = 1300 / (1500 + Z);
   return [SPH.cx + x1 * SPH.R * s, SPH.cy + y1 * SPH.R * s, Z, s];
 }
-const T_RANK = { move: 0.9, land: 0.8, stars: 3.6, starStep: 0.12, fly: [1.2, 0.3] }; // fly: seconds before the end
+// move: each item's flight into the chart (it lands when the move ends); stars: the first star,
+// then one every starStep; fly: seconds before the end, the items lift into the sphere
+const T_RANK = { move: 0.9, stars: 3.6, starStep: 0.12, starCount: 5, fly: [1.2, 0.3] };
 const QCOL = ['#34507A', '#2B4FA8', THEME.accent, THEME.accent2, THEME.white]; // score fifths, low to high
 function star(ctx, x, y, r) {
   ctx.beginPath();
@@ -524,10 +545,10 @@ function sRank(ctx, t, lt) {
   if (stars > 0) {
     const b0 = I.topFrom, sx0 = x0 + b0 * I.binW, sw = (I.bins - b0) * I.binW - 8, sy = HIST.base - I.topH - 60;
     ctx.fillStyle = THEME.white;
-    for (let k = 0; k < 5; k++) {
+    for (let k = 0; k < T_RANK.starCount; k++) {
       const sp = spring(lt - T_RANK.stars - T_RANK.starStep * k, 2, 7);
       if (sp <= 0) continue;
-      ctx.globalAlpha = stars; star(ctx, sx0 + 26 + ((sw - 52) * k) / 4, sy, 13 * sp);
+      ctx.globalAlpha = stars; star(ctx, sx0 + 26 + ((sw - 52) * k) / Math.max(1, T_RANK.starCount - 1), sy, 13 * sp);
     }
     setFont(ctx, FAM.mono, 13, 500, 2); ctx.textAlign = 'center'; ctx.globalAlpha = stars * 0.8;
     ctx.fillText(R.top, sx0 + sw / 2, sy - 32);
@@ -596,7 +617,10 @@ function sCheck(ctx, t, lt) {
 // The ring becomes the result: classes inside, items flying into place outside, the
 // names on the right. During the hold each class steps forward in turn.
 const DN = { r0: 150, r1: 212, r2: 224, r3: 318 };
-const T_RES = { sweep: [0.2, 1.6], items: 0.9, itemStep: 0.2, lock: 0.25, focus: 3.2, focusLen: 1.0, flood: [1.1, 0.1] }; // flood: before the end
+// sweep: the classes draw on; items: the first item flies in, then one every itemStep, each on a
+// spring of itemSpring Hz (it locks when springLands); focus: each class steps forward for
+// focusLen; flood: seconds before the end, the next card's colour fills the frame
+const T_RES = { sweep: [0.2, 1.6], items: 0.9, itemStep: 0.2, itemSpring: 1.0, focus: 3.2, focusLen: 1.0, flood: [1.1, 0.1] };
 function ring(ctx, rin, rout, a0, a1, push = 0) {
   const am = (a0 + a1) / 2, ox = Math.cos(am) * push, oy = Math.sin(am) * push;
   ctx.beginPath(); ctx.arc(DNC.cx + ox, DNC.cy + oy, rout, a0, a1); ctx.arc(DNC.cx + ox, DNC.cy + oy, rin, a1, a0, true); ctx.closePath(); ctx.fill();
@@ -619,7 +643,7 @@ function sResult(ctx, t, lt) {
   });
   a = 0;
   Rz.items.forEach(({ weight, color, cls }, k) => {
-    const a0 = a, a1 = a + (TAU * weight) / 100, s = lt - T_RES.items - T_RES.itemStep * k, sp = spring(s, 1.0, 6), f = focusOf(cls);
+    const a0 = a, a1 = a + (TAU * weight) / 100, s = lt - T_RES.items - T_RES.itemStep * k, sp = spring(s, T_RES.itemSpring, 6), f = focusOf(cls);
     a = a1;
     if (sp <= 0) return;
     const off = 1 - sp;
@@ -657,8 +681,9 @@ function sResult(ctx, t, lt) {
 // ================================================================== RHYTHM
 // Cards on the beat grid: the numbers, then the cadence. A `quiet` card is the
 // punchline: one small word, held in total silence.
-const COUNT_SPAN = 0.55; // share of a card the count-up takes
-const COUNT_TICKS = 40; // odometer ticks the soundtrack plays while the number climbs
+// the count-up: it takes `span` of its card on `ease`; the soundtrack plays `ticks` odometer
+// ticks, placed where the number on screen passes each step
+const COUNT = { span: 0.55, ease: E.outExpo, ticks: 40 };
 const cardIndex = tf => clamp(Math.floor((tf - ST[at.rhythm]) / CARD + 1e-6), 0, CONTENT.cards.length - 1);
 function sRhythm(ctx, t, lt, tf) {
   const k = cardIndex(tf), c = t - (ST[at.rhythm] + k * CARD), cd = CONTENT.cards[k], fg = inkOn(cd.bg);
@@ -685,7 +710,7 @@ function sRhythm(ctx, t, lt, tf) {
   } else {
     const yb = H / 2 + 70, size = 320;
     if (cd.count) {
-      const n = Math.round(cd.count * E.outExpo(clamp(c / (CARD * COUNT_SPAN))));
+      const n = Math.round(cd.count * COUNT.ease(clamp(c / (CARD * COUNT.span))));
       setFont(ctx, FAM.sans, size, 800, -6);
       const wFinal = ctx.measureText(fmt(cd.count)).width;
       reveal(ctx, fmt(n), W / 2 + wFinal / 2, yb, size, 800, fg, c, { dur: rv, align: 'right', spacing: -6 });
@@ -700,7 +725,10 @@ function sRhythm(ctx, t, lt, tf) {
 // ================================================================== END
 // The name on the downbeat after the silence; the ball from the first scene returns to
 // land as the full stop of the closing line.
-const T_END = { drop: 1.35, contacts: [4 * BEAT, 5 * BEAT], recap: [2.6, 0.8], fade: 0.725 }; // contacts on beats 5 and 6; fade: before the end
+// drop: the ball starts falling; contacts: its first two landings, on beats 5 and 6 (the rest
+// follow from the bounce); recap: seconds after the ball settles, then the typing time; fade:
+// seconds before the end
+const T_END = { drop: 1.35, contacts: [4 * BEAT, 5 * BEAT], recap: [0.15, 0.8], fade: 0.725 };
 function sEnd(ctx, t, lt) {
   const En = G.end, D = choreoLen(at.end);
   ctx.fillStyle = THEME.dark; ctx.fillRect(0, 0, W, H);
@@ -726,7 +754,7 @@ function sEnd(ctx, t, lt) {
   const b = En.ball, st = b.state(lt);
   if (lt > T_END.drop) drawBall(ctx, lerp(En.px + 220, En.px, E.outCubic(clamp((lt - T_END.drop) / (b.settle - T_END.drop)))), st, En.rP, b.v0, THEME.accent);
   ctx.globalAlpha = 1;
-  typed(ctx, En.recap, W / 2 - En.recapW / 2, En.yb + 270, THEME.white, lt - T_END.recap[0], T_END.recap[1], { spacing: 4, alpha: 0.6 });
+  typed(ctx, En.recap, W / 2 - En.recapW / 2, En.yb + 270, THEME.white, lt - b.settle - T_END.recap[0], T_END.recap[1], { spacing: 4, alpha: 0.6 });
   flash(ctx, t, ST[at.end], 0.1, 6);
   const fo = E.inCubic(seg(lt, D - T_END.fade, D));
   if (fo > 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = fo; ctx.fillStyle = THEME.dark; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
@@ -738,7 +766,7 @@ function drawScene(ctx, i, t, tf) { ctx.save(); SCENES[i].draw(ctx, t, (t - ST[i
 function clipCircle(ctx, x, y, r) { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.clip(); }
 const PUSH = Math.min(0.9, 0.12 * sceneLen(at.signal));
 const TRANS = [
-  { a: absTime(at.scale, choreoLen(at.scale) - 0.45), b: absTime(at.mix, 0.7), draw(ctx, t, tf) { // the ball becomes a ring, the ring an iris
+  { a: absTime(at.scale, choreoLen(at.scale) - T_SCALE.iris), b: absTime(at.mix, 0.7), draw(ctx, t, tf) { // the ball becomes a ring, the ring an iris
     drawScene(ctx, at.scale, t, tf);
     const g = irisGeom(t);
     if (g.hole > 0.3) { ctx.save(); clipCircle(ctx, W / 2, H / 2, g.hole); drawScene(ctx, at.mix, t, tf); ctx.restore(); }
@@ -881,29 +909,27 @@ function cueSheet() {
   const r = v => +v.toFixed(4), countAt = CONTENT.cards.findIndex(c => c.count), end = i => choreoLen(i);
   const win = (i, a, b) => [r(absTime(i, a)), r(absTime(i, b))];
   const { hops, settle } = scaleContacts();
-  const countStart = ST[at.rhythm] + countAt * CARD, countLen = COUNT_SPAN * CARD;
-  const invOutExpo = y => (y >= 1 ? 1 : -Math.log2(1 - y) / 10); // when outExpo reaches y
+  const countStart = ST[at.rhythm] + countAt * CARD, countLen = COUNT.span * CARD;
   return {
-    bpm: BPM, scenes: SCENES.map(s => s.id), bars: SCENES.map(s => s.bars), starts: ST.map(r), silence: SIL.map(r), groove: GROOVE.map(r),
+    bpm: BPM, scenes: SCENES.map(s => s.id), starts: ST.map(r), silence: SIL.map(r), groove: GROOVE.map(r), kicks: kickTimes().map(r),
     scale: hops.map(u => r(absTime(at.scale, u))), scaleSettle: r(absTime(at.scale, settle)),
-    arrive: r(ST[at.mix]),
+    rise: win(at.scale, end(at.scale) - T_SCALE.rise[0], end(at.scale) - T_SCALE.rise[1]), arrive: r(ST[at.mix]),
     columns: CONTENT.mix.rows.map((_, k) => r(absTime(at.mix, T_MIX.rise + T_MIX.stagger * k))),
     dive: win(at.mix, end(at.mix) - T_MIX.dive[0], end(at.mix) - T_MIX.dive[1]), cut: r(ST[at.signal]),
     inputs: CONTENT.signal.inputs.map((_, i) => r(absTime(at.signal, T_SIG.inputs + T_SIG.stagger * i))),
-    fold: r(absTime(at.signal, T_SIG.fold[0])), connector: r(absTime(at.signal, T_SIG.connector[0])),
+    fold: win(at.signal, ...T_SIG.fold), connector: win(at.signal, ...T_SIG.connector),
     slide: win(at.signal, ...T_SIG.slide), snap: r(absTime(at.signal, T_SIG.snap)), push: [r(ST[at.rank] - PUSH), r(ST[at.rank])],
-    landings: Array.from(G.items.del, d => r(absTime(at.rank, d + T_RANK.land))),
-    stars: [0, 1, 2, 3, 4].map(k => r(absTime(at.rank, T_RANK.stars + T_RANK.starStep * k))),
+    landings: Array.from(G.items.del, d => r(absTime(at.rank, d + T_RANK.move))),
+    stars: Array.from({ length: T_RANK.starCount }, (_, k) => r(absTime(at.rank, T_RANK.stars + T_RANK.starStep * k))),
     fly: [r(absTime(at.rank, end(at.rank) - T_RANK.fly[0])), r(ST[at.check])],
     scan: win(at.check, ...T_CHECK.scan), flag: r(absTime(at.check, T_CHECK.flag)),
     collapse: win(at.check, end(at.check) - T_CHECK.collapse[0], end(at.check) - T_CHECK.collapse[1] + T_CHECK.collapseStagger),
-    iris: r(ST[at.result]), sweep: r(absTime(at.result, T_RES.sweep[0])),
-    items: CONTENT.result.items.map((_, k) => r(absTime(at.result, T_RES.items + T_RES.itemStep * k + T_RES.lock))),
+    iris: r(ST[at.result]), sweep: win(at.result, ...T_RES.sweep),
+    items: CONTENT.result.items.map((_, k) => r(absTime(at.result, T_RES.items + T_RES.itemStep * k + springLands(T_RES.itemSpring)))),
     focus: CONTENT.result.classes.map((_, c) => r(absTime(at.result, T_RES.focus + c * T_RES.focusLen))),
     flood: win(at.result, end(at.result) - T_RES.flood[0], end(at.result) - T_RES.flood[1]),
-    cards: CONTENT.cards.map((_, k) => r(ST[at.rhythm] + k * CARD)), quiet: QUIET,
-    count: countAt < 0 ? null : [r(countStart), r(countStart + countLen)],
-    countTicks: countAt < 0 ? [] : Array.from({ length: COUNT_TICKS }, (_, k) => r(countStart + countLen * invOutExpo((k + 1) / COUNT_TICKS))),
+    cards: CONTENT.cards.map((_, k) => r(ST[at.rhythm] + k * CARD)), card: r(CARD), quiet: QUIET,
+    countTicks: countAt < 0 ? [] : Array.from({ length: COUNT.ticks }, (_, k) => r(countStart + countLen * reach(COUNT.ease, (k + 1) / COUNT.ticks))),
     end: r(ST[at.end]), endBall: G.end.ball.contacts.map(c => r(absTime(at.end, c))), fade: [r(absTime(at.end, end(at.end) - T_END.fade)), r(DUR)],
   };
 }

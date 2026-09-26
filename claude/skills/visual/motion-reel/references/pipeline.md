@@ -6,7 +6,7 @@
 `Reel.render(ctx, t, tf)` and `Reel.post(src, dst, tf)`. The harness
 (`assets/render.html`, served by `render.py` next to the project) owns the canvases.
 Because a frame depends on nothing but time, frames render in any order, in parallel
-workers, and a single frame can be re-rendered to check it.
+workers, and a single frame can be re-rendered to check it (`./make.sh still 39.9`).
 
 ## Motion blur
 
@@ -57,8 +57,9 @@ renders. Delete `frames/` after encoding when space is tight.
 ## Checks that fail loudly
 
 - `render.py check` draws every quarter second and two seconds around every cut at one
-  sample and exits non-zero on the first script error; `make.sh` runs it before the
-  sheets and before the full render.
+  sample, and exits non-zero when any of those frames throws, with a count and the
+  first five; `make.sh` runs it before the sheets and before the full render. Sheets
+  alone sample eight frames a scene, and an error between two samples passes them.
 - `render.py` exits non-zero on any page error or console error (a missing
   `fonts.css` is a 404, not a warning) and on any missing frame.
 - `encode.py` decodes both outputs and compares their frame counts with `cues.json`,
@@ -69,18 +70,18 @@ renders. Delete `frames/` after encoding when space is tight.
 
 H.264 High, yuv420p, bt709 primaries, transfer and matrix tagged, `+faststart`. The
 master is CRF 14. The share copy climbs a CRF ladder (14, 16, 18…) until it fits
-`--max-mb`.
+`--max-mb`. ffmpeg is always imageio-ffmpeg's build: a system ffmpeg older than 5.1
+rejects options `encode.py` uses.
 
 | film | size |
 |---|---|
 | 15 s, flat-colour brand film, CRF 14 | 13.5 MB |
 | 56 s, same film re-timed, CRF 14 / CRF 16 | 39 MiB / 26 MiB |
-| 15 s, grain-heavy showreel, CRF 14 | 48.7 MB (needed 2-pass at 6.4 Mbps to fit 15 MB) |
+| 15 s, grain-heavy showreel, CRF 14 | 48.7 MB |
 
 Grain is the expensive part. Keep `GRAIN ≤ 0.04` when the copy must be small.
 
 ## Delivering
 
-Send `NAME.mp4` as a file. When a page presents the film (chapters, a cue sheet), a
-video under 15 MB can be published next to it. What may be published at all is in
-`craft.md`, under "Honesty on screen".
+Send `NAME.mp4`, the copy under `--max-mb`; the master is for re-encoding. Whether a
+film may be published at all is decided in `craft.md`, under "Honesty on screen".

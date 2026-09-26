@@ -7,11 +7,13 @@
     uv run encode.py PROJECT [--name reel] [--max-mb 29]
         frames/ + audio.wav -> NAME-master.mp4 (H.264 CRF 14) and NAME.mp4, the lowest
         CRF that fits under --max-mb (for chat uploads with a size cap)
-    uv run encode.py review VIDEO [--out DIR]
-        a 4x4 contact sheet pulled from the ENCODED file, to review what ships
+    uv run encode.py review VIDEO [--out DIR] [--at 12.5 [--crop W:H:X:Y]]
+        a 4x4 contact sheet pulled from the ENCODED file, to review what ships;
+        with --at, one full-size frame of it instead, to read small type 1:1
 
 Both outputs are decoded again and their frame count is compared with cues.json;
-a mismatch exits non-zero. ffmpeg comes from PATH or from imageio-ffmpeg.
+a mismatch exits non-zero. ffmpeg is imageio-ffmpeg's own build, never one from
+PATH: an older system ffmpeg lacks options this script uses.
 """
 
 import argparse
@@ -30,8 +32,6 @@ CRF_LADDER = [14, 16, 18, 20, 22, 24]
 
 
 def ffmpeg():
-    if shutil.which("ffmpeg"):
-        return shutil.which("ffmpeg")
     import imageio_ffmpeg
 
     return imageio_ffmpeg.get_ffmpeg_exe()
@@ -124,8 +124,15 @@ def encode(project, name, max_mb):
         )
 
 
-def review(video, out_dir, n=16):
+def review(video, out_dir, at=None, crop=None, n=16):
     out_dir.mkdir(parents=True, exist_ok=True)
+    # --at: one frame of the encoded file at full size, to read small type 1:1
+    if at is not None:
+        out = out_dir / f"{video.stem}-{at:.3f}.png"
+        vf = ["-vf", f"crop={crop}"] if crop else []
+        run(["-ss", str(at), "-i", str(video), "-frames:v", "1", *vf, str(out)])
+        print(f"wrote {out}")
+        return
     total = decoded_frames(video)
     picks = [round((k + 0.5) * total / n) for k in range(n)]
     sel = "+".join(f"eq(n\\,{p})" for p in picks)
@@ -151,8 +158,11 @@ def main():
         ap = argparse.ArgumentParser(prog="encode.py review")
         ap.add_argument("video", type=Path)
         ap.add_argument("--out", type=Path, default=None)
+        ap.add_argument("--at", type=float, help="one full-size frame at this second")
+        ap.add_argument("--crop", help="with --at: W:H:X:Y, e.g. 1100:560:760:300")
         a = ap.parse_args(sys.argv[2:])
-        review(a.video.resolve(), (a.out or a.video.resolve().parent / "review"))
+        out = a.out or a.video.resolve().parent / "review"
+        review(a.video.resolve(), out, a.at, a.crop)
         return
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter

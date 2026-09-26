@@ -85,8 +85,8 @@ never stop them.
 - Every number is read from a source and the as-of date is on screen (HUD, bottom
   right).
 - An illustrative value carries a visible tag (the template's `ILLUSTRATION` pill).
-- The template's own numbers are invented and internally consistent; none may survive
-  into a real film, and no real client's data belongs in a template.
+- The template's own numbers are invented and internally consistent; no real client's
+  data belongs in a template.
 - No return or performance claims unless the user supplies them with their source.
 - A film that carries a real organisation's name and branding is a file for its owner,
   not something to publish on their behalf.

@@ -352,10 +352,9 @@ class Session:
         global _rng
         _rng = np.random.default_rng(seed)
         self.rng = np.random.default_rng(seed + 1)
-        self.info = info
         self.cues = info["cues"]
         self.dur = float(info["dur"])
-        self.bpm = float(self.cues.get("bpm", 120))
+        self.bpm = float(self.cues["bpm"])
         self.beat = 60 / self.bpm
         self.bar = 4 * self.beat
         self.n = int(round(self.dur * SR))
@@ -371,18 +370,18 @@ class Session:
         self.drive = 1.1  # soft-clip drive before the final normalise
         self.fade_out = 0.6
 
-    def kick(self, t, gain=0.72, **kw):
+    def kick(self, t, gain=0.72):
         """A kick that also ducks the pads and bass."""
-        self.drums.add(kick(**kw), t, gain)
+        self.drums.add(kick(), t, gain)
         self.kicks.append(t)
 
     def silence(self, t0, t1):
         """Gate [t0, t1) to digital silence. Checked after the mix."""
         self.silences.append((t0, t1))
 
-    def check(self, label, t0, t1=None):
-        """Report the peak level of [t0, t1) after the mix (t1 defaults to t0 + 30 ms)."""
-        self.checks.append((label, t0, t0 + 0.03 if t1 is None else t1))
+    def check(self, label, t):
+        """Report the peak level of the 30 ms from t, after the mix."""
+        self.checks.append((label, t, t + 0.03))
 
     def render(self, out):
         n, tt = self.n, np.arange(self.n) / SR
@@ -441,21 +440,17 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("project", type=Path)
-    ap.add_argument("--score", default="score.py")
-    ap.add_argument("--cues", default="cues.json")
-    ap.add_argument("--out", default="audio.wav")
     a = ap.parse_args()
     project = a.project.resolve()
-    info = json.loads((project / a.cues).read_text())
-    sys.modules.setdefault(
-        "synth", sys.modules[__name__]
-    )  # `from synth import ...` in score.py sees this module
-    spec = importlib.util.spec_from_file_location("reel_score", project / a.score)
+    info = json.loads((project / "cues.json").read_text())
+    # `from synth import ...` in score.py sees this module
+    sys.modules.setdefault("synth", sys.modules[__name__])
+    spec = importlib.util.spec_from_file_location("reel_score", project / "score.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     s = Session(info)
     mod.score(s)
-    out = project / a.out
+    out = project / "audio.wav"
     mix = s.render(out)
     rms = 20 * np.log10(np.sqrt(np.mean(mix**2)))
     print(f"wrote {out}: {s.dur:.2f} s, peak -1.0 dBFS, rms {rms:.1f} dBFS")
