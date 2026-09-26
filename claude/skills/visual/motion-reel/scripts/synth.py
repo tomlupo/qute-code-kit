@@ -449,6 +449,9 @@ def main():
     info = json.loads((project / "cues.json").read_text())
     # `from synth import ...` in score.py sees this module
     sys.modules.setdefault("synth", sys.modules[__name__])
+    # loading score.py must not write its bytecode into the project (a linked __pycache__
+    # would carry it elsewhere): nothing but audio.wav is written there
+    sys.dont_write_bytecode = True
     spec = importlib.util.spec_from_file_location("reel_score", project / "score.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

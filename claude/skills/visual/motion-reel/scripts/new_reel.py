@@ -69,6 +69,20 @@ def main():
     a = ap.parse_args()
     d = a.dir.resolve()
     d.mkdir(parents=True, exist_ok=True)
+    fetch_fonts = a.family or a.force or not present(d / "fonts.css")
+    planned = [
+        d / f
+        for f in ("reel.js", "score.py", "make.sh")
+        if a.force or not present(d / f)
+    ]
+    planned += [d / "fonts.css", d / "fonts"] if fetch_fonts else []
+    for target in (
+        planned
+    ):  # every refusal before any write: --force never half-rewrites a project
+        if target.is_symlink():
+            raise SystemExit(
+                f"{target} is a symbolic link: remove it, outputs are written as files"
+            )
     for src, dst in (
         ("reel-template.js", "reel.js"),
         ("score-template.py", "score.py"),
@@ -92,7 +106,7 @@ def main():
         write_file(make, MAKE.format(**paths), d)
         make.chmod(make.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         print(f"wrote {make}")
-    if a.family or a.force or not present(d / "fonts.css"):
+    if fetch_fonts:
         fam = [x for f in (a.family or []) for x in ("--family", f)]
         sys.stdout.flush()  # our lines first, then fonts.py's
         subprocess.run(

@@ -46,6 +46,10 @@ def main():
         "family=" + quote(f, safe=":@.;,").replace("%20", "+") for f in families
     )
     out_dir = output_dir(a.project / "fonts", a.project)  # before any download
+    if (a.project / "fonts.css").is_symlink():
+        raise SystemExit(
+            f"{a.project / 'fonts.css'} is a symbolic link: remove it, outputs are written as files"
+        )
     css = fetch(f"https://fonts.googleapis.com/css2?{query}&display=block").decode()
     faces = []
     for subset, body in re.findall(r"/\*\s*(\S+)\s*\*/\s*@font-face\s*{([^}]*)}", css):
