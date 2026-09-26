@@ -18,6 +18,7 @@ PATH: an older system ffmpeg lacks options this script uses.
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -43,6 +44,19 @@ def run(args):
     )
 
 
+def fresh(out, args):
+    """ffmpeg into a new file, which then replaces `out`. ffmpeg can exit 0 having
+    written nothing (a seek past the end), and an old image must never pass for one of
+    the video just encoded."""
+    part = out.with_name(out.stem + ".part" + out.suffix)
+    part.unlink(missing_ok=True)
+    run([*args, str(part)])
+    if not part.exists() or part.stat().st_size == 0:
+        part.unlink(missing_ok=True)
+        raise SystemExit(f"ffmpeg wrote no {out.name}: is the time past the end?")
+    os.replace(part, out)
+
+
 def decoded_frames(video):
     r = subprocess.run(
         [ffmpeg(), "-hide_banner", "-i", str(video), "-map", "0:v", "-f", "null", "-"],
@@ -65,6 +79,12 @@ def probe(video):
 
 
 def encode(project, name, max_mb):
+    if Path(name).name != name or name in ("", ".", ".."):
+        raise SystemExit(f"--name {name!r} must be a file name, not a path")
+    master, share = project / f"{name}-master.mp4", project / f"{name}.mp4"
+    for out in (master, share):  # a link must not carry the video out of the project
+        if out.resolve().parent != project:
+            raise SystemExit(f"{out} resolves to {out.resolve()}, outside {project}")
     info = json.loads((project / "cues.json").read_text())
     fps, expected = info["fps"], info["frames"]
     frames = sorted((project / "frames").glob("f_*.png"))
@@ -73,7 +93,9 @@ def encode(project, name, max_mb):
             f"expected {expected} frames in {project / 'frames'}, found {len(frames)} — run render.py frames"
         )
     audio = project / "audio.wav"
-    src = ["-framerate", str(fps), "-i", str(project / "frames" / "f_%05d.png")]
+    # the frame pattern is ffmpeg syntax: a % in the project's path must stay literal
+    pattern = str(project / "frames").replace("%", "%%") + "/f_%05d.png"
+    src = ["-framerate", str(fps), "-i", pattern]
     if audio.exists():
         src += ["-i", str(audio)]
     else:
@@ -98,7 +120,6 @@ def encode(project, name, max_mb):
             ]
         )
 
-    master, share = project / f"{name}-master.mp4", project / f"{name}.mp4"
     one(master, 14, "320k")
     for crf in CRF_LADDER:
         if crf == 14:
@@ -130,26 +151,15 @@ def review(video, out_dir, at=None, crop=None, n=16):
     if at is not None:
         out = out_dir / f"{video.stem}-{at:.3f}.png"
         vf = ["-vf", f"crop={crop}"] if crop else []
-        run(["-ss", str(at), "-i", str(video), "-frames:v", "1", *vf, str(out)])
+        fresh(out, ["-ss", str(at), "-i", str(video), "-frames:v", "1", *vf])
         print(f"wrote {out}")
         return
     total = decoded_frames(video)
     picks = [round((k + 0.5) * total / n) for k in range(n)]
     sel = "+".join(f"eq(n\\,{p})" for p in picks)
     out = out_dir / f"{video.stem}-sheet.png"
-    run(
-        [
-            "-i",
-            str(video),
-            "-vf",
-            f"select='{sel}',scale=480:270,tile=4x{(n + 3) // 4}",
-            "-frames:v",
-            "1",
-            "-fps_mode",
-            "vfr",
-            str(out),
-        ]
-    )
+    tile = f"select='{sel}',scale=480:270,tile=4x{(n + 3) // 4}"
+    fresh(out, ["-i", str(video), "-vf", tile, "-frames:v", "1", "-fps_mode", "vfr"])
     print(f"wrote {out}: frames {picks}")
 
 
@@ -161,6 +171,8 @@ def main():
         ap.add_argument("--at", type=float, help="one full-size frame at this second")
         ap.add_argument("--crop", help="with --at: W:H:X:Y, e.g. 1100:560:760:300")
         a = ap.parse_args(sys.argv[2:])
+        if a.crop and a.at is None:
+            ap.error("--crop needs --at")
         out = a.out or a.video.resolve().parent / "review"
         review(a.video.resolve(), out, a.at, a.crop)
         return

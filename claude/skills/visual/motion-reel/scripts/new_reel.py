@@ -40,11 +40,11 @@ case "${{1:-all}}" in
   sheets) run render.py info . && run render.py check . && run render.py sheets . ;;
   frames) run render.py info . && run render.py check . && run render.py frames . ;;
   audio)  run render.py info . && run synth.py . ;;
-  encode) run encode.py . --name "$NAME" ;;
-  review) run encode.py review "$NAME.mp4" "${{@:2}}" ;;
+  encode) run encode.py . --name="$NAME" ;;
+  review) run encode.py review "./$NAME.mp4" "${{@:2}}" ;;
   still)  run render.py still . --t "${{2:?$USAGE}}" ;;
   all)    run render.py info . && run render.py check . && run render.py frames . && run synth.py . \\
-            && run encode.py . --name "$NAME" && run encode.py review "$NAME.mp4" ;;
+            && run encode.py . --name="$NAME" && run encode.py review "./$NAME.mp4" ;;
   *) echo "$USAGE" >&2; exit 2 ;;
 esac
 """
