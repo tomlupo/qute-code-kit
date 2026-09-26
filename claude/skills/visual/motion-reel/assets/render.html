@@ -1,0 +1,58 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<body style="margin:0;background:#000">
+<script>
+// The motion-reel render harness. render.py serves it next to a project's
+// reel.js and fonts.css, then calls renderFrame(f, sub) or sheet(frames, cols, sub).
+const mk = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+const load = src => new Promise((ok, fail) => {
+  const s = document.createElement('script');
+  s.src = src; s.onload = ok; s.onerror = () => fail(new Error('cannot load ' + src));
+  document.head.appendChild(s);
+});
+let scene, acc, out;
+document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="fonts.css">');
+(async () => {
+  await load('reel.js');
+  const cues = await Reel.init();
+  window.INFO = {
+    w: Reel.W, h: Reel.H, fps: Reel.FPS, dur: Reel.DUR,
+    frames: Math.round(Reel.DUR * Reel.FPS), scenes: Reel.scenes(), cues,
+  };
+  scene = mk(Reel.W, Reel.H); acc = mk(Reel.W, Reel.H); out = mk(Reel.W, Reel.H);
+  window.READY = true;
+})().catch(e => { window.READY_ERR = String((e && e.stack) || e); });
+
+// Motion blur: average `sub` renders spread over `shutter` of a frame (0.5 = a
+// 180° shutter), centred on the frame. The frame's own time tf is passed along
+// so cuts and on-screen text switch on frame boundaries, never mid-shutter.
+function frame(f, sub, shutter) {
+  const sc = scene.getContext('2d'), ac = acc.getContext('2d');
+  const tf = f / Reel.FPS;
+  for (let s = 0; s < sub; s++) {
+    const t = sub === 1 ? tf : tf + ((s + 0.5) / sub - 0.5) * shutter / Reel.FPS;
+    Reel.render(sc, Math.max(0, t), tf);
+    ac.globalCompositeOperation = 'source-over'; ac.globalAlpha = 1 / (s + 1); ac.drawImage(scene, 0, 0);
+  }
+  ac.globalAlpha = 1;
+  Reel.post(acc, out, tf);
+  return out;
+}
+window.renderFrame = (f, sub = 8, shutter = 0.5) => frame(f, sub, shutter).toDataURL('image/png');
+// check: render frames without encoding them and collect every script error, frame by frame
+window.probe = frames => frames.flatMap(f => { try { frame(f, 1, 0.5); return []; } catch (e) { return [{ f, error: String(e) }]; } });
+window.sheet = (frames, cols = 4, sub = 1) => {
+  const w = 480, h = 270, rows = Math.ceil(frames.length / cols);
+  const c = mk(w * cols, h * rows), x = c.getContext('2d');
+  x.fillStyle = '#000'; x.fillRect(0, 0, c.width, c.height);
+  frames.forEach((f, i) => {
+    const X = (i % cols) * w, Y = Math.floor(i / cols) * h;
+    x.drawImage(frame(f, sub, 0.5), X, Y, w - 2, h - 2);
+    x.fillStyle = '#000'; x.fillRect(X, Y, 132, 20);
+    x.fillStyle = '#ff0'; x.font = '13px monospace';
+    x.fillText(`f${f} ${(f / Reel.FPS).toFixed(3)}s`, X + 5, Y + 14);
+  });
+  return c.toDataURL('image/png');
+};
+</script>
