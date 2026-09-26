@@ -126,7 +126,8 @@ def encode(project, name, max_mb):
         )
 
     # new files, never written in place through a hard link to one elsewhere; only now,
-    # once the inputs are known good, so a refused encode leaves the old videos alone
+    # after the name, link and frame-count checks, so an encode refused there keeps the
+    # old videos (an input ffmpeg itself rejects, such as a broken audio.wav, does not)
     for out in (master, share):
         out.unlink(missing_ok=True)
     one(master, 14, "320k")
@@ -183,8 +184,9 @@ def main():
         a = ap.parse_args(sys.argv[2:])
         if a.crop and a.at is None:
             ap.error("--crop needs --at")
-        out = a.out or a.video.resolve().parent / "review"
-        review(a.video.resolve(), out, a.at, a.crop)
+        # absolute, not resolved: a linked video still reviews into its own project
+        video = a.video.absolute()
+        review(video, a.out or video.parent / "review", a.at, a.crop)
         return
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
