@@ -44,16 +44,21 @@ def run(args):
     )
 
 
-def fresh(out, args):
+def fresh(out, args, hint=""):
     """ffmpeg into a new file, which then replaces `out`. ffmpeg can exit 0 having
     written nothing (a seek past the end), and an old image must never pass for one of
-    the video just encoded."""
+    the video just encoded. `-update 1` makes the image muxer take the path as a name,
+    not a pattern, so a % in the project's path cannot send the image elsewhere."""
     part = out.with_name(out.stem + ".part" + out.suffix)
     part.unlink(missing_ok=True)
-    run([*args, str(part)])
+    try:
+        run([*args, "-update", "1", str(part)])
+    except subprocess.CalledProcessError:
+        part.unlink(missing_ok=True)
+        raise
     if not part.exists() or part.stat().st_size == 0:
         part.unlink(missing_ok=True)
-        raise SystemExit(f"ffmpeg wrote no {out.name}: is the time past the end?")
+        raise SystemExit(f"ffmpeg wrote no {out.name}{hint}")
     os.replace(part, out)
 
 
@@ -82,7 +87,7 @@ def encode(project, name, max_mb):
     if Path(name).name != name or name in ("", ".", ".."):
         raise SystemExit(f"--name {name!r} must be a file name, not a path")
     master, share = project / f"{name}-master.mp4", project / f"{name}.mp4"
-    for out in (master, share):  # a link must not carry the video out of the project
+    for out in (master, share):  # a symlink must not carry the video out of the project
         if out.resolve().parent != project:
             raise SystemExit(f"{out} resolves to {out.resolve()}, outside {project}")
     info = json.loads((project / "cues.json").read_text())
@@ -120,6 +125,10 @@ def encode(project, name, max_mb):
             ]
         )
 
+    # new files, never written in place through a hard link to one elsewhere; only now,
+    # once the inputs are known good, so a refused encode leaves the old videos alone
+    for out in (master, share):
+        out.unlink(missing_ok=True)
     one(master, 14, "320k")
     for crf in CRF_LADDER:
         if crf == 14:
@@ -151,7 +160,8 @@ def review(video, out_dir, at=None, crop=None, n=16):
     if at is not None:
         out = out_dir / f"{video.stem}-{at:.3f}.png"
         vf = ["-vf", f"crop={crop}"] if crop else []
-        fresh(out, ["-ss", str(at), "-i", str(video), "-frames:v", "1", *vf])
+        args = ["-ss", str(at), "-i", str(video), "-frames:v", "1", *vf]
+        fresh(out, args, hint=": is --at past the end?")
         print(f"wrote {out}")
         return
     total = decoded_frames(video)
