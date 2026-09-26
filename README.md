@@ -15,7 +15,7 @@ releases, or self-updates.
 
 ## The kit: `claude/`
 
-33 skills across five categories (quant/research, engineering, multi-agent
+34 skills across five categories (quant/research, engineering, multi-agent
 research workflows, visual/UX, brand) plus the `workflow` bundle, 2 agents,
 7 MCP server configs, 3 settings profiles, 2 root-file starters. Browse
 [`INVENTORY.md`](INVENTORY.md) for the full map.

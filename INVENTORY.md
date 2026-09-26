@@ -8,7 +8,7 @@ and copy commands.
 > research-regime skills) is **not** in this inventory — it moved to
 > `tomlupo/qute-platform` (`agent-kit/plugins/qute-essentials/`) on 2026-07-29.
 
-## Skills (33, grouped by directory under `claude/skills/`)
+## Skills (34, grouped by directory under `claude/skills/`)
 
 ### Quant / research (`quant/`, 14)
 
@@ -54,13 +54,14 @@ Symlinked into `~/.claude/skills/` — each fans out a multi-agent Workflow.
 | `sql-patterns` | SQL query patterns and templates |
 | `workflow/` | PRD → slice → PR pipeline bundle (5 sub-skills: `grill`, `to-prd`, `to-slices`, `tdd`, `triage`), adapted from mattpocock/skills |
 
-### Visual / UX (`visual/`, 4)
+### Visual / UX (`visual/`, 5)
 
 | Name | Description |
 |---|---|
 | `architecture-diagram` | Dark-themed system architecture diagrams as standalone HTML |
 | `excalidraw` | Hand-drawn diagrams as Excalidraw JSON files |
 | `image-generator` | Generate and edit images via Google Gemini API |
+| `motion-reel` | Motion-graphics films rendered as code: one JS function of time, headless Chrome with motion blur, a numpy score from the same cue sheet, ffmpeg |
 | `ui-ux-pro-max` | UI/UX design intelligence for web and mobile |
 
 ### Brand (`brand/`, 3)
