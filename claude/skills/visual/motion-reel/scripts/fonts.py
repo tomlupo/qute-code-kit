@@ -16,6 +16,8 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import quote
 
+from project_files import output_dir, write_file
+
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 DEFAULT_FAMILIES = ["Inter:wght@100..900", "DM Mono:wght@400;500"]
 
@@ -43,9 +45,8 @@ def main():
     query = "&".join(
         "family=" + quote(f, safe=":@.;,").replace("%20", "+") for f in families
     )
+    out_dir = output_dir(a.project / "fonts", a.project)  # before any download
     css = fetch(f"https://fonts.googleapis.com/css2?{query}&display=block").decode()
-    out_dir = a.project / "fonts"
-    out_dir.mkdir(parents=True, exist_ok=True)
     faces = []
     for subset, body in re.findall(r"/\*\s*(\S+)\s*\*/\s*@font-face\s*{([^}]*)}", css):
         if subset not in keep:
@@ -58,7 +59,7 @@ def main():
         name = (
             f"{fam.replace(' ', '')}-{style}-{weight.replace(' ', '_')}-{subset}.woff2"
         )
-        (out_dir / name).write_bytes(fetch(url))
+        write_file(out_dir / name, fetch(url), a.project)
         faces.append(
             f"@font-face{{font-family:'{fam}';font-style:{style};font-weight:{weight};"
             f"src:url(fonts/{name}) format('woff2');"
@@ -70,7 +71,7 @@ def main():
         raise SystemExit(
             f"no faces matched subsets {sorted(keep)} — check the family specs"
         )
-    (a.project / "fonts.css").write_text("\n".join(faces) + "\n")
+    write_file(a.project / "fonts.css", "\n".join(faces) + "\n", a.project)
     print(f"wrote {a.project / 'fonts.css'}: {len(faces)} faces")
 
 

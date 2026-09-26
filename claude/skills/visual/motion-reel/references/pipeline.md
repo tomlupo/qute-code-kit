@@ -67,6 +67,9 @@ renders. Delete `frames/` after encoding when space is tight.
 - `encode.py` decodes both outputs and compares their frame counts with `cues.json`,
   and fails when even the last CRF cannot bring the share copy under `--max-mb`.
 - `synth.py` exits non-zero when a registered silence window is louder than −100 dB.
+- Every script writes a generated file beside its destination and renames it over it
+  (`scripts/project_files.py`), so nothing is ever written through a symbolic link. A
+  destination that is a link, or an output directory outside the project, is refused.
 
 ## Encoding
 

@@ -25,6 +25,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from project_files import output_dir
+
 COLOR = [
     "-vf", "scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
     "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv",
@@ -49,6 +51,10 @@ def fresh(out, args, hint=""):
     written nothing (a seek past the end), and an old image must never pass for one of
     the video just encoded. `-update 1` makes the image muxer take the path as a name,
     not a pattern, so a % in the project's path cannot send the image elsewhere."""
+    if out.is_symlink():
+        raise SystemExit(
+            f"{out} is a symbolic link: remove it, outputs are written as files"
+        )
     part = out.with_name(out.stem + ".part" + out.suffix)
     part.unlink(missing_ok=True)
     try:
@@ -87,7 +93,11 @@ def encode(project, name, max_mb):
     if Path(name).name != name or name in ("", ".", ".."):
         raise SystemExit(f"--name {name!r} must be a file name, not a path")
     master, share = project / f"{name}-master.mp4", project / f"{name}.mp4"
-    for out in (master, share):  # a symlink must not carry the video out of the project
+    for out in (master, share):  # never through a link, never out of the project
+        if out.is_symlink():
+            raise SystemExit(
+                f"{out} is a symbolic link: remove it, outputs are written as files"
+            )
         if out.resolve().parent != project:
             raise SystemExit(f"{out} resolves to {out.resolve()}, outside {project}")
     info = json.loads((project / "cues.json").read_text())
@@ -186,7 +196,12 @@ def main():
             ap.error("--crop needs --at")
         # absolute, not resolved: a linked video still reviews into its own project
         video = a.video.absolute()
-        review(video, a.out or video.parent / "review", a.at, a.crop)
+        review(
+            video,
+            a.out or output_dir(video.parent / "review", video.parent),
+            a.at,
+            a.crop,
+        )
         return
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter

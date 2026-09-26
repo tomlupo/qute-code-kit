@@ -16,11 +16,13 @@ nobody on the pipeline can listen: the measurement is the only ear there is.
 
 import argparse
 import importlib.util
+import io
 import json
 import sys
 from pathlib import Path
 
 import numpy as np
+from project_files import write_file
 from scipy import signal
 from scipy.io import wavfile
 
@@ -425,7 +427,9 @@ class Session:
         mix = np.tanh(self.drive * mix) / np.tanh(self.drive)
         mix *= np.clip((self.dur - tt) / self.fade_out, 0, 1)
         mix = 0.89 * norm(mix)  # -1 dBFS peak
-        wavfile.write(out, SR, (mix.T * 32767).astype(np.int16))
+        wav = io.BytesIO()
+        wavfile.write(wav, SR, (mix.T * 32767).astype(np.int16))
+        write_file(out, wav.getvalue(), out.parent)  # never through a link at audio.wav
         return mix
 
 

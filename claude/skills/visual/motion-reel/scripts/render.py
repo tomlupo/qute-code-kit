@@ -32,6 +32,8 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+from project_files import output_dir, write_file
+
 HARNESS = Path(__file__).resolve().parent.parent / "assets" / "render.html"
 CHROMES = ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]
 MAC_CHROMES = [
@@ -100,8 +102,8 @@ def open_page(p, port, errors):
     return browser, page
 
 
-def save_png(data_url, path):
-    path.write_bytes(base64.b64decode(data_url.split(",", 1)[1]))
+def png(data_url):
+    return base64.b64decode(data_url.split(",", 1)[1])
 
 
 def worker(job):
@@ -112,9 +114,9 @@ def worker(job):
     with sync_playwright() as p:
         browser, page = open_page(p, port, errors)
         for f in frames:
-            save_png(
-                page.evaluate("([f, s]) => renderFrame(f, s)", [f, sub]),
-                out / f"f_{f:05d}.png",
+            # a frame goes into the frames/ this run just made, so a plain write is safe
+            (out / f"f_{f:05d}.png").write_bytes(
+                png(page.evaluate("([f, s]) => renderFrame(f, s)", [f, sub]))
             )
             done += 1
         browser.close()
@@ -137,15 +139,14 @@ def with_page(project, fn):
 def cmd_info(project, a):
     info = with_page(project, lambda page: page.evaluate("window.INFO"))
     out = project / "cues.json"
-    out.write_text(json.dumps(info, indent=1))
+    write_file(out, json.dumps(info, indent=1), project)
     print(
         f"wrote {out}: {info['dur']:.2f} s, {info['frames']} frames at {info['fps']} fps, {len(info['scenes'])} scenes"
     )
 
 
 def cmd_sheets(project, a):
-    review = project / "review"
-    review.mkdir(exist_ok=True)
+    review = output_dir(project / "review", project)
 
     def run(page):
         info = page.evaluate("window.INFO")
@@ -159,10 +160,8 @@ def cmd_sheets(project, a):
             ]
             frames = [min(f, info["frames"] - 1) for f in frames]
             path = review / f"sheet-{k + 1}-{min(k + 2, len(scenes))}.png"
-            save_png(
-                page.evaluate("([fr, c, s]) => sheet(fr, c, s)", [frames, 4, a.sub]),
-                path,
-            )
+            sheet = page.evaluate("([fr, c, s]) => sheet(fr, c, s)", [frames, 4, a.sub])
+            write_file(path, png(sheet), project)
             written.append(path)
         return written
 
@@ -194,16 +193,15 @@ def cmd_check(project, a):
 
 
 def cmd_still(project, a):
-    review = project / "review"
-    review.mkdir(exist_ok=True)
+    review = output_dir(project / "review", project)
     path = review / f"still-{a.t:.3f}.png"
 
     def run(page):
         fps = page.evaluate("window.INFO.fps")
-        save_png(
-            page.evaluate("([f, s]) => renderFrame(f, s)", [round(a.t * fps), a.sub]),
-            path,
+        still = page.evaluate(
+            "([f, s]) => renderFrame(f, s)", [round(a.t * fps), a.sub]
         )
+        write_file(path, png(still), project)
 
     with_page(project, run)
     print("wrote", path)
@@ -213,6 +211,10 @@ def cmd_frames(project, a):
     info = with_page(project, lambda page: page.evaluate("window.INFO"))
     frames = list(range(info["frames"]))
     out = project / "frames"
+    if out.is_symlink():
+        raise SystemExit(
+            f"{out} is a symbolic link: frames render into the project itself"
+        )
     if out.exists():  # every frame from this reel.js, never a mix of two versions
         shutil.rmtree(out)
     out.mkdir()

@@ -19,11 +19,12 @@ only the fonts.
 
 import argparse
 import shlex
-import shutil
 import stat
 import subprocess
 import sys
 from pathlib import Path
+
+from project_files import present, write_file
 
 SKILL = Path(__file__).resolve().parent.parent
 MAKE = """#!/usr/bin/env bash
@@ -73,13 +74,13 @@ def main():
         ("score-template.py", "score.py"),
     ):
         target = d / dst
-        if target.exists() and not a.force:
+        if present(target) and not a.force:  # a dangling link counts: never followed
             print(f"kept existing {target}")
             continue
-        shutil.copyfile(SKILL / "assets" / src, target)
+        write_file(target, (SKILL / "assets" / src).read_bytes(), d)
         print(f"wrote {target}")
     make = d / "make.sh"
-    if make.exists() and not a.force:
+    if present(make) and not a.force:
         # never suggest --force here: it also writes reel.js and score.py over the film
         print(f"kept existing {make} (delete it and re-run to write a fresh one)")
     else:
@@ -88,10 +89,10 @@ def main():
             "scripts": shlex.quote(str(SKILL / "scripts")),
             "name": shlex.quote(d.name),
         }
-        make.write_text(MAKE.format(**paths))
+        write_file(make, MAKE.format(**paths), d)
         make.chmod(make.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         print(f"wrote {make}")
-    if a.family or a.force or not (d / "fonts.css").exists():
+    if a.family or a.force or not present(d / "fonts.css"):
         fam = [x for f in (a.family or []) for x in ("--family", f)]
         sys.stdout.flush()  # our lines first, then fonts.py's
         subprocess.run(
