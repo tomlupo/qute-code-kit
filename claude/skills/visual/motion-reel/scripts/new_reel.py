@@ -80,7 +80,8 @@ def main():
         print(f"wrote {target}")
     make = d / "make.sh"
     if make.exists() and not a.force:
-        print(f"kept existing {make} (delete it, or pass --force, to write it again)")
+        # never suggest --force here: it also writes reel.js and score.py over the film
+        print(f"kept existing {make} (delete it and re-run to write a fresh one)")
     else:
         # shell-quoted: a directory name is data, never code
         paths = {
