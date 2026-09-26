@@ -6,7 +6,9 @@
     uv run new_reel.py DIR [--family "Inter:wght@100..900" --family "DM Mono:wght@400;500"]
 
 Copies reel.js and score.py from the skill's templates, downloads the fonts, and
-writes make.sh, which runs every later step:
+writes make.sh, which runs every later step. Run again on an existing project, it
+keeps every file already there: --force writes them all again, --family changes
+only the fonts.
 
     ./make.sh sheets    check the whole timeline, then review contact sheets
     ./make.sh all       check, frames with motion blur, soundtrack, video, review sheet
@@ -16,6 +18,7 @@ writes make.sh, which runs every later step:
 """
 
 import argparse
+import shlex
 import shutil
 import stat
 import subprocess
@@ -28,8 +31,8 @@ MAKE = """#!/usr/bin/env bash
 USAGE="usage: ./make.sh [sheets|all|info|check|frames|audio|encode|review|still SECONDS]"
 set -euo pipefail
 cd "$(dirname "$0")"
-SCRIPTS="{scripts}"
-NAME="{name}"
+SCRIPTS={scripts}
+NAME={name}
 run() {{ uv run --quiet "$SCRIPTS/$1" "${{@:2}}"; }}
 case "${{1:-all}}" in
   info)   run render.py info . ;;
@@ -58,7 +61,9 @@ def main():
         help="css2 font family spec, repeatable (default: Inter + DM Mono)",
     )
     ap.add_argument(
-        "--force", action="store_true", help="overwrite reel.js and score.py if present"
+        "--force",
+        action="store_true",
+        help="write reel.js, score.py, make.sh and the fonts even if present",
     )
     a = ap.parse_args()
     d = a.dir.resolve()
@@ -74,15 +79,28 @@ def main():
         shutil.copyfile(SKILL / "assets" / src, target)
         print(f"wrote {target}")
     make = d / "make.sh"
-    make.write_text(MAKE.format(scripts=SKILL / "scripts", name=d.name))
-    make.chmod(make.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    print(f"wrote {make}")
-    fam = [x for f in (a.family or []) for x in ("--family", f)]
-    subprocess.run(
-        [sys.executable, str(SKILL / "scripts" / "fonts.py"), str(d), *fam], check=True
-    )
+    if make.exists() and not a.force:
+        print(f"kept existing {make} (delete it, or pass --force, to write it again)")
+    else:
+        # shell-quoted: a directory name is data, never code
+        paths = {
+            "scripts": shlex.quote(str(SKILL / "scripts")),
+            "name": shlex.quote(d.name),
+        }
+        make.write_text(MAKE.format(**paths))
+        make.chmod(make.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        print(f"wrote {make}")
+    if a.family or a.force or not (d / "fonts.css").exists():
+        fam = [x for f in (a.family or []) for x in ("--family", f)]
+        sys.stdout.flush()  # our lines first, then fonts.py's
+        subprocess.run(
+            [sys.executable, str(SKILL / "scripts" / "fonts.py"), str(d), *fam],
+            check=True,
+        )
+    else:  # reel.js's FAM names these fonts; a silent default would break that link
+        print(f"kept existing {d / 'fonts.css'} (pass --family to change the fonts)")
     print(
-        f"\nnext:\n  cd {d}\n  ./make.sh sheets      # then look at review/*.png\n  ./make.sh all"
+        f"\nnext:\n  cd {shlex.quote(str(d))}\n  ./make.sh sheets      # then look at review/*.png\n  ./make.sh all"
     )
 
 

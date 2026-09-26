@@ -18,7 +18,9 @@ after the average. If they ran per sub-frame, the averaging would erase the grai
 
 **`t` versus `tf`.** Sub-frames straddle the frame's time. Anything discrete (which
 card shows, a count, the scene index, HUD text) must switch on `tf`, or one frame
-blends two cards. Continuous motion uses `t`.
+blends two cards, or a count-up shows a dozen numbers on top of each other.
+Continuous motion uses `t`. Sheets render one sub-frame and cannot show such a blend;
+`./make.sh still` renders all eight.
 
 `sheets` renders with `sub = 1` (fast, sharp, good for layout); `frames` with 8.
 

@@ -710,7 +710,9 @@ function sRhythm(ctx, t, lt, tf) {
   } else {
     const yb = H / 2 + 70, size = 320;
     if (cd.count) {
-      const n = Math.round(cd.count * COUNT.ease(clamp(c / (CARD * COUNT.span))));
+      // the number is discrete, so it reads the frame's time: one number per frame, never a
+      // blend of the numbers its motion-blur sub-frames would show
+      const cf = tf - (ST[at.rhythm] + k * CARD), n = Math.round(cd.count * COUNT.ease(clamp(cf / (CARD * COUNT.span))));
       setFont(ctx, FAM.sans, size, 800, -6);
       const wFinal = ctx.measureText(fmt(cd.count)).width;
       reveal(ctx, fmt(n), W / 2 + wFinal / 2, yb, size, 800, fg, c, { dur: rv, align: 'right', spacing: -6 });
