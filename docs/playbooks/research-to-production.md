@@ -1,5 +1,11 @@
 # Research to Production
 
+> **Retired skills (2026-09-28, TOM-1235).** `paper-reading` and `qrd` are gone
+> from the kit. Read a paper directly (the Read tool opens PDFs) and keep the
+> notes in the research line; write the spec as an ADR or the line's README.
+> The research lifecycle itself is the `qute-research` plugin (`/research`,
+> `/finding`, `/promote`).
+
 > Full quantitative research pipeline from literature review to production model.
 
 ## Components
