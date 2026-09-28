@@ -72,13 +72,12 @@ turns:
 
 # ── Auto-classification signals (consumed by the #159 classifier) ────────────
 # The classifier reads these to bucket a change into a rigor tier. This repo's
-# risky surfaces are the CI workflow and the tested research gate (the plugin +
-# release tooling moved to qute-platform 2026-07-29).
+# risky surface is the CI workflow (the plugins and the research gate live in
+# qute-plugins: the gate moved to qute-research 2026-09-28, TOM-1221).
 classify:
   trivial_globs: ["**/*.md", "docs/**", "**/CHANGELOG*"]
   complex_globs:
     - ".github/workflows/**"
-    - "templates/research/check_research_pins.py"
   trivial_max_lines: 15
 
 # ── Wave 1a workflow-policy fields (obsidian-vaults#162) ─────────────────────
@@ -115,7 +114,6 @@ reviewEngine:
   multiRun: 1
   riskyPaths:
     - ".github/workflows/**"
-    - "templates/research/check_research_pins.py"
   mode: auto
   dispatcherUrl: ""
   verdictPrefix: ""

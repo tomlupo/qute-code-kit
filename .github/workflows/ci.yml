@@ -6,27 +6,6 @@ on:
   pull_request:
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      # Scoped to the tested template code; the personal-kit tree under
-      # claude/ is copy-paste material and not lint-enforced.
-      - name: ruff check
-        run: uvx ruff check tests templates/research/check_research_pins.py
-      - name: ruff format
-        run: uvx ruff format --check tests templates/research/check_research_pins.py
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - name: pytest
-        # pyyaml: templates/research/check_research_pins.py imports yaml
-        run: uvx --with pyyaml pytest tests -q
-
   reporting-contract:
     # Enforce the bundled reporting lib's self-contained + injection-safe
     # contract shipped with the investment-research-dashboard skill.

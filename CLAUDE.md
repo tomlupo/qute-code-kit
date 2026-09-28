@@ -2,7 +2,8 @@
 
 Tom's **personal skills & templates library** — reusable Claude Code components
 under `claude/` (skills, agents, settings, root-file starters) and
-doc/pyproject templates under `templates/`. Browse and copy what you need into
+doc/pyproject templates under `templates/`. The research scaffold (pin gate,
+line template, research-workflow) is qute-research's, not the kit's. Browse and copy what you need into
 target repos; a copied skill carries a `PROVENANCE.yaml` stamp (source path,
 source commit, each file `tracked` or `forked from <sha>, reason: …`).
 
@@ -25,10 +26,9 @@ guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 | `claude/agents/` | Personal-kit subagents |
 | `claude/settings/` | Claude Code project settings profiles |
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |
-| `templates/docs/`, `templates/pyproject/`, `templates/settings/`, `templates/research/` | Doc / pyproject / settings starters + the research pin gate |
+| `templates/docs/`, `templates/pyproject/`, `templates/settings/` | Doc / pyproject / settings starters |
 | `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/` | Workflows, references, reusable prompts |
 | `docs/adr/` | Pointer to the plugin ADRs (history in git) |
-| `tests/` | Unit tests for `templates/research/check_research_pins.py` |
 
 ## Conventions
 
