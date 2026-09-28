@@ -15,7 +15,7 @@ Starting a new investment research question — factor analysis, fund comparison
 
 | Skill | Role |
 |-------|------|
-| `investment-research` | Lifecycle framework (question → data → analysis → deliverable) |
+| qute-research `/research` | Lifecycle and method protocols (`method-investment.md`, `method-signal.md`) — moved out of the kit 2026-09-28 (TOM-1221) |
 | `investment-research-formal` | Auditable tracking with hypothesis/experiment/finding |
 | `paper-reading` | Extract insights from papers, fund cards, prospectuses |
 | `investment-research-dashboard` | Self-contained Plotly.js HTML dashboards |
@@ -26,17 +26,12 @@ Starting a new investment research question — factor analysis, fund comparison
 
 ### Phase 1: Frame the Question
 
-Use `/investment-research` to structure the research question:
+Open a line with qute-research's `/research line`; its method protocols say
+what the question needs before any code:
 
 ```
-/investment-research "Does momentum factor work in Polish equity funds?"
+/research line momentum-pl --question "Does momentum work in Polish equity funds?"
 ```
-
-This produces a research plan with:
-- Clear hypothesis
-- Required data sources
-- Analysis approach
-- Expected deliverable format
 
 ### Phase 2: Gather Data
 
@@ -91,7 +86,7 @@ Promote from `scratch/` to `research/{study-name}/` with co-located scripts, dat
 ## Example: Momentum in Polish Equity Funds
 
 ```
-1. /investment-research "momentum factor in Polish equity funds"
+1. /research line momentum-pl (qute-research)
 2. Fetch 5-year monthly returns from Stooq for WIG components
 3. Fetch fund NAVs from analizy.pl for equity funds
 4. /paper-reading on Jegadeesh & Titman (1993), local momentum studies
@@ -103,7 +98,7 @@ Promote from `scratch/` to `research/{study-name}/` with co-located scripts, dat
 
 ## Tips
 
-- Start with `/investment-research` even for informal studies — it forces clear thinking
+- Open a line with `/research line` even for informal studies — it forces clear thinking
 - Use formal tracking (`/investment-research-formal`) when results might be challenged
 - Always save large outputs to files — keep conversation context for decisions
 - Dashboard skill produces single HTML files — easy to email or share

@@ -14,11 +14,10 @@ releases, or self-updates.
 
 ## The kit: `claude/`
 
-19 generic skills (quant/data, multi-agent research workflows, engineering,
-visual/UX), 2 agents, 3 settings profiles, 2 root-file
-starters. Browse [`INVENTORY.md`](INVENTORY.md) for the full map. A skill bound
-to one project does not live here: its master is that project's repo
-(TOM-1235, 2026-09-28).
+12 generic skills (quant/data, engineering, visual/UX), 2 agents, 3 settings
+profiles, 2 root-file starters. Browse [`INVENTORY.md`](INVENTORY.md) for the
+full map. A skill bound to one project does not live here: its master is that
+project's repo (TOM-1235, 2026-09-28).
 
 **New generic skills start here** — the kit is the incubator; the rule and the
 promotion path are in [`CLAUDE.md`](CLAUDE.md).
