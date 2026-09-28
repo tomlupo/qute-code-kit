@@ -1,15 +1,15 @@
 ---
 name: investment-research-formal
-description: Structured, auditable investment research with tracked hypotheses, experiments, and findings. Use when research needs an evidence chain for compliance, regulatory documentation (MiFID II suitability), published methodology, white papers, or peer review. Use when the user says "formal research", "document methodology", "audit trail", "compliance evidence", or "white paper". Complements investment-research (iterative) with traceability.
+description: Structured, auditable investment research with tracked hypotheses, experiments, and findings. Use when research needs an evidence chain for compliance, regulatory documentation (MiFID II suitability), published methodology, white papers, or peer review. Use when the user says "formal research", "document methodology", "audit trail", "compliance evidence", or "white paper". Complements qute-research's `/research` (the research regime) with traceability.
 ---
 
 # Formal Investment Research
 
-Structured research with full traceability: every decision links back to evidence, every finding links forward to application. For iterative exploration, use `investment-research` instead.
+Structured research with full traceability: every decision links back to evidence, every finding links forward to application. For iterative exploration, use qute-research `/research` instead.
 
-## When to Use This vs `investment-research`
+## When to Use This vs qute-research `/research`
 
-| Signal | Use `investment-research` | Use `investment-research-formal` |
+| Signal | Use qute-research `/research` | Use `investment-research-formal` |
 |--------|--------------------------|----------------------------------|
 | Audience | You + immediate team | Compliance, regulators, external reviewers |
 | Lifespan | Until next calibration cycle | Permanent record |
@@ -17,7 +17,7 @@ Structured research with full traceability: every decision links back to evidenc
 | Tracking | README + git | Hypothesis → Experiment → Finding chain |
 | Trigger phrases | "research", "backtest", "study" | "document methodology", "audit trail", "white paper" |
 
-**Common pattern**: Start with `investment-research` for exploration, then formalize key findings with this skill when producing regulatory or publication deliverables.
+**Common pattern**: Start with qute-research `/research` for exploration, then formalize key findings with this skill when producing regulatory or publication deliverables.
 
 ## Research Lifecycle
 
@@ -85,7 +85,7 @@ Evidence from [E01](../experiments/E01-gold-allocation-sweep.md).
 
 ### Starting from Iterative Research
 
-When formalizing results from an `investment-research` study:
+When formalizing results from a qute-research `/research` line:
 
 1. Identify the key decisions that were made (from README, git history, dashboard)
 2. Reconstruct hypotheses retroactively (what did we actually test?)
@@ -408,6 +408,6 @@ Include formulas where relevant.}
 
 | Skill | Role |
 |-------|------|
-| `investment-research` | Iterative exploration (use first, formalize later) |
+| qute-research `/research` | Iterative exploration (use first, formalize later) |
 | `investment-research-dashboard` | Interactive deliverables referenced by findings |
 | `analizy-pl-data` | Polish fund data from analizy.pl |

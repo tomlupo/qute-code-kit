@@ -22,7 +22,7 @@ guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 
 | Path | Contents |
 |---|---|
-| `claude/skills/` | Generic kit skills, grouped: `quant/`, `engineering/`, `research/`, `visual/` (`<name>/SKILL.md` + assets) |
+| `claude/skills/` | Generic kit skills, grouped: `quant/`, `engineering/`, `visual/` (`<name>/SKILL.md` + assets) |
 | `claude/agents/` | Personal-kit subagents |
 | `claude/settings/` | Claude Code project settings profiles |
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |

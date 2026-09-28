@@ -18,34 +18,19 @@ A repo that copies a kit skill stamps it with `PROVENANCE.yaml` (source path,
 source commit, each file `tracked` or `forked from <sha>, reason: …`) so the
 copy's drift can be checked.
 
-## Skills (19, grouped by directory under `claude/skills/`)
+## Skills (12, grouped by directory under `claude/skills/`)
 
-### Quant / data (`quant/`, 9)
+### Quant / data (`quant/`, 7)
 
 | Name | Description |
 |---|---|
-| `acceptance-gates` | Statistical acceptance gates — deflated Sharpe (DSR), Newey-West HAC t-stat, factor decomposition. Moving to qute-research as engine-neutral gates (TOM-1221) |
 | `analizy-pl-data` | Programmatic access to Polish investment fund data from analizy.pl |
 | `atlasetf-scraper` | Scrape ETF data from atlasetf.pl (screener of ~13k funds, per-ISIN detail, prices) via its JSON API |
 | `gpw-benchmark-scraper` | Scrape gpwbenchmark.pl (WIBID/WIBOR reference rates, index list with ISINs, per-index OHLC history) |
-| `investment-research` | Iterative investment research from question to deliverable. Moving to qute-research as a method protocol (TOM-1221) |
-| `investment-research-formal` | Structured, auditable research with hypotheses + evidence chain. Moving to qute-research (TOM-1221) |
-| `investment-research-dashboard` | Self-contained (offline, no CDN) Plotly HTML dashboards for finance; bundles the canonical `reporting/` lib (`base`/`backtest_dashboard`/`research_story`), reuse-first |
+| `investment-research-formal` | Structured, auditable research with hypotheses + evidence chain. Its research regime is qute-research's; stays until its METHODOLOGY.md skeleton and MiFID II mapping have a home there (TOM-1221) |
+| `investment-research-dashboard` | Self-contained (offline, no CDN) Plotly HTML dashboards for finance; bundles the canonical `reporting/` lib (`base`/`backtest_dashboard`/`research_story`), reuse-first. A single finding's one-pager is qute-research's `/finding-report` |
 | `market-datasets` | Fetch market data from Stooq, NBP, Yahoo, FRED, Tiingo, CCXT, FinancialData |
 | `pipeline-docs` | 4-doc pattern (instruction / dataset / methodology / reference) |
-
-### Multi-agent research workflows (`research/`, 5)
-
-Each fans out a multi-agent Workflow. Moving to qute-research with agent types
-that exist where they run (TOM-1221 slice 3).
-
-| Name | Description |
-|---|---|
-| `research-bakeoff` | Tournament: implement + evaluate N candidate approaches in parallel worktrees, pick a winner |
-| `research-refute` | Adversarial panel of skeptics, each attacking a finding via a different failure mode |
-| `research-reproduce` | Reproduce a result via independent paths (implementation / inputs / library), cross-check |
-| `research-robustness` | Stress a method across windows × regimes × parameters; collect a robustness grid |
-| `research-sweep` | Multi-modal evidence sweep (own data, benchmarks, atlas notes, literature, code) + cited synthesis |
 
 ### Engineering (`engineering/`, 1)
 
@@ -70,6 +55,12 @@ Unused, broken, or covered elsewhere; in git history if ever needed:
 `quant-review` (qute-research owns it), `sql-patterns`, the `workflow/` bundle
 (`grill`, `tdd`, `triage`, `to-prd`, `to-slices`; Matt Pocock's plugin owns
 them, and qute-essentials depends on it), `brand-sonte` (archived project).
+
+### Moved to qute-research 2026-09-28 (TOM-1221)
+
+`acceptance-gates`, `investment-research` (now its method protocols),
+`research-refute`, `-reproduce`, `-robustness`, `-sweep`, `-bakeoff` — see the
+qute-research README in `tomlupo/qute-plugins`.
 
 ## Agents (2)
 
