@@ -1,6 +1,5 @@
 # Local secret scan on staged changes (TOM-1257); CI runs the same rules.
-# Setup, once per clone: install gitleaks (https://github.com/gitleaks/gitleaks),
-# then `pre-commit install`.
+# Setup (install gitleaks, then `pre-commit install`): see README.md.
 repos:
   - repo: local
     hooks:

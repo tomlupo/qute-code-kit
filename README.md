@@ -56,4 +56,5 @@ qute-research plugin (`templates/research-scaffold/`), stamped by `onboard repo`
 - [`docs/resources.md`](docs/resources.md) — curated external links (interesting repos, tools, reading)
 
 See [`CLAUDE.md`](CLAUDE.md) for repo conventions. Before committing here, install
-[gitleaks](https://github.com/gitleaks/gitleaks) and run `pre-commit install` — this repo is public.
+[pre-commit](https://pre-commit.com) and [gitleaks](https://github.com/gitleaks/gitleaks), then run
+`pre-commit install` — this repo is public.
