@@ -116,12 +116,12 @@ Fails the commit on hard rules (gradient text, contrast < AA). Warnings-only for
 
 | Kit component | How it interacts with Impeccable |
 |---------------|----------------------------------|
-| `ui-ux-pro-max` skill (webdev bundle) | Strategic UX review; Impeccable is the tactical pass after it |
+| `ui-ux-pro-max` kit skill (`claude/skills/visual/`) | Strategic UX review; Impeccable is the tactical pass after it |
 | `/mattpocock-skills:code-review` | Runs on code correctness; Impeccable runs on design quality — use both |
 | `architecture-diagram` skill | System-level diagrams; Impeccable polishes the UI surface those systems render |
 | `/guard` from qute-essentials | Leave guards on — Impeccable only edits files, never shells or network |
 | `/gbu`, `/wtf` from qute-essentials | Good review partners for a `/polish` or `/overdrive` diff |
-| Chrome extension | Pairs with the `chrome-devtools` MCP (webdev bundle) — overlay detection while you debug live |
+| Chrome extension | Pairs with a `chrome-devtools` MCP server — overlay detection while you debug live |
 
 ## Gotchas
 

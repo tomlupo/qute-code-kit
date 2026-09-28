@@ -78,18 +78,6 @@ them, and qute-essentials depends on it), `brand-sonte` (archived project).
 | `data-pipeline-debugger` | Debug data pipelines (input/output validation, root-cause tracing) |
 | `research-synthesizer` | Synthesize findings across multiple papers / studies |
 
-## MCP server configs (7)
-
-| Server | Use case |
-|---|---|
-| `chrome-devtools` | Browser automation via Chrome DevTools |
-| `docker` | Docker container management |
-| `figma` | Figma design file access |
-| `firecrawl` | Web scraping (`FIRECRAWL_API_KEY`) |
-| `playwright` | Browser automation via Playwright |
-| `postgres` | Postgres database (`POSTGRES_CONNECTION_STRING`) |
-| `vercel` | Vercel deploy/admin |
-
 ## Settings templates (3)
 
 | Template | Use case |

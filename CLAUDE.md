@@ -1,7 +1,7 @@
 # qute-code-kit
 
 Tom's **personal skills & templates library** — reusable Claude Code components
-under `claude/` (skills, agents, MCP configs, settings, root-file starters) and
+under `claude/` (skills, agents, settings, root-file starters) and
 doc/pyproject templates under `templates/`. Browse and copy what you need into
 target repos; a copied skill carries a `PROVENANCE.yaml` stamp (source path,
 source commit, each file `tracked` or `forked from <sha>, reason: …`).
@@ -23,7 +23,6 @@ guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 |---|---|
 | `claude/skills/` | Generic kit skills, grouped: `quant/`, `engineering/`, `research/`, `visual/` (`<name>/SKILL.md` + assets) |
 | `claude/agents/` | Personal-kit subagents |
-| `claude/mcp/` | MCP server configs |
 | `claude/settings/` | Claude Code project settings profiles |
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |
 | `templates/docs/`, `templates/pyproject/`, `templates/settings/`, `templates/research/` | Doc / pyproject / settings starters + the research pin gate |
@@ -35,7 +34,7 @@ guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 
 - Conventional Commits with scope (e.g. `feat(skill): ...`, `docs(playbook): ...`).
 - Skills are directories containing `SKILL.md`. Agents can be single `.md` files or directories with `AGENT.md`.
-- No hardcoded secrets — use `${ENV_VAR}` placeholders in MCP configs.
+- No hardcoded secrets — use `${ENV_VAR}` placeholders.
 - This is a curated tree, not a generated one — no build step, no manifests.
 
 ## Adding a kit component
@@ -44,10 +43,15 @@ guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 2. Add a row to the relevant table in `INVENTORY.md`.
 3. Commit with Conventional Commits (`feat(skill-name): ...`).
 
-Promotion path: when a kit component becomes part of a process every repo or
-lab should run the same way, move it into a plugin in **qute-plugins**
-(`qute-essentials`, or `qute-research` for the research lifecycle) and release
-it there — not here.
+**The kit is the incubator** (Tom, 2026-09-28). A NEW **generic** skill starts
+here — not in a plugin — and is copied by hand into the repos that try it. When it has
+become part of a process every repo or lab should run the same way, move it into
+a plugin in **qute-plugins** (`qute-essentials`, or `qute-research` for the
+research lifecycle), release it there, and delete it here — moving means moving.
+
+MCP server configs are not kept here (removed 2026-09-28, TOM-1235): a copied
+config drifts from the server it describes, and each server's own install docs
+are the authority.
 
 ## Skill frontmatter properties
 
