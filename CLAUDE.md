@@ -43,8 +43,8 @@ guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 2. Add a row to the relevant table in `INVENTORY.md`.
 3. Commit with Conventional Commits (`feat(skill-name): ...`).
 
-**The kit is the incubator** (Tom, 2026-09-28). A NEW skill starts here — not
-in a plugin — and is copied by hand into the repos that try it. When it has
+**The kit is the incubator** (Tom, 2026-09-28). A NEW **generic** skill starts
+here — not in a plugin — and is copied by hand into the repos that try it. When it has
 become part of a process every repo or lab should run the same way, move it into
 a plugin in **qute-plugins** (`qute-essentials`, or `qute-research` for the
 research lifecycle), release it there, and delete it here — moving means moving.

@@ -20,7 +20,7 @@ starters. Browse [`INVENTORY.md`](INVENTORY.md) for the full map. A skill bound
 to one project does not live here: its master is that project's repo
 (TOM-1235, 2026-09-28).
 
-**New skills start here** — the kit is the incubator; the rule and the
+**New generic skills start here** — the kit is the incubator; the rule and the
 promotion path are in [`CLAUDE.md`](CLAUDE.md).
 
 Pick what you need and copy it by hand. A copied skill carries a
