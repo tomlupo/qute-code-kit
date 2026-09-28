@@ -1,7 +1,7 @@
 # qute-code-kit
 
 Tom's **personal skills & templates library** for Claude Code — a curated tree
-of skills, agents, MCP configs, settings profiles, doc templates, and playbooks
+of skills, agents, settings profiles, doc templates, and playbooks
 that you browse and **copy by hand** into target repos. Nothing here installs,
 releases, or self-updates.
 
@@ -15,10 +15,13 @@ releases, or self-updates.
 ## The kit: `claude/`
 
 19 generic skills (quant/data, multi-agent research workflows, engineering,
-visual/UX), 2 agents, 7 MCP server configs, 3 settings profiles, 2 root-file
+visual/UX), 2 agents, 3 settings profiles, 2 root-file
 starters. Browse [`INVENTORY.md`](INVENTORY.md) for the full map. A skill bound
 to one project does not live here: its master is that project's repo
 (TOM-1235, 2026-09-28).
+
+**New skills start here** — the kit is the incubator; the rule and the
+promotion path are in [`CLAUDE.md`](CLAUDE.md).
 
 Pick what you need and copy it by hand. A copied skill carries a
 `PROVENANCE.yaml` (source path, source commit, each file `tracked` or
@@ -30,10 +33,6 @@ cp -r ~/workspace/projects/qute-code-kit/claude/skills/quant/market-datasets ~/p
 
 # Agent — single file
 cp ~/workspace/projects/qute-code-kit/claude/agents/research-synthesizer.md ~/projects/myrepo/.claude/agents/
-
-# MCP config
-mkdir -p ~/projects/myrepo/.mcp/firecrawl
-cp ~/workspace/projects/qute-code-kit/claude/mcp/firecrawl.json ~/projects/myrepo/.mcp/firecrawl/.mcp.json
 
 # Settings profile
 cp ~/workspace/projects/qute-code-kit/claude/settings/project-quant.json ~/projects/myrepo/.claude/settings.json
@@ -49,7 +48,7 @@ and the canonical research gate `templates/research/check_research_pins.py`
 
 ## Browse
 
-- [`INVENTORY.md`](INVENTORY.md) — full kit contents (skills / agents / MCP / settings / templates)
+- [`INVENTORY.md`](INVENTORY.md) — full kit contents (skills / agents / settings / templates)
 - [`docs/playbooks/`](docs/playbooks/) — multi-step workflows (compound engineering, multi-agent review, investment research, session continuity, …)
 - [`docs/cheatsheets/`](docs/cheatsheets/) — Claude CLI, prompt engineering, XML prompting
 - [`docs/prompts/`](docs/prompts/) — reusable prompt patterns
