@@ -66,8 +66,8 @@ it there — not here.
 
 **When to use each:**
 
-- `disable-model-invocation: true` — user-initiated only (e.g. `gist-report`).
-- `user-invocable: false` — model-only skills (e.g. `context-management`).
+- `disable-model-invocation: true` — user-initiated only (pair it with `agents/openai.yaml` `policy.allow_implicit_invocation: false` so Codex agrees).
+- `user-invocable: false` — model-only skills.
 - `agent: <name>` — search/research skills where a subagent protects the main context window.
 - `context: fork` — side-output produced in parallel (e.g. memory/summarization).
 - `allowed-tools` — read-only or restricted skills.

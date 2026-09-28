@@ -161,7 +161,7 @@ Generates a project README in forked context (doesn't pollute your main session)
 
 ## Tips
 
-- Start with `/qrd` even for exploratory work — it costs 5 minutes and saves hours
+- Write the spec (ADR or the line's README) before exploratory work — it costs 5 minutes and saves hours
 - Use `polars` over pandas for datasets >1GB (lazy evaluation, 10-100x faster)
 - Keep `TASKS.md` updated at each pipeline stage
 - Use `/handoff` between sessions to preserve research context
