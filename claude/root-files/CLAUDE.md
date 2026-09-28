@@ -26,7 +26,7 @@ See also: @README.md
 | Exploratory research | New study in `research/` on `dev` branch | work-organization (scratch-first, research as sub-projects), git-workflow (research on dev) |
 | Production promotion | Moving research findings to production | git-workflow (feat/* branch), work-organization (config/output symmetry) |
 | Data pipeline work | Building or modifying a data pipeline | documentation (4-doc pattern), datasets, work-organization (data layers) |
-| Feature development | New production feature | git-workflow (feat/* → dev → main), code-quality |
+| Feature development | New production feature | git-workflow (feat/* → dev → main), /mattpocock-skills:code-review |
 | Documentation | Writing or updating docs | documentation (placement rules, reference hierarchy) |
 
 ## Domain Knowledge

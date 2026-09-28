@@ -117,7 +117,7 @@ Fails the commit on hard rules (gradient text, contrast < AA). Warnings-only for
 | Kit component | How it interacts with Impeccable |
 |---------------|----------------------------------|
 | `ui-ux-pro-max` skill (webdev bundle) | Strategic UX review; Impeccable is the tactical pass after it |
-| `code-quality` skill | Runs on code correctness; Impeccable runs on design quality — use both |
+| `/mattpocock-skills:code-review` | Runs on code correctness; Impeccable runs on design quality — use both |
 | `architecture-diagram` skill | System-level diagrams; Impeccable polishes the UI surface those systems render |
 | `/guard` from qute-essentials | Leave guards on — Impeccable only edits files, never shells or network |
 | `/gbu`, `/wtf` from qute-essentials | Good review partners for a `/polish` or `/overdrive` diff |

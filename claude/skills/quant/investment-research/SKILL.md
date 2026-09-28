@@ -84,7 +84,7 @@ For **signal-driven** research (TAA, factor models, fund scoring, sector rotatio
 | 7 | Portfolio backtest | Per-profile + per-regime + per-asset attribution table |
 | 8 | Lock & promote | STATUS update, EXPERIMENTS lock entry, spec §, feat/ branch |
 
-**MANDATORY for stage 7:** Use the `backtest` skill (vbt `run()`). Manual weighted-sum loops over monthly returns inflate IR by ~0.20 (empirically confirmed). See backtest skill Critical Rule #1.
+**MANDATORY for stage 7:** Use the repo's drift-aware backtest engine (in dm-evo: the `backtest` skill in dm-evo-core, vbt `run()`). Manual weighted-sum loops over monthly returns inflate IR by ~0.20 (empirically confirmed).
 
 **Stage 4 is a trap.** Normalization choice (per-asset rolling z vs bucket-pooled vs globally-pooled vs percentile rank vs tanh) materially changes which structural information survives — the default "z-score everything per-asset" reflex erases cross-asset structural premia (e.g. EM persistently cheap). Read the reference before designing your normalization layer.
 
@@ -258,7 +258,7 @@ For portfolio/allocation research, the standard approach is:
 2. **Compute risk metrics for every combination**
 3. **Select from the feasible set** based on criteria + expert input
 
-**For portfolio backtests, MANDATORY:** use the `backtest` skill. Do NOT roll your own monthly weighted-sum loop — manual loops skip intra-period weight drift and produce optimistically biased Sharpe/IR (empirically observed: +0.20 avg IR inflation on a 10-year monthly-rebalanced study, see backtest skill Critical Rule #1).
+**For portfolio backtests, MANDATORY:** use the repo's drift-aware backtest engine (in dm-evo: the `backtest` skill in dm-evo-core; elsewhere the project's own engine, e.g. quantbox). Do NOT roll your own monthly weighted-sum loop — manual loops skip intra-period weight drift and produce optimistically biased Sharpe/IR (empirically observed: +0.20 avg IR inflation on a 10-year monthly-rebalanced study).
 
 ```python
 # Cross-sectional metric sweep (no time-series rebalance — fine for static metrics)
@@ -268,11 +268,12 @@ for weights in weight_combinations:
     metrics = compute_risk_metrics(portfolio_returns)
     results.append({**weights, **metrics})
 
-# Time-series portfolio backtest (use backtest skill, NOT the loop above):
+# Time-series portfolio backtest (use the drift-aware engine, NOT the loop above).
+# dm-evo example (dm-evo-core's own module):
 from src.vectorbt_tools.backtesting import run as vbt_run
 pf = vbt_run(prices, {"Strategy": w_df, "Benchmark": w_bench_df},
              rebalancing_freq="1M", fees=0.001)
-# pf.stats(), pf.drawdowns.records_readable, etc. — see backtest skill
+# pf.stats(), pf.drawdowns.records_readable, etc.
 ```
 
 ### Standard Risk Metrics
@@ -430,7 +431,7 @@ Research generates throwaway scripts. Archive aggressively:
 | Skill | Use For |
 |-------|---------|
 | `market-datasets` | Sourcing price/return data |
-| `backtest` | **MANDATORY for any portfolio-level backtest** — vbt-based weight-driven simulation with drift, fees, multi-strategy comparison. Manual weighted-sum loops produce optimistically biased Sharpe/IR (~0.20 inflation observed). |
+| the repo's backtest engine (dm-evo: `backtest` in dm-evo-core) | **MANDATORY for any portfolio-level backtest** — weight-driven simulation with drift, fees, multi-strategy comparison. Manual weighted-sum loops produce optimistically biased Sharpe/IR (~0.20 inflation observed). |
 | `investment-research-dashboard` | Building interactive HTML deliverables |
 | `investment-research-formal` | Formalizing findings for compliance/audit |
 | `analizy-pl-data` | Polish fund data from analizy.pl |

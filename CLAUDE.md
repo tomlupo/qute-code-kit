@@ -3,29 +3,32 @@
 Tom's **personal skills & templates library** — reusable Claude Code components
 under `claude/` (skills, agents, MCP configs, settings, root-file starters) and
 doc/pyproject templates under `templates/`. Browse and copy what you need into
-target repos; several skills are symlinked into `~/.claude/skills/` and are
-live on edit.
+target repos; a copied skill carries a `PROVENANCE.yaml` stamp (source path,
+source commit, each file `tracked` or `forked from <sha>, reason: …`).
 
-**The `qute-essentials` plugin is NOT here anymore.** It moved to
-`tomlupo/qute-platform` (`agent-kit/plugins/qute-essentials/`, agent-kit
-marketplace) on 2026-07-29, together with the marketplace manifest, the release
-tooling (`release-plugin.sh` / `build-marketplace.py`), and the ADRs
+**What belongs here: generic skills only.** A skill whose content is bound to
+one project lives in that project's repo, which is its master (TOM-1235,
+2026-09-28: the dm-evo fund chain moved to dm-evo-lab, `backtest` and
+`evo-dm-brand` to dm-evo-core, `brand-rockbridge` to robo-lab).
+
+**The plugins are NOT here.** `qute-essentials` and `qute-research` live in
+`tomlupo/qute-plugins`, with their marketplace, release tooling and ADRs
 (`docs/adr/` here is a pointer). This repo has no release cadence — do not add
 plugin manifests, marketplace files, or `/ship` release wiring here. Changes to
-guards, hooks, review/release regime, or plugin skills belong in qute-platform.
+guards, hooks, review/release regime, or plugin skills belong in qute-plugins.
 
 ## Layout
 
 | Path | Contents |
 |---|---|
-| `claude/skills/` | Personal-kit skills, grouped: `quant/`, `engineering/`, `research/`, `visual/`, `brand/` (`<name>/SKILL.md` + assets) |
+| `claude/skills/` | Generic kit skills, grouped: `quant/`, `engineering/`, `research/`, `visual/` (`<name>/SKILL.md` + assets) |
 | `claude/agents/` | Personal-kit subagents |
 | `claude/mcp/` | MCP server configs |
 | `claude/settings/` | Claude Code project settings profiles |
 | `claude/root-files/` | Root-level CLAUDE.md / AGENTS.md starters |
 | `templates/docs/`, `templates/pyproject/`, `templates/settings/`, `templates/research/` | Doc / pyproject / settings starters + the research pin gate |
 | `docs/playbooks/`, `docs/cheatsheets/`, `docs/prompts/` | Workflows, references, reusable prompts |
-| `docs/adr/` | Pointer to the plugin's ADRs in qute-platform (history in git) |
+| `docs/adr/` | Pointer to the plugin ADRs (history in git) |
 | `tests/` | Unit tests for `templates/research/check_research_pins.py` |
 
 ## Conventions
@@ -41,9 +44,10 @@ guards, hooks, review/release regime, or plugin skills belong in qute-platform.
 2. Add a row to the relevant table in `INVENTORY.md`.
 3. Commit with Conventional Commits (`feat(skill-name): ...`).
 
-Promotion path: when a personal-kit component proves universally useful, move
-it into the `qute-essentials` plugin **in qute-platform**
-(`agent-kit/plugins/qute-essentials/skills/`) and release it there — not here.
+Promotion path: when a kit component becomes part of a process every repo or
+lab should run the same way, move it into a plugin in **qute-plugins**
+(`qute-essentials`, or `qute-research` for the research lifecycle) and release
+it there — not here.
 
 ## Skill frontmatter properties
 
@@ -62,8 +66,8 @@ it into the `qute-essentials` plugin **in qute-platform**
 
 **When to use each:**
 
-- `disable-model-invocation: true` — user-initiated only (e.g. `gist-report`).
-- `user-invocable: false` — model-only skills (e.g. `context-management`).
+- `disable-model-invocation: true` — user-initiated only (pair it with `agents/openai.yaml` `policy.allow_implicit_invocation: false` so Codex agrees).
+- `user-invocable: false` — model-only skills.
 - `agent: <name>` — search/research skills where a subagent protects the main context window.
 - `context: fork` — side-output produced in parallel (e.g. memory/summarization).
 - `allowed-tools` — read-only or restricted skills.

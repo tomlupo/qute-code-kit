@@ -1,5 +1,8 @@
 # LLM Council Workflow
 
+> **Retired skill (2026-09-28, TOM-1235).** `gist-report` is gone from the kit;
+> share the council output by publishing it as an Artifact.
+
 > Multi-model decision support: frame a question → run council → synthesize answer
 
 ## When to Use

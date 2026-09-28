@@ -1,5 +1,11 @@
 # Research to Production
 
+> **Retired skills (2026-09-28, TOM-1235).** `paper-reading` and `qrd` are gone
+> from the kit. Read a paper directly (the Read tool opens PDFs) and keep the
+> notes in the research line; write the spec as an ADR or the line's README.
+> The research lifecycle itself is the `qute-research` plugin (`/research`,
+> `/finding`, `/promote`).
+
 > Full quantitative research pipeline from literature review to production model.
 
 ## Components
@@ -155,7 +161,7 @@ Generates a project README in forked context (doesn't pollute your main session)
 
 ## Tips
 
-- Start with `/qrd` even for exploratory work — it costs 5 minutes and saves hours
+- Write the spec (ADR or the line's README) before exploratory work — it costs 5 minutes and saves hours
 - Use `polars` over pandas for datasets >1GB (lazy evaluation, 10-100x faster)
 - Keep `TASKS.md` updated at each pipeline stage
 - Use `/handoff` between sessions to preserve research context

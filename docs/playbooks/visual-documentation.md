@@ -1,5 +1,10 @@
 # Visual Documentation
 
+> **Retired skills (2026-09-28, TOM-1235).** `gist-report` and `excalidraw` are
+> gone from the kit. To share a report, publish it as an Artifact (a private
+> claude.ai page you can share); for diagrams use `architecture-diagram` or
+> mermaid.
+
 > Turn complex terminal output into styled, shareable HTML pages.
 
 ## Components

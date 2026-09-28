@@ -148,4 +148,4 @@ each with a different color mood. Save to output/variants/
 - The playground annotation eliminates manual prompt writing between iterations
 - Keep style consistent across a project by reusing the same style descriptions
 - Use `--png` for anything that needs transparency or lossless quality
-- Combine with `/gist-report` to share visual work via URL
+- Share visual work by publishing it as an Artifact (the `gist-report` skill was retired 2026-09-28)

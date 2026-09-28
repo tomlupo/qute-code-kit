@@ -14,7 +14,7 @@ Stage-by-stage playbook for quant signal research: from candidate signals throug
 | 4 | Distribution & normalization | How do we put signals in compatible units? | Per-component normalization spec, with documented preserved structural info | Z-scoring everything per-asset by reflex (erases structural info) |
 | 5 | Ensemble construction | How do we combine N signals into one composite? | Variants v{N} documented in EXPERIMENTS.md, ONE change each | Layering "new normalization + new clip + new weights" into one variant |
 | 6 | Weight engine | Given a composite signal, what weight per asset per profile? | Weight engine spec + corridor sensitivity per profile | Tightening corridors on a single tail event without recalibration |
-| 7 | Portfolio backtest | Does the composite deliver risk-adjusted return after costs? | Per-profile + per-regime + per-asset attribution table | Manual weighted-sum loops (inflates IR ~0.20) — **MANDATORY: use `backtest` skill** |
+| 7 | Portfolio backtest | Does the composite deliver risk-adjusted return after costs? | Per-profile + per-regime + per-asset attribution table | Manual weighted-sum loops (inflates IR ~0.20) — **MANDATORY: use the repo's drift-aware backtest engine** |
 | 8 | Lock & promote | Has the candidate met all lock criteria? | STATUS update, EXPERIMENTS lock entry, spec §, feat/ branch | PROVISIONAL → LOCKED → PROVISIONAL flip cycles (lock once, with full evidence) |
 
 ## Stage 1 — Signal generation
@@ -156,7 +156,7 @@ weight[cat] = neutral[cat] + (signal[cat] − 0.5) × corridor_span[cat]
 
 ## Stage 7 — Portfolio backtest
 
-**MANDATORY:** Use `backtest` skill (vbt `run()`). Manual weighted-sum loops over monthly returns inflate IR by ~0.20 because they skip intra-month weight drift.
+**MANDATORY:** Use the repo's drift-aware backtest engine (dm-evo: the `backtest` skill in dm-evo-core, vbt `run()`). Manual weighted-sum loops over monthly returns inflate IR by ~0.20 because they skip intra-month weight drift.
 
 **Standard outputs per variant** (all in one `pf` call so they share prices/dates/fees):
 - Variants under test + current locked baseline + SAA benchmark

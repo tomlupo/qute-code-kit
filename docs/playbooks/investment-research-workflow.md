@@ -1,5 +1,10 @@
 # Investment Research Workflow
 
+> **Retired skills (2026-09-28, TOM-1235).** `paper-reading` and `gist-report`
+> are gone from the kit. Read papers directly (the Read tool opens PDFs); share
+> results by publishing an Artifact. Verdicts go through `/finding`
+> (qute-research).
+
 > End-to-end pattern: question → data → analysis → deliverable
 
 ## When to Use
