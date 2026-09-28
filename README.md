@@ -40,11 +40,11 @@ cp ~/workspace/projects/qute-code-kit/claude/settings/project-quant.json ~/proje
 
 ## Templates: `templates/`
 
-Doc starters (ADR, PRD, tech spec, user flows, research-workflow and
-issue-tracker bindings), `pyproject.toml` starters (quant / webdev, uv + ruff +
-pyright + pytest), a `WORKFLOW.md` orchestrator contract, settings profiles,
-and the canonical research gate `templates/research/check_research_pins.py`
-(unit-tested in `tests/`).
+Doc starters (ADR, PRD, tech spec, user flows, issue-tracker binding),
+`pyproject.toml` starters (quant / webdev, uv + ruff + pyright + pytest), a
+`WORKFLOW.md` orchestrator contract, and settings profiles. The research
+scaffold — pin gate, line template, research-workflow — lives in the
+qute-research plugin (`templates/research-scaffold/`), stamped by `onboard repo`.
 
 ## Browse
 

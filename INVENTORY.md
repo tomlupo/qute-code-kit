@@ -98,7 +98,6 @@ them, and qute-essentials depends on it), `brand-sonte` (archived project).
 | Path | Use case |
 |---|---|
 | `templates/docs/adr-template.md` | ADR (architectural decision record) starter |
-| `templates/docs/agents-research-workflow.md` | Standard research regime for lab repos (`docs/agents/research-workflow.md` starter) |
 | `templates/docs/agents-issue-tracker.md` | Tracker binding starter (`docs/agents/issue-tracker.md`; machine marker + Linear/GitHub division) |
 | `templates/WORKFLOW.md` | Symphony/Elixir-style orchestrator contract (frontmatter + agent prompt routing Matt + qute + docs/agents) |
 | `templates/docs/prd-template.md` | Product requirements doc starter |
@@ -106,5 +105,4 @@ them, and qute-essentials depends on it), `brand-sonte` (archived project).
 | `templates/docs/user-flows-template.md` | User flows / journey starter |
 | `templates/pyproject/quant-uv.toml` | Quant `pyproject.toml` (uv + ruff + pyright + pytest, per [osquant 2025](https://osquant.com/papers/python-tooling-in-2025/)) |
 | `templates/pyproject/webdev-uv.toml` | Webdev `pyproject.toml` (same stack) |
-| `templates/research/` | Canonical research pin gate `check_research_pins.py` (provenance-on-conclude; unit-tested in `tests/`) + research-line `_template/` |
 | `templates/settings/*.json` | Settings starters (mirror of `claude/settings/`) |
