@@ -1,0 +1,13 @@
+# Findings already in PUBLIC history, one exact fingerprint each
+# (commit:file:rule:line). Rewriting history cannot un-publish them, so they
+# are acknowledged here instead. Never add a path- or rule-wide entry.
+
+# TOM-1257: revoked key, history is public (Firecrawl API key, file deleted since).
+326a7127073dab2974a610350ef5927bd5f893ae:project-templates/default-quant/.mcp/firecrawl/.mcp.json:generic-api-key:10
+
+# TOM-1257: tailnet address, history is public (removed in 28110dd).
+3de3320003f7b9852f26d479b070b77e97b80f64:plugins/qute-essentials/scripts/tasks/lib.sh:tailnet-ip:56
+3de3320003f7b9852f26d479b070b77e97b80f64:plugins/qute-essentials/scripts/tasks/lib.sh:tailnet-ip:65
+
+# TOM-1257: prod home path in prose, history is public (file moved out since).
+6e0735787739b69e344d38ed6f4cb57770e48e47:plugins/qute-essentials/skills/wtf/SKILL.md:prod-home-path:97

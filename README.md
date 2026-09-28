@@ -55,4 +55,5 @@ qute-research plugin (`templates/research-scaffold/`), stamped by `onboard repo`
 - [`docs/adr/`](docs/adr/) — pointer to the plugin ADRs (history stays in git)
 - [`docs/resources.md`](docs/resources.md) — curated external links (interesting repos, tools, reading)
 
-See [`CLAUDE.md`](CLAUDE.md) for repo conventions.
+See [`CLAUDE.md`](CLAUDE.md) for repo conventions. Before committing here, install
+[gitleaks](https://github.com/gitleaks/gitleaks) and run `pre-commit install` — this repo is public.
