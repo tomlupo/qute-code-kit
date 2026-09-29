@@ -171,8 +171,8 @@ project/
 │   ├── architecture/                  ← how to build it (technical)
 │   │   ├── data-model.md
 │   │   └── tech-spec.md
-│   ├── decisions/                     ← why this way (ADRs)
-│   │   └── 001-*.md
+│   ├── adr/                           ← why this way (ADRs)
+│   │   └── 0001-*.md
 │   └── progress.md                    ← running log + codebase patterns
 ├── prd.json                           ← Ralph stories (auto-generated)
 └── progress.txt                       ← Ralph execution log
