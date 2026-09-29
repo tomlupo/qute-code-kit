@@ -36,7 +36,7 @@ copy's drift can be checked.
 
 | Name | Description |
 |---|---|
-| `skill-assessment` | Audit skills against Anthropic's skill engineering guide. Folds into the `/skills` command (TOM-1126) |
+| `skill-assessment` | Audit every skill in one run against Anthropic's skill engineering guide: categories, a coverage matrix, gaps. The estate-wide half; `/qute-essentials:skills improve` scores and patches one skill (TOM-1126). Kept by decision, 2026-09-29 |
 
 ### Visual / UX (`visual/`, 4)
 
