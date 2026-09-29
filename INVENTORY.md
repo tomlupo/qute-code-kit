@@ -62,38 +62,39 @@ them, and qute-essentials depends on it), `brand-sonte` (archived project).
 `research-refute`, `-reproduce`, `-robustness`, `-sweep`, `-bakeoff` — see the
 qute-research README in `tomlupo/qute-plugins`.
 
-## Agents (2)
+## Agents (1)
 
 | Name | Description |
 |---|---|
 | `data-pipeline-debugger` | Debug data pipelines (input/output validation, root-cause tracing) |
-| `research-synthesizer` | Synthesize findings across multiple papers / studies |
 
-## Settings templates (3)
-
-| Template | Use case |
-|---|---|
-| `global-generic.json` | Liberal defaults for personal `~/.claude/settings.json` |
-| `project-quant.json` | Quant-project permissions (Edit/Write src/, notebooks/, models/...) |
-| `project-webdev.json` | Webdev-project permissions |
-
-## Root-file starters (2)
+## Root-file starters (1)
 
 | File | Use case |
 |---|---|
-| `claude/root-files/CLAUDE.md` | Root CLAUDE.md starter |
 | `claude/root-files/AGENTS.md` | Root AGENTS.md starter |
 
 ## Templates
 
 | Path | Use case |
 |---|---|
-| `templates/docs/adr-template.md` | ADR (architectural decision record) starter |
-| `templates/docs/agents-issue-tracker.md` | Tracker binding starter (`docs/agents/issue-tracker.md`; machine marker + Linear/GitHub division) |
 | `templates/WORKFLOW.md` | Symphony/Elixir-style orchestrator contract (frontmatter + agent prompt routing Matt + qute + docs/agents) |
 | `templates/docs/prd-template.md` | Product requirements doc starter |
 | `templates/docs/tech-spec-template.md` | Technical specification starter |
 | `templates/docs/user-flows-template.md` | User flows / journey starter |
-| `templates/pyproject/quant-uv.toml` | Quant `pyproject.toml` (uv + ruff + pyright + pytest, per [osquant 2025](https://osquant.com/papers/python-tooling-in-2025/)) |
-| `templates/pyproject/webdev-uv.toml` | Webdev `pyproject.toml` (same stack) |
-| `templates/settings/*.json` | Settings starters (mirror of `claude/settings/`) |
+
+### Moved to the plugins 2026-09-29 (TOM-1235)
+
+In `tomlupo/qute-plugins`; moving means moving, so none of these has a copy here:
+
+- `research-synthesizer` agent → qute-research `agents/`.
+- `pyproject` starters (quant / webdev) and the project settings profiles
+  (quant / webdev) → qute-essentials `onboard` `references/starters/`, offered
+  at `onboard repo` step 9 where a repo has none.
+- Deleted as second copies: the root `CLAUDE.md` starter (`onboard repo`
+  writes the contract), `templates/docs/adr-template.md` (`/decision` and
+  Matt's `ADR-FORMAT.md` own the ADR shape), `templates/docs/agents-issue-tracker.md`
+  (onboard's `issue-tracker-linear.md` seed is the live binding; this copy
+  still named retired verbs).
+- Retired: `global-generic.json` (personal `~/.claude/settings.json`; it
+  enabled plugins from a marketplace that no longer exists).

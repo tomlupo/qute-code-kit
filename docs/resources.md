@@ -6,7 +6,7 @@ quick-reference cheatsheets in [`cheatsheets/`](cheatsheets/).
 
 ## Tooling
 
-- [Python Tooling in 2025](https://osquant.com/papers/python-tooling-in-2025/) — uv + ruff + pyright + pytest, the four-pillars stack. Source for `templates/pyproject/{quant,webdev}-uv.toml` defaults.
+- [Python Tooling in 2025](https://osquant.com/papers/python-tooling-in-2025/) — uv + ruff + pyright + pytest, the four-pillars stack. Source for the `pyproject` starters, now in qute-essentials `onboard` (`references/starters/`).
 - `uvx claude-code-transcripts` — clean, mobile-friendly HTML transcripts (simonw/claude-code-transcripts)
 - `npx playbooks get <url>` — markdown fetch (works with client-side rendered pages)
 - [Repomix](https://github.com/yamadashy/repomix) — pack entire repos into AI-friendly single files for context

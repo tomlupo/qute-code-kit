@@ -74,7 +74,7 @@ Copy vault specs into the repo:
 | `CLAUDE.md` | `project-templates/fullstack/CLAUDE.md` | Agent instructions — stack, conventions, vault refs |
 | `AGENTS.md` | `project-templates/fullstack/AGENTS.md` | Pointer to CLAUDE.md |
 | `TASKS.md` | `project-templates/fullstack/TASKS.md` | Ordered backlog with "done when" criteria |
-| `docs/decisions/000-template.md` | `templates/docs/adr-template.md` | ADR template |
+| `docs/adr/` | `/decision` (qute-essentials) writes the first ADR | Decision records |
 | `docs/progress.md` | (see template) | Running log for agent memory |
 | `.gitignore` | `project-templates/fullstack/.gitignore` | Standard ignores |
 
