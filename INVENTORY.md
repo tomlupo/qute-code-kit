@@ -62,7 +62,7 @@ qute-research README in `tomlupo/qute-plugins`. On 2026-09-29 the last two
 followed: `investment-research-dashboard` is its `research-dashboard` skill (the
 `reporting/` library and its contract tests), and `investment-research-formal`'s
 METHODOLOGY skeleton, MiFID II mapping and literature note are its
-`research/references/methodology-document.md`. The kit carries no research
+`skills/research/references/methodology-document.md`. The kit carries no research
 skills.
 
 ## Agents (2)

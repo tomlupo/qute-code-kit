@@ -16,7 +16,7 @@ Starting a new investment research question — factor analysis, fund comparison
 | Skill | Role |
 |-------|------|
 | qute-research `/research` | Lifecycle and method protocols (`method-investment.md`, `method-signal.md`) — moved out of the kit 2026-09-28 (TOM-1221) |
-| qute-research `research/references/methodology-document.md` | The methodology document for an external audience (MiFID II mapping, literature notes), built from the line's own evidence chain |
+| qute-research `skills/research/references/methodology-document.md` | The methodology document for an external audience (MiFID II mapping, literature notes), built from the line's own evidence chain |
 | `paper-reading` | Extract insights from papers, fund cards, prospectuses |
 | qute-research `/research-dashboard` | Self-contained Plotly.js HTML dashboards (`/finding-report` for one finding) |
 | `market-datasets` | Multi-source data fetching |
@@ -55,7 +55,7 @@ For exploratory work:
 For formal research (publishable, auditable):
 - Pre-register the claim, then record each result with `/finding` (qute-research)
 - Write the methodology document from that chain — qute-research's
-  `research/references/methodology-document.md`
+  `skills/research/references/methodology-document.md`
 
 ### Phase 4: Deliver
 
