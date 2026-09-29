@@ -1,0 +1,26 @@
+# Secret / confidential-data scan (TOM-1257). Run by CI (.github/workflows/ci.yml)
+# and by the local pre-commit hook (.pre-commit-config.yaml).
+# Default gitleaks rules, plus two leaks the defaults do not know about.
+# Known historical findings are suppressed one fingerprint at a time in
+# .gitleaksignore -- never by path or rule here.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "tailnet-ip"
+description = "Tailscale / CGNAT IPv4 address (100.64.0.0/10) -- a private network address"
+# \b, not a consumed boundary char: matches never overlap, so consuming the
+# separator would hide an address that follows another one.
+regex = '''\b100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]{1,3}\.[0-9]{1,3}\b'''
+keywords = ["100."]
+
+[[rules]]
+id = "prod-home-path"
+description = "Path under the production user's home (/home/prod/)"
+# The leading slash sits outside the captured secret on purpose: the default
+# global allowlist drops any secret matching ^/(?:bin|etc|home|...)/..., so a
+# secret that starts with "/home/" would never be reported.
+regex = '''/(home/prod/)'''
+secretGroup = 1
+keywords = ["/home/prod/"]

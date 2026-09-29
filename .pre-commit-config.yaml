@@ -1,0 +1,17 @@
+# Local secret scan on staged changes (TOM-1257); CI runs the same rules.
+# Setup (install gitleaks, then `pre-commit install`): see README.md.
+repos:
+  - repo: local
+    hooks:
+      - id: gitleaks
+        name: gitleaks (staged changes)
+        language: system
+        stages: [pre-commit]
+        pass_filenames: false
+        always_run: true
+        # A missing binary FAILS: "could not check" must never look clean.
+        entry: >-
+          bash -c 'command -v gitleaks >/dev/null 2>&1 || {
+          echo "gitleaks not found: install it (https://github.com/gitleaks/gitleaks#installing)
+          or this commit cannot be checked for secrets." >&2; exit 1; };
+          exec gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml .'
