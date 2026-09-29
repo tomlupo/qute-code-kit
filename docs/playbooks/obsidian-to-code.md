@@ -59,7 +59,7 @@ cd my-project
 ### 2b. Copy and translate specs
 
 ```bash
-mkdir -p docs/specs docs/architecture docs/decisions
+mkdir -p docs/specs docs/architecture docs/adr
 ```
 
 Copy vault specs into the repo:
@@ -153,7 +153,7 @@ File a GitHub Issue with `job:queued` + `agent:coder` labels. OpenClaw cron dete
 ### Continuous
 
 - Agents append to `docs/progress.md` after each task
-- ADRs in `docs/decisions/` capture non-obvious choices
+- ADRs in `docs/adr/` capture non-obvious choices
 - `docs/progress.md` "Codebase Patterns" section consolidates learnings
 
 ## File Map
