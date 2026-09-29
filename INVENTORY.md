@@ -85,16 +85,8 @@ qute-research README in `tomlupo/qute-plugins`.
 
 ### Moved to the plugins 2026-09-29 (TOM-1235)
 
-In `tomlupo/qute-plugins`; moving means moving, so none of these has a copy here:
-
-- `research-synthesizer` agent → qute-research `agents/`.
-- `pyproject` starters (quant / webdev) and the project settings profiles
-  (quant / webdev) → qute-essentials `onboard` `references/starters/`, offered
-  at `onboard repo` step 9 where a repo has none.
-- Deleted as second copies: the root `CLAUDE.md` starter (`onboard repo`
-  writes the contract), `templates/docs/adr-template.md` (`/decision` and
-  Matt's `ADR-FORMAT.md` own the ADR shape), `templates/docs/agents-issue-tracker.md`
-  (onboard's `issue-tracker-linear.md` seed is the live binding; this copy
-  still named retired verbs).
-- Retired: `global-generic.json` (personal `~/.claude/settings.json`; it
-  enabled plugins from a marketplace that no longer exists).
+In `tomlupo/qute-plugins`: the `research-synthesizer` agent (qute-research),
+the pyproject and project-settings starters (qute-essentials `onboard`,
+`references/starters/`). Deleted as second copies of what the plugins own: the
+root `CLAUDE.md` starter, the ADR template, the issue-tracker binding. Retired:
+`global-generic.json` (stale). All in git history.
