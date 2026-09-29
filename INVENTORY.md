@@ -18,17 +18,15 @@ A repo that copies a kit skill stamps it with `PROVENANCE.yaml` (source path,
 source commit, each file `tracked` or `forked from <sha>, reason: …`) so the
 copy's drift can be checked.
 
-## Skills (12, grouped by directory under `claude/skills/`)
+## Skills (10, grouped by directory under `claude/skills/`)
 
-### Quant / data (`quant/`, 7)
+### Quant / data (`quant/`, 5)
 
 | Name | Description |
 |---|---|
 | `analizy-pl-data` | Programmatic access to Polish investment fund data from analizy.pl |
 | `atlasetf-scraper` | Scrape ETF data from atlasetf.pl (screener of ~13k funds, per-ISIN detail, prices) via its JSON API |
 | `gpw-benchmark-scraper` | Scrape gpwbenchmark.pl (WIBID/WIBOR reference rates, index list with ISINs, per-index OHLC history) |
-| `investment-research-formal` | Structured, auditable research with hypotheses + evidence chain. Its research regime is qute-research's; stays until its METHODOLOGY.md skeleton and MiFID II mapping have a home there (TOM-1221) |
-| `investment-research-dashboard` | Self-contained (offline, no CDN) Plotly HTML dashboards for finance; bundles the canonical `reporting/` lib (`base`/`backtest_dashboard`/`research_story`), reuse-first. A single finding's one-pager is qute-research's `/finding-report` |
 | `market-datasets` | Fetch market data from Stooq, NBP, Yahoo, FRED, Tiingo, CCXT, FinancialData |
 | `pipeline-docs` | 4-doc pattern (instruction / dataset / methodology / reference) |
 
@@ -60,7 +58,12 @@ them, and qute-essentials depends on it), `brand-sonte` (archived project).
 
 `acceptance-gates`, `investment-research` (now its method protocols),
 `research-refute`, `-reproduce`, `-robustness`, `-sweep`, `-bakeoff` — see the
-qute-research README in `tomlupo/qute-plugins`.
+qute-research README in `tomlupo/qute-plugins`. On 2026-09-29 the last two
+followed: `investment-research-dashboard` is its `research-dashboard` skill (the
+`reporting/` library and its contract tests), and `investment-research-formal`'s
+METHODOLOGY skeleton, MiFID II mapping and literature note are its
+`research/references/methodology-document.md`. The kit carries no research
+skills.
 
 ## Agents (2)
 
