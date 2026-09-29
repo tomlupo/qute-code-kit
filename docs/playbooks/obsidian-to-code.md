@@ -59,7 +59,7 @@ cd my-project
 ### 2b. Copy and translate specs
 
 ```bash
-mkdir -p docs/specs docs/architecture docs/decisions
+mkdir -p docs/specs docs/architecture docs/adr
 ```
 
 Copy vault specs into the repo:
@@ -74,7 +74,7 @@ Copy vault specs into the repo:
 | `CLAUDE.md` | `project-templates/fullstack/CLAUDE.md` | Agent instructions — stack, conventions, vault refs |
 | `AGENTS.md` | `project-templates/fullstack/AGENTS.md` | Pointer to CLAUDE.md |
 | `TASKS.md` | `project-templates/fullstack/TASKS.md` | Ordered backlog with "done when" criteria |
-| `docs/decisions/000-template.md` | `templates/docs/adr-template.md` | ADR template |
+| `docs/adr/` | `/decision` (qute-essentials) writes the first ADR | Decision records |
 | `docs/progress.md` | (see template) | Running log for agent memory |
 | `.gitignore` | `project-templates/fullstack/.gitignore` | Standard ignores |
 
@@ -153,7 +153,7 @@ File a GitHub Issue with `job:queued` + `agent:coder` labels. OpenClaw cron dete
 ### Continuous
 
 - Agents append to `docs/progress.md` after each task
-- ADRs in `docs/decisions/` capture non-obvious choices
+- ADRs in `docs/adr/` capture non-obvious choices
 - `docs/progress.md` "Codebase Patterns" section consolidates learnings
 
 ## File Map
@@ -171,8 +171,8 @@ project/
 │   ├── architecture/                  ← how to build it (technical)
 │   │   ├── data-model.md
 │   │   └── tech-spec.md
-│   ├── decisions/                     ← why this way (ADRs)
-│   │   └── 001-*.md
+│   ├── adr/                           ← why this way (ADRs)
+│   │   └── 0001-*.md
 │   └── progress.md                    ← running log + codebase patterns
 ├── prd.json                           ← Ralph stories (auto-generated)
 └── progress.txt                       ← Ralph execution log

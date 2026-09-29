@@ -65,38 +65,31 @@ METHODOLOGY skeleton, MiFID II mapping and literature note are its
 `skills/research/references/methodology-document.md`. The kit carries no research
 skills.
 
-## Agents (2)
+## Agents (1)
 
 | Name | Description |
 |---|---|
 | `data-pipeline-debugger` | Debug data pipelines (input/output validation, root-cause tracing) |
-| `research-synthesizer` | Synthesize findings across multiple papers / studies |
 
-## Settings templates (3)
-
-| Template | Use case |
-|---|---|
-| `global-generic.json` | Liberal defaults for personal `~/.claude/settings.json` |
-| `project-quant.json` | Quant-project permissions (Edit/Write src/, notebooks/, models/...) |
-| `project-webdev.json` | Webdev-project permissions |
-
-## Root-file starters (2)
+## Root-file starters (1)
 
 | File | Use case |
 |---|---|
-| `claude/root-files/CLAUDE.md` | Root CLAUDE.md starter |
 | `claude/root-files/AGENTS.md` | Root AGENTS.md starter |
 
 ## Templates
 
 | Path | Use case |
 |---|---|
-| `templates/docs/adr-template.md` | ADR (architectural decision record) starter |
-| `templates/docs/agents-issue-tracker.md` | Tracker binding starter (`docs/agents/issue-tracker.md`; machine marker + Linear/GitHub division) |
 | `templates/WORKFLOW.md` | Symphony/Elixir-style orchestrator contract (frontmatter + agent prompt routing Matt + qute + docs/agents) |
 | `templates/docs/prd-template.md` | Product requirements doc starter |
 | `templates/docs/tech-spec-template.md` | Technical specification starter |
 | `templates/docs/user-flows-template.md` | User flows / journey starter |
-| `templates/pyproject/quant-uv.toml` | Quant `pyproject.toml` (uv + ruff + pyright + pytest, per [osquant 2025](https://osquant.com/papers/python-tooling-in-2025/)) |
-| `templates/pyproject/webdev-uv.toml` | Webdev `pyproject.toml` (same stack) |
-| `templates/settings/*.json` | Settings starters (mirror of `claude/settings/`) |
+
+### Moved to the plugins 2026-09-29 (TOM-1235)
+
+In `tomlupo/qute-plugins`: the `research-synthesizer` agent (qute-research),
+the pyproject and project-settings starters (qute-essentials `onboard`,
+`references/starters/`). Deleted as second copies of what the plugins own: the
+root `CLAUDE.md` starter, the ADR template, the issue-tracker binding. Retired:
+`global-generic.json` (stale). All in git history.
