@@ -14,7 +14,7 @@ releases, or self-updates.
 
 ## The kit: `claude/`
 
-12 generic skills (quant/data, engineering, visual/UX), 2 agents, 3 settings
+10 generic skills (quant/data, engineering, visual/UX), 2 agents, 3 settings
 profiles, 2 root-file starters. Browse [`INVENTORY.md`](INVENTORY.md) for the
 full map. A skill bound to one project does not live here: its master is that
 project's repo (TOM-1235, 2026-09-28).

@@ -16,9 +16,9 @@ Starting a new investment research question — factor analysis, fund comparison
 | Skill | Role |
 |-------|------|
 | qute-research `/research` | Lifecycle and method protocols (`method-investment.md`, `method-signal.md`) — moved out of the kit 2026-09-28 (TOM-1221) |
-| `investment-research-formal` | Auditable tracking with hypothesis/experiment/finding |
+| qute-research `skills/research/references/methodology-document.md` | The methodology document for an external audience (MiFID II mapping, literature notes), built from the line's own evidence chain |
 | `paper-reading` | Extract insights from papers, fund cards, prospectuses |
-| `investment-research-dashboard` | Self-contained Plotly.js HTML dashboards |
+| qute-research `/research-dashboard` | Self-contained Plotly.js HTML dashboards (`/finding-report` for one finding) |
 | `market-datasets` | Multi-source data fetching |
 | `gist-report` | Shareable HTML report via gist |
 
@@ -53,9 +53,9 @@ For exploratory work:
 - Save intermediate results to files, not conversation
 
 For formal research (publishable, auditable):
-- Use `/investment-research-formal` to track hypotheses, experiments, findings
-- Each experiment gets a documented result
-- Findings link back to specific experiments
+- Pre-register the claim, then record each result with `/finding` (qute-research)
+- Write the methodology document from that chain — qute-research's
+  `skills/research/references/methodology-document.md`
 
 ### Phase 4: Deliver
 
@@ -63,7 +63,7 @@ Choose deliverable format based on audience:
 
 **Interactive dashboard** (self-serve exploration):
 ```
-/investment-research-dashboard
+/research-dashboard
 ```
 Produces a self-contained HTML file with Plotly.js charts — no server needed.
 
@@ -91,7 +91,7 @@ Promote from `scratch/` to `research/{study-name}/` with co-located scripts, dat
 3. Fetch fund NAVs from analizy.pl for equity funds
 4. /paper-reading on Jegadeesh & Titman (1993), local momentum studies
 5. Build factor portfolios in scratch/momentum-pl/
-6. /investment-research-dashboard for interactive factor analytics
+6. /research-dashboard (qute-research) for interactive factor analytics
 7. /gist-report for stakeholder summary
 8. Promote to research/momentum-pl/ if foundational
 ```
@@ -99,6 +99,6 @@ Promote from `scratch/` to `research/{study-name}/` with co-located scripts, dat
 ## Tips
 
 - Open a line with `/research line` even for informal studies — it forces clear thinking
-- Use formal tracking (`/investment-research-formal`) when results might be challenged
+- Write the methodology document (qute-research `methodology-document.md`) when results might be challenged
 - Always save large outputs to files — keep conversation context for decisions
 - Dashboard skill produces single HTML files — easy to email or share
