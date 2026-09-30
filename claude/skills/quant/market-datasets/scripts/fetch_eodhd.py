@@ -11,8 +11,11 @@
 EODHD (EOD Historical Data) fetcher.
 
 Best for UCITS/ETF and global multi-exchange coverage keyed by exchange-suffixed
-symbol or ISIN. REST API over HTTPS — reachable from datacenters/VPS where
-Stooq/Yahoo are geo-blocked or rate-limited. Splits/dividend-adjusted EOD.
+symbol or ISIN, and the primary source for Polish instruments (GPW listings as
+.WAR, WIG-family indices as .INDX). REST API over HTTPS — reachable from
+datacenters/VPS where Yahoo is blocked or rate-limited. Splits/dividend-adjusted
+EOD; adjusted_close is recomputed on every dividend, so chain returns rather
+than appending adjusted levels incrementally (references/eodhd.md).
 
 Coverage validated 2026-06-29 on a 42-instrument ETF benchmark universe: 100%
 resolution incl. US (.US), London UCITS (.LSE), GPW Beta ETFs (.WAR), and

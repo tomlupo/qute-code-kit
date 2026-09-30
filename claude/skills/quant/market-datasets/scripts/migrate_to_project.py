@@ -12,7 +12,7 @@ This script copies fetcher scripts to your project directory,
 making them available for production use.
 
 Usage:
-    uv run migrate_to_project.py stooq --target src/data_sources/
+    uv run migrate_to_project.py eodhd --target src/data_sources/
     uv run migrate_to_project.py yahoo --target src/market_data/ --include-utils
     uv run migrate_to_project.py all --target src/fetchers/ --include-utils --include-env
     uv run migrate_to_project.py --list  # List available sources
@@ -28,8 +28,7 @@ SKILL_DIR = Path(__file__).parent
 
 # Source to file mapping
 SOURCE_MAP: Dict[str, List[str]] = {
-    'stooq': ['fetch_stooq.py'],
-    'stooq-corporate': ['fetch_stooq_corporate_actions.py', 'fetch_stooq_corporate_actions_firecrawl.py'],
+    'eodhd': ['fetch_eodhd.py'],
     'yahoo': ['fetch_yahoo.py'],
     'yahoo-direct': ['fetch_yahoo_direct.py'],
     'nbp': ['fetch_nbp.py'],
@@ -41,7 +40,7 @@ SOURCE_MAP: Dict[str, List[str]] = {
     'unified': ['fetch_unified.py'],
     'all': [
         'fetch_unified.py',
-        'fetch_stooq.py',
+        'fetch_eodhd.py',
         'fetch_yahoo.py',
         'fetch_yahoo_direct.py',
         'fetch_nbp.py',
@@ -58,8 +57,8 @@ SOURCE_MAP: Dict[str, List[str]] = {
 ENV_KEYS: Dict[str, List[str]] = {
     'tiingo': ['TIINGO_API_KEY'],
     'fred': ['FRED_API_KEY'],
-    'stooq-corporate': ['FIRECRAWL_API_KEY'],
-    'all': ['TIINGO_API_KEY', 'FRED_API_KEY', 'FIRECRAWL_API_KEY'],
+    'eodhd': ['EODHD_API_KEY'],
+    'all': ['TIINGO_API_KEY', 'FRED_API_KEY', 'EODHD_API_KEY'],
 }
 
 

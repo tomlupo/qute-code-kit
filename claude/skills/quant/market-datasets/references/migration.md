@@ -8,8 +8,8 @@ After prototyping with this skill, migrate fetchers to your production project.
 # List available sources
 uv run scripts/migrate_to_project.py --list
 
-# Migrate Stooq fetcher to your project
-uv run scripts/migrate_to_project.py stooq --target src/data_sources/
+# Migrate the EODHD fetcher to your project
+uv run scripts/migrate_to_project.py eodhd --target src/data_sources/
 
 # Migrate with utilities and .env template
 uv run scripts/migrate_to_project.py yahoo --target src/market_data/ --include-utils --include-env
@@ -22,7 +22,7 @@ uv run scripts/migrate_to_project.py all --target src/fetchers/ --include-utils 
 
 ```
 src/data_sources/           # Your target directory
-├── fetch_stooq.py          # Self-contained with PEP 723 dependencies
+├── fetch_eodhd.py          # Self-contained with PEP 723 dependencies
 ├── utils.py                # Shared utilities (if --include-utils)
 └── .env.example            # API key template (if --include-env)
 ```
@@ -31,12 +31,12 @@ src/data_sources/           # Your target directory
 
 The migrated scripts work standalone:
 ```bash
-uv run src/data_sources/fetch_stooq.py PKO 2024-01-01 2024-12-31
+uv run src/data_sources/fetch_eodhd.py PKO.WAR 2024-01-01 2024-12-31
 ```
 
 Or import in your code:
 ```python
 sys.path.insert(0, 'src/data_sources')
-from fetch_stooq import fetch_stooq
-df = fetch_stooq('pko', '2024-01-01')
+from fetch_eodhd import fetch_eodhd
+df = fetch_eodhd('PKO.WAR', '2024-01-01')
 ```

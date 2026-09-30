@@ -6,8 +6,7 @@ Comprehensive comparison of all supported data sources for the market-datasets s
 
 | Source | Best For | Coverage | Auth Required | Rate Limits | Cost |
 |--------|----------|----------|---------------|-------------|------|
-| **EODHD** | UCITS/ETF + global multi-exchange, datacenter-reachable | US/EU/GPW stocks, ETFs, indices; ISIN-keyed; splits/div-adjusted | Yes (API key) | Free: 20/day, ~1yr history. Paid: 100k/day, full history | Free/Paid (~$20/mo) |
-| **Stooq** | Polish stocks & indices | Polish market, some international | No | Informal (~1-2s delay) | Free |
+| **EODHD** | Polish stocks & indices (auto-routed first when keyed); UCITS/ETF + global multi-exchange, datacenter-reachable | GPW `.WAR`, WIG-family `.INDX`, US/EU stocks, ETFs, FX; ISIN-keyed; splits/div-adjusted | Yes (API key) | Free: 20/day, ~1yr history. Paid: 100k/day, full history | Free/Paid (~$20/mo), personal-use plans |
 | **NBP API** | PLN exchange rates | Official PLN rates vs major currencies | No | None documented | Free |
 | **Yahoo Finance** | US stocks & global equities | Global stocks, ETFs, indices | No | Informal (~1s delay) | Free |
 | **Tiingo** | US stocks fallback | 86,000+ securities, 30+ years | Yes (API key) | 50/hr, 1000/day | Free |
@@ -21,7 +20,6 @@ Comprehensive comparison of all supported data sources for the market-datasets s
 | Source | Price Type | Dividends Available | Use For |
 |--------|------------|---------------------|---------|
 | **EODHD** | Both (close + adjusted_close) | Yes (splits/div-adjusted) | P&L (close), returns (adjusted_close) |
-| **Stooq** | Adjusted only | No (prices pre-adjusted) | Total return calculations |
 | **Yahoo Finance** | Both (close + adj_close) | Yes (via API) | P&L calc (close), returns (adj_close) |
 | **NBP** | N/A | N/A | FX rates only |
 | **FRED** | N/A | N/A | Economic data only |
@@ -32,64 +30,7 @@ See `references/dividend_treatment.md` for detailed dividend handling documentat
 
 ## Detailed Source Descriptions
 
-### 1. Stooq (stooq.pl)
-
-**Purpose**: Free historical market data for Polish and international securities.
-
-**Coverage**:
-- Polish stocks (PKO, CDR, PZU, etc.)
-- Polish indices (WIG20, mWIG40, WIG, sWIG80)
-- International indices (^SPX, ^IXIC, ^DJI)
-- Currency pairs (EURUSD, USDPLN, EURPLN)
-- Some commodities
-
-**Data Available**:
-- OHLCV (Open, High, Low, Close, Volume)
-- Daily, weekly, monthly intervals
-- Extensive historical data (1990s+)
-
-**Dividend Treatment**: ⚠️ **Adjusted prices only**
-- All OHLC values are **dividend-adjusted** automatically
-- When dividends paid, historical prices adjusted DOWN
-- Adjustment factor: `(price - dividend) / price`
-- Multiple dividends compound (older data has larger adjustments)
-- **Cannot recover raw prices** from Stooq alone
-- Validated: Stooq prices match Yahoo Finance `adj_close` (95.8% of 48 tickers within 1%)
-- See `references/dividend_treatment.md` for details
-
-**Strengths**:
-- Free, no registration
-- Excellent Polish market coverage
-- Long historical data
-- Simple CSV API
-- Consistent dividend adjustment methodology
-
-**Limitations**:
-- No raw/unadjusted prices available
-- No dividend amounts API
-- Limited international coverage
-- No real-time data
-- Informal rate limits (be polite)
-
-**Best For**:
-- Polish stock analysis
-- Total return calculations
-- Performance attribution (returns)
-- mWIG40 portfolio tracking
-- Historical backtesting (Polish market)
-
-**Not Suitable For**:
-- Calculating actual P&L on specific trades (use Yahoo `close`)
-- Getting dividend payment amounts (use Yahoo Finance)
-
-**Example Tickers**:
-- `pko` - PKO Bank Polski
-- `wig20` - WIG20 index
-- `usdpln` - USD/PLN exchange rate
-
----
-
-### 2. NBP API (api.nbp.pl)
+### 1. NBP API (api.nbp.pl)
 
 **Purpose**: Official Polish National Bank exchange rates.
 
@@ -128,7 +69,7 @@ See `references/dividend_treatment.md` for detailed dividend handling documentat
 
 ---
 
-### 3. Yahoo Finance (via yfinance or Direct API)
+### 2. Yahoo Finance (via yfinance or Direct API)
 
 **Purpose**: Comprehensive global market data.
 
@@ -168,7 +109,7 @@ See `references/dividend_treatment.md` for detailed dividend handling documentat
 **Dividend Treatment**: Both raw and adjusted prices available
 - `close` = Raw/unadjusted price (actual trading price)
 - `adj_close` = Dividend-adjusted price (for total returns)
-- `adj_close` matches Stooq prices (validated 95.8% within 1%)
+- `adj_close` is rewritten on every dividend — never splice stored adjusted levels (see dividend_treatment.md)
 - Use `close` for P&L calculations, `adj_close` for return calculations
 - See `references/dividend_treatment.md` for details
 
@@ -207,7 +148,7 @@ See `references/dividend_treatment.md` for detailed dividend handling documentat
 
 ---
 
-### 4. Tiingo (api.tiingo.com)
+### 3. Tiingo (api.tiingo.com)
 
 **Purpose**: High-quality US stock data with generous free tier and 30+ years of history.
 
@@ -259,7 +200,7 @@ df = fetch_market_data('AAPL', source='tiingo', tiingo_api_key='your_key')
 
 ---
 
-### 5. CCXT / Binance (Cryptocurrency)
+### 4. CCXT / Binance (Cryptocurrency)
 
 **Purpose**: Cryptocurrency historical OHLCV data from Binance and 100+ exchanges.
 
@@ -325,7 +266,7 @@ df = fetcher.fetch('BTC/USD')
 
 ---
 
-### 6. FRED API (fred.stlouisfed.org)
+### 5. FRED API (fred.stlouisfed.org)
 
 **Purpose**: US economic indicators from Federal Reserve.
 
@@ -371,7 +312,7 @@ df = fetcher.fetch('BTC/USD')
 
 ---
 
-### 7. FinancialData.Net (financialdata.net)
+### 6. FinancialData.Net (financialdata.net)
 
 **Purpose**: Comprehensive financial data API covering stocks, fundamentals, options, forex, crypto, and institutional data.
 
@@ -455,12 +396,11 @@ df = fetcher.get_senate_trading()
 
 ---
 
-### 8. pandas-datareader
+### 7. pandas-datareader
 
 **Purpose**: Meta-source providing unified interface to multiple data providers.
 
 **Coverage**:
-- Stooq (via pandas-datareader)
 - Yahoo Finance (via pandas-datareader)
 - FRED (via pandas-datareader)
 - Alpha Vantage (requires API key)
@@ -497,12 +437,12 @@ df = fetcher.get_senate_trading()
 The unified fetcher automatically selects sources based on ticker patterns:
 
 1. **Cryptocurrency** (BTC/USDT, ETHUSDT) → CCXT/Binance
-2. **Polish stocks** (pko, cdr, pzu) → Stooq
-3. **PLN FX rates** (USD, EUR, GBP) → NBP API
+2. **Polish stocks & indices** (pko, cdr, wig20, `.WA`/`.WAR`) → EODHD (`PKO.WAR`, `WIG20.INDX`) when `EODHD_API_KEY` is set → Yahoo (`PKO.WA`) for stocks/ETFs only; a WSE index without the key raises
+3. **PLN FX rates** (USD, EUR, GBP, USDPLN) → NBP API → Yahoo (`USDPLN=X`)
 4. **US stocks** (AAPL, MSFT, GOOGL) → Yahoo Finance → Tiingo → FinancialData.Net (fallback)
 5. **International indices** (^SPX, ^IXIC) → Yahoo Finance
 6. **Economic indicators** (GDP, UNRATE) → FRED
-7. **Currency pairs** (USDPLN, EURUSD) → Stooq
+7. **Other currency pairs** (EURUSD) → Yahoo (`EURUSD=X`)
 8. **Fundamentals/options** → FinancialData.Net (via `fd_endpoint` parameter)
 9. **Fallback** → pandas-datareader
 
@@ -511,8 +451,8 @@ The unified fetcher automatically selects sources based on ticker patterns:
 Force specific source when needed:
 
 ```python
-# Force Stooq for specific ticker
-df = fetch_market_data('pko', source='stooq')
+# Force EODHD for a GPW listing
+df = fetch_market_data('PKO.WAR', source='eodhd')
 
 # Force Yahoo for Polish stock
 df = fetch_market_data('PKO.WA', source='yahoo')
@@ -526,7 +466,7 @@ df = fetch_market_data('USD', source='nbp', table='A')
 Compare data across sources:
 
 ```python
-comparison = fetcher.compare_sources('pko', ['stooq', 'yahoo'])
+comparison = fetcher.compare_sources('PKO.WA', ['eodhd', 'yahoo'])
 ```
 
 ---
@@ -549,7 +489,7 @@ fetcher = UnifiedMarketDataFetcher(use_cache=True, cache_hours=24)
 ```
 
 Cache locations:
-- `data/cache/market_data/stooq/`
+- `data/cache/market_data/eodhd/`
 - `data/cache/market_data/nbp/`
 - `data/cache/market_data/yahoo/`
 - `data/cache/market_data/fred/`
@@ -641,18 +581,18 @@ If experiencing rate limiting:
 
 | Scenario | Recommended Source | Rationale |
 |----------|-------------------|-----------|
-| Polish fund performance attribution | Stooq | Best Polish market coverage, adjusted prices |
+| Polish fund performance attribution | EODHD → Yahoo | GPW `.WAR` + `.INDX`, adjusted prices |
 | Official PLN rates for accounting | NBP | Official regulatory rates |
 | US stock portfolio tracking | Yahoo → Tiingo | Comprehensive US coverage, Tiingo as fallback |
 | Macro factor analysis | FRED | Authoritative economic data |
 | Cross-market equity comparison | Yahoo | Global reach |
-| Historical Polish index data | Stooq | Long history, free access |
+| Historical Polish index data | EODHD `.INDX` | `WIG.INDX` from 1991-04-16 |
 | Intraday US stock data | Yahoo | Supports intraday intervals |
 | Data validation/cross-check | Multiple via compare_sources() | Ensures accuracy |
-| **Total return calculation** | Stooq or Yahoo `adj_close` | Both are dividend-adjusted |
+| **Total return calculation** | Yahoo or EODHD `adj_close` | Chain returns; adjusted levels are rewritten per dividend |
 | **Actual P&L on trades** | Yahoo `close` | Raw prices needed |
 | **Dividend amounts** | Yahoo Finance or Tiingo | Via API |
-| **Validate Stooq data** | Yahoo `adj_close` | Should match within 1% |
+| **Validate EODHD data** | Yahoo `adj_close` returns | Compare returns fetched together, not stored levels |
 | **Cryptocurrency analysis** | CCXT/Binance | Free unlimited history |
 | **Bitcoin/ETH tracking** | CCXT | Best crypto coverage |
 | **Hourly crypto data** | CCXT with `timeframe='1h'` | Supports all intervals |
@@ -664,13 +604,13 @@ If experiencing rate limiting:
 | **Institutional ownership** | FinancialData.Net | Holders, holdings, portfolio stats |
 | **Event calendars** | FinancialData.Net | Earnings, IPO, splits, dividends |
 
-### 9. EODHD (eodhd.com)
+### 8. EODHD (eodhd.com)
 
 End-Of-Day Historical Data — REST API best suited to **UCITS/ETF and global
 multi-exchange** coverage. Chosen as the primary ETF/benchmark feed because it
-is **reachable from datacenters/VPS** where Stooq is geo-blocked and Yahoo is
-rate-limited, and it resolves GPW-listed and EU-domiciled instruments that the
-free feeds handle poorly.
+is **reachable from datacenters/VPS** where Yahoo is rate-limited, and it
+resolves GPW-listed and EU-domiciled instruments that the free feeds handle
+poorly. Since 2026-09-30 it is also the primary source for Polish instruments.
 
 **Why EODHD**
 - One REST endpoint per symbol: `GET https://eodhd.com/api/eod/{SYMBOL}` → JSON OHLCV + `adjusted_close`.
@@ -692,7 +632,8 @@ uv run scripts/fetch_eodhd.py ETFBW20TR.WAR 2024-01-01  # GPW Beta ETF
 uv run scripts/fetch_eodhd.py ^BCOM 2024-01-01          # -> BCOM.INDX
 ```
 
-Routing: EODHD is **opt-in**, not auto-routed — the default router keeps Yahoo
-primary for ad-hoc to avoid burning paid calls. Reach for EODHD deliberately
-via `source='eodhd'` for UCITS/ETF, GPW (`.WAR`), and datacenter hosts where
-Stooq/Yahoo are blocked.
+Routing: EODHD is auto-routed **first for Polish instruments only** (GPW
+`.WAR`, WIG-family `.INDX`), and only when `EODHD_API_KEY` is set; everything
+else keeps Yahoo primary to avoid burning paid calls. Reach for EODHD
+deliberately via `source='eodhd'` for UCITS/ETF and datacenter hosts where
+Yahoo is blocked. Coverage and licensing: [eodhd.md](eodhd.md).

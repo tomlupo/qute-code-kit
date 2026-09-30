@@ -103,25 +103,24 @@ def fetch_fred_tbill() -> pd.Series:
     return monthly_return.resample("ME").last().dropna()
 ```
 
-### Stooq (Gold)
+### EODHD (Gold)
 
-**URL**: `stooq.pl/q/d/l/`
-**Coverage**: XAUUSD from 1968+, monthly
-**Access**: Free CSV download
+**Symbol**: `XAUUSD.FOREX` (spot gold in USD; `GC=F` is not on EODHD)
+**Coverage**: 200 OK on the Historian/EOD plan (probed 2026-09-30); the start
+date was not recorded — probe it before relying on pre-2000 history
+**Access**: `EODHD_API_KEY` (see [eodhd.md](eodhd.md))
 
 ```python
-def fetch_gold_stooq() -> pd.Series:
-    url = "https://stooq.pl/q/d/l/?s=xauusd&d1=19680101&d2=20251231&i=m"
-    df = pd.read_csv(url)
-    df.columns = ["Date", "Open", "High", "Low", "Close"]
-    df["Date"] = pd.to_datetime(df["Date"])
-    df = df.set_index("Date").sort_index()
-    gold_return = df["Close"].pct_change().dropna()
-    gold_return.index = gold_return.index + pd.offsets.MonthEnd(0)
-    return gold_return
+from fetch_eodhd import fetch_eodhd
+
+def fetch_gold_eodhd() -> pd.Series:
+    df = fetch_eodhd("XAUUSD.FOREX", start_date="1968-01-01")
+    close = df.set_index("Date")["Close"].sort_index()
+    return close.resample("ME").last().pct_change().dropna()
 ```
 
-**Why Stooq for gold**: More reliable long history than Yahoo for commodities. Goes back to 1968 (end of gold standard era).
+If the series starts later than you need, backfill with Damodaran's annual
+gold return (loses monthly granularity).
 
 ## Construction Patterns
 
@@ -254,9 +253,9 @@ Result:   Monthly TR, 1934-2025
 ### Commodities (Gold)
 
 ```
-Primary:  Stooq XAUUSD monthly (1968+)
+Primary:  EODHD XAUUSD.FOREX, resampled monthly (start date: probe)
 Backfill: N/A (or Damodaran annual gold, but loses monthly granularity)
-Result:   Monthly price return, 1968-2025
+Result:   Monthly price return from the EODHD start (Damodaran annual before it)
 Note:     Price return only — gold has no yield
 ```
 

@@ -121,7 +121,7 @@ columns:
       - yahoo_finance
       - binance
       - fred
-      - stooq
+      - eodhd
       - nbp
       - tiingo
       - financialdata_net
@@ -214,7 +214,10 @@ columns:
     type: string
     required: false
     nullable: true
-    description: Stooq ticker.
+    description: >-
+      Legacy column, no fetcher reads it — stooq was removed as a source on
+      2026-09-30 (datacenter IP block + JavaScript browser challenge). Kept so
+      existing registries keep their schema; do not populate for new rows.
 
   ticker_binance:
     type: string
