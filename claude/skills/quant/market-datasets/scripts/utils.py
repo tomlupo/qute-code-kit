@@ -74,7 +74,7 @@ class CacheManager:
         Get cache file path for a data request.
 
         Args:
-            source: Data source name (stooq, nbp, yahoo, fred)
+            source: Data source name (nbp, yahoo, eodhd, fred, ...)
             identifier: Unique identifier (e.g., ticker_start_end)
             format: File format (csv, json)
 
@@ -243,13 +243,6 @@ def standardize_dataframe(df: pd.DataFrame, source: str) -> pd.DataFrame:
 
     # Column mapping from various sources
     column_mapping = {
-        # Stooq (Polish)
-        "Data": "Date",
-        "Otwarcie": "Open",
-        "Najwyzszy": "High",
-        "Najnizszy": "Low",
-        "Zamkniecie": "Close",
-        "Wolumen": "Volume",
         # Common English
         "date": "Date",
         "open": "Open",

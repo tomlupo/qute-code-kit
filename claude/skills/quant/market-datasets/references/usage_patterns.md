@@ -7,9 +7,9 @@ Complete code examples for all data fetching patterns.
 ```python
 from fetch_unified import fetch_market_data
 
-df = fetch_market_data('pko', start_date='2024-01-01')        # Polish stock → Stooq
+df = fetch_market_data('pko', start_date='2024-01-01')        # Polish stock → EODHD PKO.WAR (keyed), else Yahoo PKO.WA
 df = fetch_market_data('AAPL', start_date='2024-01-01')       # US stock → Yahoo (Tiingo fallback)
-df = fetch_market_data('USD', start_date='2024-01-01')        # Currency → Stooq or NBP
+df = fetch_market_data('USD', start_date='2024-01-01')        # PLN FX → NBP, then Yahoo
 df = fetch_market_data('BTC/USDT', start_date='2024-01-01')   # Crypto → CCXT/Binance
 df = fetch_market_data('GDP', start_date='2020-01-01')        # Macro → FRED
 ```
@@ -17,7 +17,7 @@ df = fetch_market_data('GDP', start_date='2020-01-01')        # Macro → FRED
 ## Pattern 2: Force Specific Source
 
 ```python
-df = fetch_market_data('pko', source='stooq', start_date='2024-01-01')
+df = fetch_market_data('PKO.WAR', source='eodhd', start_date='2024-01-01')
 df = fetch_market_data('PKO.WA', source='yahoo', start_date='2024-01-01')
 df = fetch_market_data('USD', source='nbp', table='A', start_date='2024-01-01')
 df = fetch_market_data('MSFT', source='tiingo', start_date='2024-01-01')
@@ -32,7 +32,7 @@ from fetch_unified import UnifiedMarketDataFetcher
 
 fetcher = UnifiedMarketDataFetcher()
 comparison = fetcher.compare_sources(
-    ticker='pko', sources=['stooq', 'yahoo'],
+    ticker='PKO.WA', sources=['eodhd', 'yahoo'],
     start_date='2024-01-01', end_date='2024-01-31'
 )
 
@@ -44,8 +44,8 @@ for source, df in comparison.items():
 ## Pattern 4: Direct Source Usage
 
 ```python
-from fetch_stooq import fetch_stooq
-df = fetch_stooq('pko', start_date='20240101', end_date='20241231', interval='d')
+from fetch_eodhd import fetch_eodhd
+df = fetch_eodhd('PKO.WAR', start_date='2024-01-01', end_date='2024-12-31')
 
 from fetch_nbp import fetch_nbp
 df = fetch_nbp('USD', start_date='20240101', table='A')
@@ -95,7 +95,7 @@ save_isin_data(
 ## Pattern 7: TickerRegistry for ISIN/Ticker Conversion
 
 ```python
-from ticker_registry import TickerRegistry, isin_to_yahoo, isin_to_stooq
+from ticker_registry import TickerRegistry, isin_to_yahoo
 
 registry = TickerRegistry()
 
@@ -107,15 +107,12 @@ security = registry.get_security('XTB.WA')             # By Yahoo ticker
 print(security.name)                    # 'XTB'
 print(security.isin)                    # 'PLXTRDM00011'
 print(security.get_ticker('yahoo'))     # 'XTB.WA'
-print(security.get_ticker('stooq'))     # 'xtb'
 
 # Convert between formats
 yahoo = registry.convert_ticker('PLXTRDM00011', to_source='yahoo')   # 'XTB.WA'
-stooq = registry.convert_ticker('XTB.WA', to_source='stooq')         # 'xtb'
 
 # Convenience functions
 yahoo = isin_to_yahoo('PLXTRDM00011')   # 'XTB.WA'
-stooq = isin_to_stooq('PLXTRDM00011')   # 'xtb'
 ```
 
 ## Pattern 8: Fetch by ISIN with Unified Fetcher
@@ -151,7 +148,7 @@ registry = TickerRegistry()
 security = Security(
     uid='isin_GB0002634946', isin='GB0002634946', name='BAE Systems',
     instrument_type='equity', country='GB', exchange='LSE',
-    tickers={'yahoo': 'BA.L', 'stooq': 'ba.uk'},
+    tickers={'yahoo': 'BA.L'},
     mapping_source='manual', last_updated=datetime.now()
 )
 registry.register_security(security)

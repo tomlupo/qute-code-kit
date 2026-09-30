@@ -10,11 +10,12 @@
 Ticker Registry - Security master and cross-source ticker mapping service.
 
 Provides unified lookup for converting between different ticker formats
-across data sources (Bloomberg, Yahoo, Stooq, FRED, NBP).
+across data sources (Bloomberg, Yahoo, FRED, NBP; EODHD symbols are derived
+from the Yahoo ticker by fetch_eodhd.eodhd_symbol).
 
 Usage:
     uv run ticker_registry.py lookup PLXTRDM00011
-    uv run ticker_registry.py convert XTB.WA stooq
+    uv run ticker_registry.py convert XTB.WA bloomberg
     uv run ticker_registry.py discover PLXTRDM00011 US0378331005
     uv run ticker_registry.py  # Run self-tests
 
@@ -28,7 +29,7 @@ Module usage:
     yahoo_ticker = registry.isin_to_ticker('PLXTRDM00011', source='yahoo')  # 'XTB.WA'
 
     # Convert any ticker to another format
-    stooq_ticker = registry.convert_ticker('PKO.WA', to_source='stooq')  # 'pko'
+    bbg_ticker = registry.convert_ticker('^MWIG40', to_source='bloomberg')  # 'MWIG40 Index'
 
     # Auto-discover missing Yahoo tickers
     discovered = registry.discover_missing_yahoo_tickers(['PLXTRDM00011'])
@@ -42,7 +43,13 @@ import pandas as pd
 import csv
 
 # Type definitions
-SourceType = Literal['bloomberg', 'yahoo', 'stooq', 'fred', 'nbp']
+SourceType = Literal['bloomberg', 'yahoo', 'fred', 'nbp']
+
+# Columns the CSV schema keeps for other readers but no fetcher uses: loaded
+# into Security.legacy and written back unchanged, never indexed or routed.
+# ticker_stooq: legacy column — stooq was removed as a source on 2026-09-30.
+LEGACY_COLUMNS = ('ticker_stooq',)
+
 InstrumentType = Literal['equity', 'index', 'currency', 'bond', 'commodity', 'etf']
 
 
@@ -59,6 +66,7 @@ class Security:
     metadata: Dict[str, str] = field(default_factory=dict)
     last_updated: Optional[datetime] = None
     mapping_source: str = "unknown"
+    legacy: Dict[str, str] = field(default_factory=dict)  # LEGACY_COLUMNS, pass-through
 
     @property
     def primary_key(self) -> str:
@@ -80,7 +88,7 @@ class Security:
             'exchange': self.exchange,
             'ticker_bloomberg': self.tickers.get('bloomberg', ''),
             'ticker_yahoo': self.tickers.get('yahoo', ''),
-            'ticker_stooq': self.tickers.get('stooq', ''),
+            **{col: self.legacy.get(col, '') for col in LEGACY_COLUMNS},
             'ticker_fred': self.tickers.get('fred', ''),
             'sector': self.metadata.get('sector', ''),
             'currency': self.metadata.get('currency', ''),
@@ -92,7 +100,7 @@ class Security:
     def from_dict(cls, d: dict) -> 'Security':
         """Create Security from dictionary (CSV row)."""
         tickers = {}
-        for source in ['bloomberg', 'yahoo', 'stooq', 'fred']:
+        for source in ['bloomberg', 'yahoo', 'fred']:
             key = f'ticker_{source}'
             if d.get(key):
                 tickers[source] = d[key]
@@ -120,7 +128,8 @@ class Security:
             tickers=tickers,
             metadata=metadata,
             last_updated=last_updated,
-            mapping_source=d.get('mapping_source', 'csv')
+            mapping_source=d.get('mapping_source', 'csv'),
+            legacy={col: d[col] for col in LEGACY_COLUMNS if d.get(col)},
         )
 
 
@@ -135,7 +144,7 @@ class TickerRegistry:
     - Single CSV file as both master and cache
     """
 
-    # CSV columns in order
+    # CSV columns in order — the schema other repos read; see LEGACY_COLUMNS
     CSV_COLUMNS = [
         'uid', 'isin', 'name', 'instrument_type', 'country', 'exchange',
         'ticker_bloomberg', 'ticker_yahoo', 'ticker_stooq', 'ticker_fred',
@@ -191,11 +200,6 @@ class TickerRegistry:
 
         # Try ticker index (uppercase)
         primary_key = self._ticker_index.get(identifier.upper())
-        if primary_key:
-            return self._securities.get(primary_key)
-
-        # Try lowercase for Stooq
-        primary_key = self._ticker_index.get(identifier.lower())
         if primary_key:
             return self._securities.get(primary_key)
 
@@ -355,8 +359,6 @@ class TickerRegistry:
         for source, ticker in security.tickers.items():
             if ticker:
                 self._ticker_index[ticker.upper()] = uid
-                if source == 'stooq':
-                    self._ticker_index[ticker.lower()] = uid
 
     def add_ticker_mapping(
         self,
@@ -542,11 +544,6 @@ def convert_ticker(ticker: str, to_source: SourceType = 'yahoo') -> Optional[str
 def isin_to_yahoo(isin: str) -> Optional[str]:
     """Convert ISIN to Yahoo ticker."""
     return get_default_registry().isin_to_ticker(isin, source='yahoo')
-
-
-def isin_to_stooq(isin: str) -> Optional[str]:
-    """Convert ISIN to Stooq ticker."""
-    return get_default_registry().isin_to_ticker(isin, source='stooq')
 
 
 def ticker_to_isin(ticker: str) -> Optional[str]:

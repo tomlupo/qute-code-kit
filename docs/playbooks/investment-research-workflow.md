@@ -36,7 +36,7 @@ what the question needs before any code:
 ### Phase 2: Gather Data
 
 Fetch relevant data using `market-datasets`:
-- Price data from Stooq/Yahoo/CCXT
+- Price data from EODHD/Yahoo/CCXT
 - Fundamentals from relevant sources
 - Fund data from analizy.pl if Polish funds
 
@@ -87,7 +87,7 @@ Promote from `scratch/` to `research/{study-name}/` with co-located scripts, dat
 
 ```
 1. /research line momentum-pl (qute-research)
-2. Fetch 5-year monthly returns from Stooq for WIG components
+2. Fetch 5-year monthly returns from EODHD (`.WAR`) for WIG components
 3. Fetch fund NAVs from analizy.pl for equity funds
 4. /paper-reading on Jegadeesh & Titman (1993), local momentum studies
 5. Build factor portfolios in scratch/momentum-pl/

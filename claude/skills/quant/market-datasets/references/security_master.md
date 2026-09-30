@@ -11,7 +11,7 @@ documents the current CSV-backed skill registry and usage patterns.
 The security master is a single CSV file that serves as the source of truth for instrument identification and cross-source ticker mappings. It enables:
 
 - Unified lookup by any identifier (uid, ISIN, ticker)
-- Cross-source ticker conversion (Yahoo, Stooq, Bloomberg, FRED)
+- Cross-source ticker conversion (Yahoo, Bloomberg, FRED; EODHD symbols derive from Yahoo)
 - Auto-discovery of Yahoo tickers from ISINs
 
 **Location**: `.claude/skills/market-datasets/data/security_master.csv`
@@ -28,7 +28,7 @@ The security master is a single CSV file that serves as the source of truth for 
 | `exchange` | string | No | Primary exchange | `WSE` |
 | `ticker_bloomberg` | string | No | Bloomberg ticker | `XTB PW Equity` |
 | `ticker_yahoo` | string | No | Yahoo Finance ticker | `XTB.WA` |
-| `ticker_stooq` | string | No | Stooq ticker (lowercase) | `xtb` |
+| `ticker_stooq` | string | No | **Legacy column, no fetcher reads it** — stooq was removed 2026-09-30; kept for schema readers, round-tripped unchanged | `xtb` |
 | `ticker_fred` | string | No | FRED series ID | - |
 | `sector` | string | No | Sector classification | `Technology` |
 | `currency` | string | No | Trading currency | `PLN` |
@@ -94,14 +94,12 @@ registry = TickerRegistry()
 # Lookup by any identifier
 security = registry.get_security('PLXTRDM00011')  # By ISIN
 security = registry.get_security('XTB.WA')        # By Yahoo ticker
-security = registry.get_security('xtb')           # By Stooq ticker
 security = registry.get_security('idx_WIG20')     # By uid
 
 # Access properties
 print(security.name)                    # 'XTB'
 print(security.isin)                    # 'PLXTRDM00011'
 print(security.get_ticker('yahoo'))     # 'XTB.WA'
-print(security.get_ticker('stooq'))     # 'xtb'
 ```
 
 ### Ticker Conversion
@@ -113,13 +111,11 @@ registry = TickerRegistry()
 
 # Convert between formats
 yahoo_ticker = registry.convert_ticker('PLXTRDM00011', to_source='yahoo')  # 'XTB.WA'
-stooq_ticker = registry.convert_ticker('XTB.WA', to_source='stooq')        # 'xtb'
 
 # Convenience functions (use default registry)
-from ticker_registry import isin_to_yahoo, isin_to_stooq, ticker_to_isin
+from ticker_registry import isin_to_yahoo, ticker_to_isin
 
 yahoo = isin_to_yahoo('PLXTRDM00011')  # 'XTB.WA'
-stooq = isin_to_stooq('PLXTRDM00011')  # 'xtb'
 isin = ticker_to_isin('XTB.WA')        # 'PLXTRDM00011'
 ```
 
@@ -163,7 +159,7 @@ security = Security(
     instrument_type='equity',
     country='GB',
     exchange='LSE',
-    tickers={'yahoo': 'BA.L', 'stooq': 'ba.uk'},
+    tickers={'yahoo': 'BA.L'},
     mapping_source='manual',
     last_updated=datetime.now()
 )
@@ -192,7 +188,7 @@ df = registry.to_dataframe()
 | Source | Format | Example |
 |--------|--------|---------|
 | Yahoo Finance | Uppercase + exchange suffix | `XTB.WA`, `AAPL`, `^GSPC` |
-| Stooq | Lowercase, no suffix | `xtb`, `pko`, `wig20` |
+| EODHD | Derived from Yahoo by `eodhd_symbol` | `XTB.WAR`, `WIG20.INDX` |
 | Bloomberg | Uppercase + type suffix | `XTB PW Equity`, `MWIG40 Index` |
 | FRED | Series ID | `GDP`, `UNRATE` |
 
