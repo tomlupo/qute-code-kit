@@ -465,9 +465,7 @@ class UnifiedMarketDataFetcher:
 
         # A WSE index may arrive as ``^WIG20`` or ``WIG20.INDX`` too; normalise
         # before the check so no spelling slips through to the ``^`` -> Yahoo branch.
-        index_key = ticker_lower.lstrip("^")
-        if index_key.endswith(".indx"):
-            index_key = index_key[: -len(".indx")]
+        index_key = self._polish_index_key(ticker_lower)
 
         # Polish INDICES: EODHD only. Yahoo has no history for them (probed
         # 2026-09-30: ^WIG20 / ^MWIG40 return 0 rows, WIG20.WA / WIG.WA one
@@ -547,6 +545,21 @@ class UnifiedMarketDataFetcher:
         sources.append("pdr")
         return sources
 
+    @staticmethod
+    def _polish_index_key(ticker_lower: str) -> str:
+        """Every spelling of a WSE index reduced to its bare name.
+
+        ``^WIG20``, ``WIG20.INDX``, ``WIG20.WA`` and ``WIG20.WAR`` all mean the
+        index; left unnormalised, the caret or suffix spellings slip past the
+        index check into the ``^`` / ``.WA`` branches and reach Yahoo, which has
+        no history for WSE indices.
+        """
+        key = ticker_lower.strip().lower().lstrip("^")
+        for suffix in (".indx", ".war", ".wa"):
+            if key.endswith(suffix):
+                return key[: -len(suffix)]
+        return key
+
     def _polish_sources(self) -> List[str]:
         """EODHD first when its key is configured, then Yahoo."""
         return (["eodhd"] if "eodhd" in self.fetchers else []) + ["yahoo"]
@@ -563,8 +576,9 @@ class UnifiedMarketDataFetcher:
         t = identifier.strip()
         low, up = t.lower(), t.upper()
 
-        if low.lstrip("^") in self.POLISH_INDICES:
-            low, up = low.lstrip("^"), up.lstrip("^")
+        if self._polish_index_key(low) in self.POLISH_INDICES:
+            low = self._polish_index_key(low)
+            up = low.upper()
             if source == "eodhd":
                 return f"{up}.INDX"
             if source in ("yahoo", "pdr"):
