@@ -4,48 +4,53 @@ Comprehensive guide to ticker symbol formats across all supported data sources.
 
 ## Format Conventions by Source
 
-### Stooq
+### EODHD
 
-**Polish Stocks**: Lowercase, no suffix
-```
-pko       # PKO Bank Polski
-cdr       # CD Projekt
-pzu       # PZU
-pkn       # PKN Orlen
-kgh       # KGHM
-pge       # PGE
-lpp       # LPP
-orange    # Orange Polska
-```
+**Exchange-suffixed symbols** (`SYMBOL.EXCHANGE`, one symbol per call). The
+primary source for Polish instruments when `EODHD_API_KEY` is set.
 
-**Polish Indices**: Lowercase
+**Polish stocks and ETFs**: GPW listings end in `.WAR`
 ```
-wig       # WIG (main index)
-wig20     # WIG20 (blue chips)
-mwig40    # mWIG40 (mid cap)
-swig80    # sWIG80 (small cap)
-wig30     # WIG30
+PKO.WAR         # PKO Bank Polski
+CDR.WAR         # CD Projekt
+XTB.WAR         # XTB
+ETFBW20TR.WAR   # Beta ETF WIG20TR
+ETFBTBSP.WAR    # Beta ETF TBSP (bond-index proxy; the TBSP index itself is not on EODHD)
 ```
 
-**International Indices**: With caret prefix
+**Indices**: `.INDX`
 ```
-^spx      # S&P 500
-^ixic     # NASDAQ Composite
-^dji      # Dow Jones Industrial Average
-```
-
-**Currency Pairs**: 6-letter code (lowercase)
-```
-usdpln    # US Dollar / Polish Zloty
-eurpln    # Euro / Polish Zloty
-eurusd    # Euro / US Dollar
-gbpusd    # British Pound / US Dollar
+WIG.INDX        # WIG (total return, from 1991-04-16)
+WIG20.INDX      # WIG20 (price)
+MWIG40.INDX     # mWIG40
+SWIG80.INDX     # sWIG80
+GSPC.INDX       # S&P 500
+BCOM.INDX       # Bloomberg Commodity
+VIX.INDX        # VIX
 ```
 
-**Important Notes**:
-- Do NOT use `.pl` suffix (causes "Brak danych" error)
-- Use lowercase for consistency
-- Stooq ticker `pko` ≠ Yahoo ticker `PKO.WA`
+**FX, metals, crypto**
+```
+USDPLN.FOREX    # USD/PLN (PLN per 1 USD)
+EURPLN.FOREX
+XAUUSD.FOREX    # gold spot (GC=F is not on EODHD)
+BTC-USD.CC      # crypto
+```
+
+**Other exchanges**
+```
+SPY.US          # US ETFs/stocks (bare ticker -> .US)
+IMEU.LSE        # UCITS on London (Yahoo .L -> .LSE)
+```
+
+Conversion from common formats (`scripts/fetch_eodhd.py::eodhd_symbol`):
+- bare ticker → `.US`
+- `.WA` → `.WAR`  (Warsaw / GPW)
+- `.L`  → `.LSE`  (London)
+- `^IDX` → `IDX.INDX`
+- already exchange-suffixed → passthrough
+
+What the plan covers and what it does not: [eodhd.md](eodhd.md).
 
 ---
 
@@ -175,29 +180,29 @@ CSCICP03USM665S # Consumer Confidence Index
 
 ### Same Company, Different Formats
 
-| Company | Stooq | Yahoo | Description |
+| Company | EODHD | Yahoo | Description |
 |---------|-------|-------|-------------|
-| PKO Bank Polski | `pko` | `PKO.WA` | Polish bank |
-| CD Projekt | `cdr` | `CDR.WA` | Polish game developer |
-| PZU | `pzu` | `PZU.WA` | Polish insurer |
-| PKN Orlen | `pkn` | `PKN.WA` | Polish oil & gas |
-| KGHM | `kgh` | `KGH.WA` | Polish mining |
+| PKO Bank Polski | `PKO.WAR` | `PKO.WA` | Polish bank |
+| CD Projekt | `CDR.WAR` | `CDR.WA` | Polish game developer |
+| PZU | `PZU.WAR` | `PZU.WA` | Polish insurer |
+| PKN Orlen | `PKN.WAR` | `PKN.WA` | Polish oil & gas |
+| KGHM | `KGH.WAR` | `KGH.WA` | Polish mining |
 
 ### Indices
 
-| Index | Stooq | Yahoo | Description |
+| Index | EODHD | Yahoo | Description |
 |-------|-------|-------|-------------|
-| S&P 500 | `^spx` | `^GSPC` | US large cap |
-| NASDAQ | `^ixic` | `^IXIC` | US tech |
-| WIG20 | `wig20` | `^WIG20` | Polish blue chip |
+| S&P 500 | `GSPC.INDX` | `^GSPC` | US large cap |
+| NASDAQ | `IXIC.INDX` | `^IXIC` | US tech |
+| WIG20 | `WIG20.INDX` | — (no history on Yahoo) | Polish blue chip |
 
 ### Currency Pairs
 
-| Pair | Stooq | NBP (component) | Yahoo |
+| Pair | EODHD | NBP (component) | Yahoo |
 |------|-------|-----------------|-------|
-| USD/PLN | `usdpln` | `USD` (vs PLN) | `USDPLN=X` |
-| EUR/PLN | `eurpln` | `EUR` (vs PLN) | `EURPLN=X` |
-| EUR/USD | `eurusd` | N/A | `EURUSD=X` |
+| USD/PLN | `USDPLN.FOREX` | `USD` (vs PLN) | `USDPLN=X` |
+| EUR/PLN | `EURPLN.FOREX` | `EUR` (vs PLN) | `EURPLN=X` |
+| EUR/USD | `EURUSD.FOREX` | N/A | `EURUSD=X` |
 
 ---
 
@@ -205,28 +210,25 @@ CSCICP03USM665S # Consumer Confidence Index
 
 ### Pattern Recognition for Routing
 
-The unified fetcher uses these patterns to auto-route:
+The unified fetcher (`fetch_unified.py::_route_ticker`) auto-routes by pattern and
+translates the ticker per source (`_ticker_for_source`):
 
-1. **Lowercase 2-4 letters** → Likely Polish stock → Try Stooq
-   - Examples: `pko`, `cdr`, `pzu`
+1. **Known Polish stock or index name** (`pko`, `cdr`, `wig20`) → EODHD
+   (`PKO.WAR`, `WIG20.INDX`) when `EODHD_API_KEY` is set, else Yahoo for STOCKS/ETFs only (`PKO.WA`); a WSE index without the key raises (Yahoo has no history for them — `^WIG20`/`^MWIG40` return 0 rows, probed 2026-09-30)
 
-2. **Uppercase 1-5 letters** → Likely US stock → Try Yahoo
-   - Examples: `AAPL`, `MSFT`, `GOOGL`
+2. **`.WA` / `.WAR` suffix** → EODHD, then Yahoo (same translation)
 
-3. **6 uppercase letters** → Likely currency pair → Try Stooq
-   - Examples: `USDPLN`, `EURUSD`
+3. **3 uppercase letters (USD, EUR, etc.)** → NBP, then Yahoo (`USDPLN=X`)
 
-4. **3 uppercase letters (USD, EUR, etc.)** → Likely NBP currency → Try NBP
-   - Examples: `USD`, `EUR`, `GBP`
+4. **6 uppercase letters** → currency pair → `…PLN`: NBP, then Yahoo; otherwise Yahoo (`EURUSD=X`)
 
-5. **Starts with ^** → Likely index → Try Yahoo
-   - Examples: `^GSPC`, `^IXIC`
+5. **Short uppercase (2-10 chars)** → could be a FRED series → FRED (when keyed)
 
-6. **Contains .XX suffix** → International stock → Try Yahoo
-   - Examples: `PKO.WA`, `ASML.AS`
+6. **Starts with ^** → index → Yahoo
 
-7. **Short uppercase (2-10 chars)** → Could be FRED series → Try FRED
-   - Examples: `GDP`, `UNRATE`, `CPIAUCSL`
+7. **Uppercase 1-5 letters** → likely US stock → Yahoo, then Tiingo / FinancialData
+
+8. **Other `.XX` suffix** → international stock → Yahoo (`.INDX` → EODHD)
 
 ---
 
@@ -235,8 +237,7 @@ The unified fetcher uses these patterns to auto-route:
 ### Polish Market
 
 - **GPW (Warsaw Stock Exchange)**: https://www.gpw.pl/spolki
-- **Stooq Symbol List**: https://stooq.pl/t/?i=528
-- Search format: Company name → Stooq ticker
+- **EODHD exchange symbol list**: `GET https://eodhd.com/api/exchange-symbol-list/WAR?api_token=KEY&fmt=json`
 
 ### US Market
 
@@ -254,14 +255,14 @@ The unified fetcher uses these patterns to auto-route:
 
 ## Special Cases & Gotchas
 
-### Polish Stocks: Stooq vs Yahoo
+### Polish Stocks: EODHD vs Yahoo
 
-**Problem**: Same company, different tickers
+**Problem**: Same company, different suffixes
 
 **Solution**:
-- For Stooq: Use lowercase, no suffix (`pko`)
-- For Yahoo: Use uppercase + `.WA` suffix (`PKO.WA`)
-- Unified fetcher handles automatically
+- For EODHD: uppercase + `.WAR` (`PKO.WAR`)
+- For Yahoo: uppercase + `.WA` (`PKO.WA`)
+- Unified fetcher translates automatically
 
 ### Currency Pairs: Direction Matters
 
@@ -269,19 +270,17 @@ The unified fetcher uses these patterns to auto-route:
 - `USD` from NBP = How many USD per PLN
 - Returns mid rate, bid/ask for table C
 
-**Stooq/Yahoo**: Standard market convention
+**EODHD/Yahoo**: Standard market convention
 - `USDPLN` = How many PLN per 1 USD
 - This is opposite of some NBP interpretations
 
 ### Index Symbols: Caret Prefix
 
 **With caret (^)**:
-- Yahoo Finance standard: `^GSPC`, `^IXIC`
-- Some Stooq indices: `^spx`, `^dji`
+- Yahoo Finance standard: `^GSPC`, `^IXIC` (no WSE indices)
 
 **Without caret**:
-- Polish indices on Stooq: `wig20`, `mwig40`
-- Yahoo Polish indices: `^WIG20`, `^MWIG40`
+- EODHD: `GSPC.INDX`, `WIG20.INDX` (`^X` → `X.INDX` via `eodhd_symbol`)
 
 ### Class Shares
 
@@ -299,17 +298,16 @@ The unified fetcher uses these patterns to auto-route:
 
 ### Valid Formats by Source
 
-**Stooq**:
+**EODHD**:
 ```python
 # Valid
-'pko'           # Lowercase
-'wig20'         # Lowercase index
-'^spx'          # Index with caret
-'usdpln'        # Currency pair
+'PKO.WAR'       # GPW listing
+'WIG20.INDX'    # Index
+'USDPLN.FOREX'  # FX pair
 
 # Invalid
-'pko.pl'        # .pl suffix causes error
-'PKO'           # May work but lowercase preferred
+'PKO.WA'        # Yahoo suffix — eodhd_symbol converts it to .WAR
+'GC=F'          # Yahoo futures code, not on EODHD (use XAUUSD.FOREX)
 ```
 
 **Yahoo**:
@@ -356,14 +354,14 @@ The unified fetcher automatically normalizes tickers:
 ```python
 # Automatic normalization examples
 
-# Polish stock → Lowercase for Stooq
-'PKO' → 'pko' (when routed to Stooq)
+# Polish stock name → per-source suffix
+'pko' → 'PKO.WAR' (EODHD) / 'PKO.WA' (Yahoo)
 
 # US stock → Uppercase for Yahoo
 'aapl' → 'AAPL' (when routed to Yahoo)
 
-# Remove .pl suffix for Stooq
-'pko.pl' → 'pko'
+# PLN pair → NBP currency / Yahoo pair
+'USDPLN' → 'USD' (NBP) / 'USDPLN=X' (Yahoo)
 
 # Currency code → Uppercase for NBP
 'usd' → 'USD' (when routed to NBP)
@@ -432,31 +430,12 @@ prices, dividends, splits, mapping = fetch_by_isin(
 
 | You Want | Source | Format Example | Notes |
 |----------|--------|----------------|-------|
-| Polish stock price | Stooq | `pko` | Lowercase, no suffix |
+| Polish stock price | EODHD | `PKO.WAR` | Needs `EODHD_API_KEY`; else Yahoo |
 | US stock price | Yahoo | `AAPL` | Uppercase |
 | Polish stock (Yahoo) | Yahoo | `PKO.WA` | Uppercase + .WA |
 | S&P 500 | Yahoo | `^GSPC` | Caret prefix |
-| USD/PLN rate | Stooq or NBP | `usdpln` or `USD` | Stooq=pair, NBP=currency |
+| USD/PLN rate | NBP or Yahoo | `USD` or `USDPLN=X` | NBP=currency, Yahoo=pair |
 | US GDP | FRED | `GDP` | Exact series ID |
-| mWIG40 index | Stooq | `mwig40` | Lowercase |
+| mWIG40 index | EODHD | `MWIG40.INDX` | no Yahoo fallback (keyless: gpw-benchmark-scraper) |
 | By ISIN | Yahoo Direct | `PLXTRDM00011` | Auto-converts to ticker |
 | Dividends & splits | Yahoo Direct | `XTB.WA` | Use `events=div,splits` |
-
-### EODHD
-
-Exchange-suffixed symbols (one symbol per call). ISIN lookup also supported.
-
-```
-SPY.US          # US ETFs/stocks (bare ticker -> .US)
-AGG.US          # iShares Core US Aggregate Bond
-IMEU.LSE        # UCITS on London (Yahoo .L -> .LSE)
-ETFBW20TR.WAR   # GPW / Warsaw Beta ETF (Yahoo .WA -> .WAR)
-BCOM.INDX       # indices (^BCOM -> BCOM.INDX)
-```
-
-Conversion from common formats (`scripts/fetch_eodhd.py::eodhd_symbol`):
-- bare ticker → `.US`
-- `.WA` → `.WAR`  (Warsaw / GPW)
-- `.L`  → `.LSE`  (London)
-- `^IDX` → `IDX.INDX`
-- already exchange-suffixed → passthrough

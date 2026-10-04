@@ -17,6 +17,11 @@ Automatically selects the best data source based on:
 - Security master registry (ISIN lookup, ticker conversion)
 - Fallback logic if primary source fails
 
+Polish instruments route to EODHD first (``.WAR`` listings, ``.INDX``
+indices) when EODHD_API_KEY is set, else Yahoo (``.WA``); PLN FX goes to NBP
+first, then Yahoo. Stooq was removed as a source on 2026-09-30 (see
+REMOVED_SOURCES) — asking for it raises ValueError.
+
 Usage:
     uv run fetch_unified.py PKO 2024-01-01 2024-12-31
     uv run fetch_unified.py PLXTRDM00011 2024-01-01  # ISIN lookup
@@ -37,14 +42,27 @@ try:
 except ImportError:
     REGISTRY_AVAILABLE = False
 
+# Sources that existed once and were deliberately removed. Asking for one is an
+# error with the reason, never a silent reroute to another source.
+REMOVED_SOURCES = {
+    "stooq": (
+        "stooq was removed from market-datasets on 2026-09-30: it blocks "
+        "datacenter IPs (Hetzner, since 2026-04-21) and serves a JavaScript "
+        "browser challenge to any non-browser client, so no agent or LLM "
+        "session can fetch from it. Use source='eodhd' (GPW '.WAR', indices "
+        "'.INDX') or source='yahoo' ('.WA') for Polish instruments, and "
+        "source='nbp' for PLN FX."
+    ),
+}
+
+
+def _reject_removed_source(source: Optional[str]) -> None:
+    """Raise ValueError naming why a removed source is gone."""
+    if source and source.lower() in REMOVED_SOURCES:
+        raise ValueError(REMOVED_SOURCES[source.lower()])
+
+
 # Import all fetchers
-try:
-    from fetch_stooq import StooqFetcher
-
-    STOOQ_AVAILABLE = True
-except ImportError:
-    STOOQ_AVAILABLE = False
-
 try:
     from fetch_nbp import NBPFetcher
 
@@ -100,11 +118,18 @@ except ImportError:
     FINANCIALDATA_AVAILABLE = False
 
 try:
-    from fetch_eodhd import EODHDFetcher
+    from fetch_eodhd import EODHDFetcher, eodhd_symbol
 
     EODHD_AVAILABLE = True
 except ImportError:
     EODHD_AVAILABLE = False
+
+    def eodhd_symbol(ticker):
+        """Fallback if fetch_eodhd is not importable (only used when routed)."""
+        t = ticker.strip()
+        if t.startswith("^"):
+            return t[1:] + ".INDX"
+        return t[:-3] + ".WAR" if t.endswith(".WA") else t
 
 try:
     from fetch_coingecko import CoinGeckoFetcher
@@ -133,10 +158,9 @@ class UnifiedMarketDataFetcher:
         "dnp",
         "cps",
         "jsw",
-        "pzu",
         "tpe",
         "mil",
-        "orange",
+        "opl",
     ]
 
     # Polish indices
@@ -211,9 +235,6 @@ class UnifiedMarketDataFetcher:
         # Initialize available fetchers
         self.fetchers = {}
 
-        if STOOQ_AVAILABLE:
-            self.fetchers["stooq"] = StooqFetcher(use_cache, cache_hours)
-
         if NBP_AVAILABLE:
             self.fetchers["nbp"] = NBPFetcher(use_cache, cache_hours)
 
@@ -254,10 +275,10 @@ class UnifiedMarketDataFetcher:
                     "[Unified] FinancialData.Net API key not configured, FinancialData unavailable"
                 )
 
-        # Initialize EODHD (requires API key). OPT-IN, not auto-routed: keep
-        # Yahoo primary for ad-hoc to avoid burning paid EODHD calls. Use it
-        # deliberately via source='eodhd' — it's the right call for UCITS/ETF,
-        # GPW (.WAR), and datacenter hosts where Stooq/Yahoo are blocked.
+        # Initialize EODHD (requires API key). Auto-routed FIRST for Polish
+        # instruments only (GPW '.WAR', indices '.INDX'); everything else keeps
+        # Yahoo primary to avoid burning paid calls — use source='eodhd'
+        # deliberately for UCITS/ETF and datacenter hosts where Yahoo is blocked.
         if EODHD_AVAILABLE:
             try:
                 self.fetchers["eodhd"] = EODHDFetcher(eodhd_api_key, use_cache, cache_hours)
@@ -302,6 +323,8 @@ class UnifiedMarketDataFetcher:
         Raises:
             ValueError: If no suitable source found or data retrieval fails
         """
+        _reject_removed_source(source)
+
         # Try to resolve identifier via registry
         security = None
         if self.registry:
@@ -325,7 +348,7 @@ class UnifiedMarketDataFetcher:
             sources, ticker_map = self._route_security(security)
         else:
             sources = self._route_ticker(identifier)
-            ticker_map = {s: identifier for s in sources}
+            ticker_map = {s: self._ticker_for_source(identifier, s) for s in sources}
 
         print(f"[Unified] Routing '{identifier}' -> {', '.join(sources)}")
 
@@ -360,31 +383,29 @@ class UnifiedMarketDataFetcher:
 
         instrument_type = security.instrument_type
 
-        # Define source priority based on instrument type and geography
-        if instrument_type == "equity":
-            if security.country == "PL":
-                # Polish stocks: Stooq has best coverage, Yahoo as fallback
-                priority = ["stooq", "yahoo", "pdr"]
-            else:
-                # International stocks: Yahoo first
-                priority = ["yahoo", "stooq", "pdr"]
-
-        elif instrument_type == "index":
-            if security.country == "PL":
-                priority = ["stooq", "yahoo", "pdr"]
-            else:
-                priority = ["yahoo", "stooq", "pdr"]
+        # Define source priority based on instrument type and geography.
+        # A GPW listing (country PL, or any instrument on the WSE) goes to
+        # EODHD first — skipped when no key is set, since the fetcher is then
+        # absent — and falls back to Yahoo.
+        polish = security.country == "PL" or security.exchange == "WSE"
+        if instrument_type == "index" and polish:
+            # EODHD only: Yahoo serves no history for WSE indices (see
+            # _route_ticker). With no key the source list is empty and the
+            # fetch fails loudly rather than returning Yahoo's empty frame.
+            priority = ["eodhd"]
+        elif instrument_type in ("equity", "etf") and polish:
+            priority = ["eodhd", "yahoo", "pdr"]
 
         elif instrument_type == "currency":
-            # FX pairs: NBP for PLN rates, Stooq for others
+            # FX pairs: NBP for PLN rates, then Yahoo
             if security.uid and "PLN" in security.uid:
-                priority = ["nbp", "stooq", "yahoo"]
+                priority = ["nbp", "yahoo"]
             else:
-                priority = ["stooq", "yahoo", "pdr"]
+                priority = ["yahoo", "pdr"]
 
         else:
-            # Default priority
-            priority = ["yahoo", "stooq", "pdr"]
+            # International stocks, indices and everything else: Yahoo first
+            priority = ["yahoo", "pdr"]
 
         # Build source list and ticker map based on available tickers
         for src in priority:
@@ -392,6 +413,13 @@ class UnifiedMarketDataFetcher:
                 continue
 
             ticker = security.get_ticker(src)
+            if not ticker and src == "eodhd" and security.get_ticker("yahoo"):
+                # No EODHD column in the registry: derive it from the Yahoo
+                # ticker (XTB.WA -> XTB.WAR, ^WIG20 -> WIG20.INDX).
+                ticker = eodhd_symbol(security.get_ticker("yahoo"))
+            if not ticker and src == "yahoo" and security.instrument_type == "currency":
+                if security.uid and security.uid.startswith("fx_"):
+                    ticker = f"{security.uid[3:]}=X"  # fx_USDPLN -> USDPLN=X
             if ticker:
                 sources.append(src)
                 ticker_map[src] = ticker
@@ -402,6 +430,13 @@ class UnifiedMarketDataFetcher:
                     currency = security.uid[3:6]  # First currency in pair
                     sources.append(src)
                     ticker_map[src] = currency
+
+        if not sources and instrument_type == "index" and polish:
+            raise ValueError(
+                f"Polish index {security.uid!r} needs EODHD (set EODHD_API_KEY) - Yahoo "
+                "serves no history for WSE indices. Keyless alternative: the "
+                "gpw-benchmark-scraper skill (GPW Benchmark chart-json)."
+            )
 
         # If no tickers found, fallback to ISIN or uid
         if not sources:
@@ -428,26 +463,43 @@ class UnifiedMarketDataFetcher:
         if is_crypto_symbol(ticker) and "ccxt" in self.fetchers:
             return ["ccxt"]
 
-        # Check for Polish stocks
+        # A WSE index may arrive as ``^WIG20`` or ``WIG20.INDX`` too; normalise
+        # before the check so no spelling slips through to the ``^`` -> Yahoo branch.
+        index_key = self._polish_index_key(ticker_lower)
+
+        # Polish INDICES: EODHD only. Yahoo has no history for them (probed
+        # 2026-09-30: ^WIG20 / ^MWIG40 return 0 rows, WIG20.WA / WIG.WA one
+        # row), and stooq is gone, so without an EODHD key this raises rather
+        # than returning an empty frame that reads like "no data for the range".
+        if index_key in self.POLISH_INDICES:
+            if "eodhd" not in self.fetchers:
+                raise ValueError(
+                    f"Polish index {ticker!r} needs EODHD ({index_key.upper()}.INDX; set "
+                    "EODHD_API_KEY) - Yahoo serves no history for WSE indices. Keyless "
+                    "alternative: the gpw-benchmark-scraper skill (GPW Benchmark "
+                    "chart-json, about 1 year per request)."
+                )
+            return ["eodhd"]
+
+        # Polish stocks: EODHD first (when a key is set), Yahoo (.WA) as the
+        # keyless fallback. Tickers are translated per source by
+        # _ticker_for_source.
         if ticker_lower in self.POLISH_STOCKS:
-            # Stooq is best for Polish stocks, Tiingo as fallback for dividends
-            sources = ["stooq", "yahoo"]
+            sources = self._polish_sources()
             if "tiingo" in self.fetchers:
                 sources.append("tiingo")
             sources.append("pdr")
             return sources
 
-        # Check for Polish indices
-        if ticker_lower in self.POLISH_INDICES:
-            return ["stooq", "yahoo", "pdr"]
-
         # Check for NBP currency request (direct 3-letter code)
         if ticker_upper in self.NBP_CURRENCIES and NBP_AVAILABLE:
-            return ["nbp", "stooq", "yahoo"]
+            return ["nbp", "yahoo"]
 
         # Check for currency pairs (e.g., USDPLN, EURUSD)
         if re.match(r"^[A-Z]{6}$", ticker_upper):  # 6-letter currency pair
-            return ["stooq", "yahoo", "pdr"]
+            if ticker_upper.endswith("PLN") and "nbp" in self.fetchers:
+                return ["nbp", "yahoo", "pdr"]
+            return ["yahoo", "pdr"]
 
         # Check for FRED series
         for pattern in self.FRED_PATTERNS:
@@ -457,7 +509,7 @@ class UnifiedMarketDataFetcher:
 
         # Check for international indices (^SPX, ^IXIC, ^BCOM, etc.)
         if ticker.startswith("^"):
-            return ["yahoo", "stooq", "pdr"]
+            return ["yahoo", "pdr"]
 
         # Check for US stocks / ETFs (all caps, short).
         if ticker.isupper() and 1 <= len(ticker) <= 5:
@@ -466,22 +518,23 @@ class UnifiedMarketDataFetcher:
                 sources.append("tiingo")
             if "financialdata" in self.fetchers:
                 sources.append("financialdata")
-            sources.extend(["pdr", "stooq"])
+            sources.append("pdr")
             return sources
 
-        # Check for explicit market suffix (.WA, .US, .L, .LSE, etc.)
+        # Check for explicit market suffix (.WA, .WAR, .US, .L, .LSE, etc.)
         if "." in ticker:
             suffix = ticker.split(".")[-1].upper()
-            if suffix == "WA":  # Warsaw Stock Exchange
-                return ["yahoo", "stooq", "pdr"]
-            else:
-                sources = ["yahoo"]
-                if "tiingo" in self.fetchers:
-                    sources.append("tiingo")
-                if "financialdata" in self.fetchers:
-                    sources.append("financialdata")
-                sources.extend(["pdr", "stooq"])
-                return sources
+            if suffix in ("WA", "WAR"):  # Warsaw Stock Exchange
+                return self._polish_sources() + ["pdr"]
+            if suffix == "INDX" and "eodhd" in self.fetchers:
+                return ["eodhd"]
+            sources = ["yahoo"]
+            if "tiingo" in self.fetchers:
+                sources.append("tiingo")
+            if "financialdata" in self.fetchers:
+                sources.append("financialdata")
+            sources.append("pdr")
+            return sources
 
         # Default fallback order (Yahoo first, Tiingo and FinancialData as backup).
         sources = ["yahoo"]
@@ -489,8 +542,71 @@ class UnifiedMarketDataFetcher:
             sources.append("tiingo")
         if "financialdata" in self.fetchers:
             sources.append("financialdata")
-        sources.extend(["stooq", "pdr"])
+        sources.append("pdr")
         return sources
+
+    @staticmethod
+    def _polish_index_key(ticker_lower: str) -> str:
+        """Every spelling of a WSE index reduced to its bare name.
+
+        ``^WIG20``, ``WIG20.INDX``, ``WIG20.WA`` and ``WIG20.WAR`` all mean the
+        index; left unnormalised, the caret or suffix spellings slip past the
+        index check into the ``^`` / ``.WA`` branches and reach Yahoo, which has
+        no history for WSE indices.
+        """
+        key = ticker_lower.strip().lower().lstrip("^")
+        for suffix in (".indx", ".war", ".wa"):
+            if key.endswith(suffix):
+                return key[: -len(suffix)]
+        return key
+
+    def _polish_sources(self) -> List[str]:
+        """EODHD first when its key is configured, then Yahoo."""
+        return (["eodhd"] if "eodhd" in self.fetchers else []) + ["yahoo"]
+
+    def _ticker_for_source(self, identifier: str, source: str) -> str:
+        """Translate a bare/suffixed identifier into ``source``'s ticker format.
+
+        - Polish stock ``pko`` / ``PKO.WA`` / ``PKO.WAR`` -> EODHD ``PKO.WAR``,
+          Yahoo ``PKO.WA``
+        - Polish index ``wig20`` -> EODHD ``WIG20.INDX`` (EODHD only, see _route_ticker)
+        - FX pair ``USDPLN`` -> NBP ``USD``, Yahoo ``USDPLN=X`` (``EURUSD=X``)
+        Anything else passes through unchanged.
+        """
+        t = identifier.strip()
+        low, up = t.lower(), t.upper()
+
+        if self._polish_index_key(low) in self.POLISH_INDICES:
+            low = self._polish_index_key(low)
+            up = low.upper()
+            if source == "eodhd":
+                return f"{up}.INDX"
+            if source in ("yahoo", "pdr"):
+                return f"^{up}"
+            return t
+        if low in self.POLISH_STOCKS:
+            if source == "eodhd":
+                return f"{up}.WAR"
+            if source in ("yahoo", "tiingo", "pdr"):
+                return f"{up}.WA"
+            return t
+        if up.endswith(".WAR"):
+            if source in ("yahoo", "pdr"):
+                return t[:-4] + ".WA"
+            return t
+        if up.endswith(".WA"):
+            if source == "eodhd":
+                return eodhd_symbol(t)
+            return t
+        if re.match(r"^[A-Z]{6}$", up):  # FX pair
+            if source == "nbp" and up.endswith("PLN"):
+                return up[:3]
+            if source == "yahoo":
+                return f"{up}=X"
+            return t
+        if up in self.NBP_CURRENCIES and source == "yahoo":
+            return f"{up}PLN=X"
+        return t
 
     def _fetch_from_source(
         self,
@@ -513,6 +629,7 @@ class UnifiedMarketDataFetcher:
         Returns:
             DataFrame with market data
         """
+        _reject_removed_source(source)
         if source not in self.fetchers:
             raise ValueError(f"Source '{source}' not available")
 
@@ -540,7 +657,7 @@ class UnifiedMarketDataFetcher:
             return fetcher.fetch(ticker, start_date, end_date, endpoint=endpoint, **kwargs)
 
         else:
-            # Standard fetchers (stooq, yahoo, fred, tiingo)
+            # Standard fetchers (yahoo, eodhd, fred, tiingo)
             return fetcher.fetch(ticker, start_date, end_date, **kwargs)
 
     def compare_sources(
@@ -641,7 +758,7 @@ if __name__ == "__main__":
         print(f"Registry loaded: {len(fetcher.registry._securities)} securities")
     print()
 
-    # Test 1: Polish stock (should route to Stooq)
+    # Test 1: Polish stock (should route to EODHD with a key, else Yahoo)
     print("1. Fetching PKO (Polish stock by ticker):")
     try:
         df = fetcher.fetch("pko", start_date="20240101", end_date="20240131")
@@ -677,7 +794,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"   Error: {e}")
 
-    # Test 5: Index (should route to Yahoo or Stooq)
+    # Test 5: Index (should route to Yahoo)
     print("\n5. Fetching ^GSPC (S&P 500):")
     try:
         df = fetcher.fetch("^GSPC", start_date="20240101", end_date="20240131")
@@ -701,7 +818,7 @@ if __name__ == "__main__":
     print("\n7. Comparing PKO from different sources:")
     try:
         comparison = fetcher.compare_sources(
-            "pko", ["stooq", "yahoo"], start_date="20240115", end_date="20240119"
+            "PKO.WA", ["eodhd", "yahoo"], start_date="20240115", end_date="20240119"
         )
         for source, df in comparison.items():
             if df is not None:

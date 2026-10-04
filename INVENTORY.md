@@ -27,7 +27,7 @@ copy's drift can be checked.
 | `analizy-pl-data` | Programmatic access to Polish investment fund data from analizy.pl |
 | `atlasetf-scraper` | Scrape ETF data from atlasetf.pl (screener of ~13k funds, per-ISIN detail, prices) via its JSON API |
 | `gpw-benchmark-scraper` | Scrape gpwbenchmark.pl (WIBID/WIBOR reference rates, index list with ISINs, per-index OHLC history) |
-| `market-datasets` | Fetch market data from Stooq, NBP, Yahoo, FRED, Tiingo, CCXT, FinancialData |
+| `market-datasets` | Fetch market data from EODHD, NBP, Yahoo, FRED, Tiingo, CCXT, FinancialData (stooq removed 2026-09-30) |
 | `pipeline-docs` | 4-doc pattern (instruction / dataset / methodology / reference) |
 
 ### Engineering (`engineering/`, 1)

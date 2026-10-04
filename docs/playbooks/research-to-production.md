@@ -69,7 +69,7 @@ Auto-routes to the right source:
 | Pattern | Source | Coverage |
 |---------|--------|----------|
 | US tickers | Yahoo Finance | Stocks, ETFs, indices |
-| `.PL` suffix | Stooq | Warsaw Stock Exchange |
+| `.WA` / `.WAR` suffix | EODHD (`.WAR`), Yahoo (`.WA`) for stocks | Warsaw Stock Exchange (stooq removed 2026-09-30 — unreachable from datacenters) |
 | Macro series | FRED | GDP, CPI, rates, employment |
 | Crypto pairs | Binance | Spot and futures |
 | Fundamentals | FinancialData.Net | Financials, ratios, options, insider |
@@ -93,7 +93,7 @@ backfill_part = shiller[shiller.index < splice_date]
 equity = pd.concat([backfill_part, vfinx]).sort_index()
 ```
 
-Standard proxies: VFINX (equity), VBMFX (bonds), Stooq XAUUSD (gold). See `references/long_history_construction.md` in the skill for splice methodology and validation.
+Standard proxies: VFINX (equity), VBMFX (bonds), EODHD `XAUUSD.FOREX` (gold, from 1990). See `references/long_history_construction.md` in the skill for splice methodology and validation.
 
 ### 4. Explore
 

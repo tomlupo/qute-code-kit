@@ -87,3 +87,39 @@ When building a `config_ticker → eodhd_symbol` map, classify each row and carr
 | `NOT_FOUND` | ISIN absent from EODHD | — | **yes** |
 
 On the 406-ETP master this yields **348 auto-usable**, 58 `needs_review`.
+
+## Coverage verified 2026-09-30 (Historian/EOD plan, key-probed)
+
+Probed with a live key on 2026-09-30. A snapshot — re-probe before relying on
+an entry that matters.
+
+**200 OK on this plan**
+
+- **Polish indices**: `WIG.INDX` (from 1991-04-16), `WIG20.INDX` (from 1994),
+  `MWIG40.INDX` (from 2011); `SWIG80` is listed.
+- **GPW Beta ETFs** as `.WAR`: `ETFBW20TR`, `ETFBTBSP`, `ETFBM40TR`, `ETFBCASH`,
+  each since listing.
+- **US ETFs**, including the mutual funds `VEIEX`, `VBMFX`, `VWEHX`, `PREMX`
+  with history from the 1990s.
+- **Other**: `VIX.INDX`, `BCOM.INDX`, `BTC-USD.CC`,
+  `EURPLN.FOREX` / `USDPLN.FOREX` / `GBPPLN.FOREX` / `JPYPLN.FOREX`,
+  `XAUUSD.FOREX` (from 1990-01-02).
+- **Not found**: `GC=F` (use `XAUUSD.FOREX`), `WIG20TR.INDX`, the TBSP index.
+
+`WIG.INDX` matched stooq's historic WIG_TR series exactly (4,302 days, ratio
+1.0000) — the replacement for that series when stooq was removed.
+
+**403 on this plan**
+
+- **GBOND** (government bond yields): `PL10Y.GBOND` IS listed in the GBOND
+  symbol list, but data needs the Fundamentals / All-in-One plan.
+- **MONEY** (money-market rates): no WIBOR on any plan, per EODHD's docs.
+- **Fundamentals**: and even with access, ETF fundamentals give only the
+  current forward P/E ("Price/Prospective Earnings") — no history.
+- **macro-indicator** (World Bank, annual).
+
+**Licensing**
+
+Every plan on eodhd.com/pricing is **personal use only**. A brokerage or other
+professional user needs a commercial plan: *Internal* (€399/mo) forbids
+displaying the data outside the company; a *Custom* quote allows it.

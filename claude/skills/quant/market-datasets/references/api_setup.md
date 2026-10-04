@@ -5,7 +5,6 @@ Configuration instructions for data sources requiring authentication or setup.
 ## Overview
 
 Most data sources work out-of-the-box without configuration:
-- **Stooq**: No setup required
 - **NBP API**: No setup required
 - **Yahoo Finance**: No setup required (via yfinance)
 - **CCXT/Crypto**: No setup required (via ccxt package)
@@ -484,7 +483,7 @@ If integrating into an existing project (like the performance attribution system
 By default, data is cached in:
 ```
 data/cache/market_data/
-├── stooq/
+├── eodhd/
 ├── nbp/
 ├── yahoo/
 ├── fred/
@@ -535,7 +534,7 @@ Manually clear cache:
 rm -rf data/cache/market_data/*
 
 # Clear specific source
-rm -rf data/cache/market_data/stooq/*
+rm -rf data/cache/market_data/yahoo/*
 ```
 
 ---
@@ -690,7 +689,7 @@ def test_all_sources():
 
     # Test each source
     tests = [
-        ('Stooq (Polish stock)', 'pko', 'stooq'),
+        ('EODHD (Polish stock)', 'PKO.WAR', 'eodhd'),
         ('NBP (PLN rate)', 'USD', 'nbp'),
         ('Yahoo (US stock)', 'AAPL', 'yahoo'),
         ('Tiingo (US stock)', 'MSFT', 'tiingo'),
@@ -732,7 +731,6 @@ python test_config.py
 - **CCXT**: https://github.com/ccxt/ccxt/wiki
 - **yfinance**: https://github.com/ranaroussi/yfinance
 - **pandas-datareader**: https://pandas-datareader.readthedocs.io/
-- **Stooq**: https://stooq.pl/
 - **NBP API**: http://api.nbp.pl/
 
 ### Support
@@ -748,8 +746,9 @@ For issues with:
 ## EODHD API Setup
 
 EODHD (eodhd.com) is the primary UCITS/ETF + global multi-exchange source —
-reachable from datacenters/VPS where Stooq is geo-blocked and Yahoo is
-rate-limited.
+reachable from datacenters/VPS where Yahoo is rate-limited — and the auto-routed
+first source for Polish instruments (GPW `.WAR`, WIG-family `.INDX`) once the key
+is set. All eodhd.com/pricing plans are personal-use only; see eodhd.md § Licensing.
 
 ### Step 1: Get an API key
 Register at https://eodhd.com/. Free tier (~1yr history, 20 calls/day) is for

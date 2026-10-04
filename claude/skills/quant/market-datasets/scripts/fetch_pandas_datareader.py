@@ -11,10 +11,10 @@ pandas-datareader wrapper.
 
 Meta-fetcher that provides access to multiple data sources through pandas-datareader.
 
-Supported sources: stooq, yahoo, fred, av-daily (Alpha Vantage), iex, etc.
+Supported sources: yahoo, fred, av-daily (Alpha Vantage), iex, quandl.
 
 Usage:
-    uv run fetch_pandas_datareader.py AAPL 2024-01-01 2024-12-31 --source stooq
+    uv run fetch_pandas_datareader.py AAPL 2024-01-01 2024-12-31 --source yahoo
     uv run fetch_pandas_datareader.py GDP 2020-01-01 --source fred
     uv run fetch_pandas_datareader.py  # Run self-tests
 """
@@ -46,7 +46,6 @@ class PandasDataReaderFetcher:
     """Wrapper for pandas-datareader multi-source data access."""
 
     SUPPORTED_SOURCES = [
-        'stooq',      # Stooq (Polish & international stocks)
         'yahoo',      # Yahoo Finance
         'fred',       # FRED economic data
         'av-daily',   # Alpha Vantage (requires API key)
@@ -81,7 +80,7 @@ class PandasDataReaderFetcher:
 
         Args:
             ticker: Ticker symbol (format depends on source)
-            source: Data source ('stooq', 'yahoo', 'fred', etc.)
+            source: Data source ('yahoo', 'fred', etc.)
             start_date: Start date (YYYY-MM-DD or YYYYMMDD)
             end_date: End date (YYYY-MM-DD or YYYYMMDD)
             **kwargs: Additional arguments passed to DataReader
@@ -235,18 +234,7 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"   Error: {e}")
 
-        # Test 2: Stooq via pandas-datareader
-        print("\n2. Fetching PKO from Stooq:")
-        try:
-            df = fetch_pandas_datareader('pko', source='stooq',
-                                        start_date='20240101',
-                                        end_date='20240131')
-            print(f"   Retrieved {len(df)} rows")
-            print(df.head())
-        except Exception as e:
-            print(f"   Error: {e}")
-
-        # Test 3: FRED via pandas-datareader
+        # Test 2: FRED via pandas-datareader
         print("\n3. Fetching GDP from FRED:")
         try:
             df = fetch_pandas_datareader('GDP', source='fred',
@@ -257,6 +245,6 @@ if __name__ == '__main__':
         except Exception as e:
             print(f"   Error: {e}")
 
-        # Test 4: List sources
-        print("\n4. Supported sources:")
+        # Test 3: List sources
+        print("\n3. Supported sources:")
         print("   " + ", ".join(PandasDataReaderFetcher.list_sources()))
