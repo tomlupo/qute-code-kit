@@ -64,10 +64,10 @@ renders. Delete `frames/` after encoding when space is tight.
   alone sample eight frames a scene, and an error between two samples passes them.
 - `render.py` exits non-zero on any page error or console error (a missing
   `fonts.css` is a 404, not a warning) and on any missing frame.
-- `render.py frames` renders one sample frame, then refuses before it writes any frame
-  when the filesystem cannot hold every frame (the larger of 1.25 bytes a pixel and
-  twice the sample) with 1 GiB to spare; the message names the size it needs.
-- `encode.py` writes each video to `NAME-master.mp4.part` and `NAME.mp4.part`, and
+- `render.py frames` renders one sample frame, then refuses before it deletes or writes
+  any frame when the filesystem cannot hold every frame (the larger of 1.25 bytes a
+  pixel and twice the sample) with 1 GiB to spare; the message names the size it needs.
+- `encode.py` writes each video to `NAME-master.part.mp4` and `NAME.part.mp4`, and
   renames both over the final names only after ffmpeg exits 0 and the frame counts
   pass; a failed encode removes the partial files and keeps the previous videos.
 - `encode.py` decodes both outputs and compares their frame counts with `cues.json`,

@@ -2,6 +2,7 @@
 No Chrome and no real ffmpeg: the page and ffmpeg are stubbed.
 Run: python -m pytest test_motion_reel.py"""
 
+import argparse
 import json
 import sys
 from collections import namedtuple
@@ -24,7 +25,7 @@ class Reached(Exception):
 
 
 def frames_args(project):
-    return type("A", (), {"sub": 8, "workers": 2, "project": project})()
+    return argparse.Namespace(sub=8, workers=2, project=project)
 
 
 def stub_render(monkeypatch, free):
@@ -39,13 +40,17 @@ def stub_render(monkeypatch, free):
 
 def test_frames_refuses_when_disk_too_small(tmp_path, monkeypatch):
     stub_render(monkeypatch, free=2**30)
+    old = tmp_path / "frames" / "f_00000.png"
+    old.parent.mkdir()
+    old.write_bytes(b"old frame")
     with pytest.raises(SystemExit) as e:
         render.cmd_frames(tmp_path, frames_args(tmp_path))
     msg = str(e.value)
     # 2 x 2.0 MB sample > 1.25 B/px floor: 4,000,000 x 3,375 frames = 12.6 GiB
     assert "12.6 GiB" in msg, msg
     assert "1.0 GiB free" in msg, msg
-    assert list((tmp_path / "frames").glob("*.png")) == []
+    # refused before the render started, and before the old frames were deleted
+    assert [p.name for p in old.parent.iterdir()] == ["f_00000.png"]
 
 
 def test_frames_proceeds_when_disk_holds_them(tmp_path, monkeypatch):
@@ -62,7 +67,7 @@ STUB = """#!/usr/bin/env python3
 import os, sys
 args = sys.argv[1:]
 if "null" in args:
-    sys.stderr.write("frame=    3 fps=0\\n")
+    sys.stderr.write("frame=    %s fps=0\\n" % os.environ.get("STUB_FRAMES", "3"))
     sys.exit(0)
 if args[-2] == "-i":  # probe: input only, no output
     sys.stderr.write("Duration: 00:00:00.05\\n")
@@ -96,7 +101,20 @@ def test_failed_encode_keeps_previous_videos(project, monkeypatch):
     assert "ffmpeg exited 1" in str(e.value)
     assert (project / "reel-master.mp4").read_bytes() == b"OLD-MASTER"
     assert (project / "reel.mp4").read_bytes() == b"OLD-SHARE"
-    assert list(project.glob("*.part")) == []
+    assert list(project.glob("*.part.*")) == []
+
+
+def test_frame_count_mismatch_keeps_previous_videos(project, monkeypatch):
+    (project / "reel-master.mp4").write_bytes(b"OLD-MASTER")
+    (project / "reel.mp4").write_bytes(b"OLD-SHARE")
+    monkeypatch.delenv("STUB_FAIL", raising=False)
+    monkeypatch.setenv("STUB_FRAMES", "2")
+    with pytest.raises(SystemExit) as e:
+        encode.encode(project, "reel", 29.0)
+    assert "decodes to 2 frames, expected 3" in str(e.value)
+    assert (project / "reel-master.mp4").read_bytes() == b"OLD-MASTER"
+    assert (project / "reel.mp4").read_bytes() == b"OLD-SHARE"
+    assert list(project.glob("*.part.*")) == []
 
 
 def test_failed_first_encode_leaves_no_final_file(project, monkeypatch):
@@ -112,7 +130,7 @@ def test_normal_encode_writes_the_same_final_names(project, monkeypatch):
     encode.encode(project, "reel", 29.0)
     assert (project / "reel-master.mp4").read_bytes() == b"NEW" * 100
     assert (project / "reel.mp4").read_bytes() == b"NEW" * 100
-    assert list(project.glob("*.part")) == []
+    assert list(project.glob("*.part.*")) == []
 
 
 if __name__ == "__main__":

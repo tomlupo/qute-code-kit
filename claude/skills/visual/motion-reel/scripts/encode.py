@@ -12,10 +12,12 @@
         with --at, one full-size frame of it instead, to read small type 1:1
 
 Both outputs are decoded again and their frame count is compared with cues.json;
-a mismatch exits non-zero. Each output is encoded to NAME*.mp4.part and renamed
-over its final name only after both pass, so a failed encode keeps the previous
-videos and leaves no partial file under a final name. ffmpeg is imageio-ffmpeg's own build, never one from
-PATH: an older system ffmpeg lacks options this script uses.
+a mismatch exits non-zero. Each output is encoded to NAME*.part.mp4 and renamed
+over its final name only after ffmpeg and the frame counts pass for both. A failed
+encode or a mismatch keeps the previous videos and leaves no partial file under a
+final name. When the share copy stays over --max-mb, both videos are complete:
+they replace the previous ones, and the run then exits non-zero. ffmpeg is imageio-ffmpeg's own build, never
+one from PATH: an older system ffmpeg lacks options this script uses.
 """
 
 import argparse
@@ -48,6 +50,12 @@ def run(args):
     )
 
 
+def part_of(out):
+    """The partial file beside `out`: x.mp4 -> x.part.mp4. The suffix stays last, so
+    ffmpeg still picks the format from the name."""
+    return out.with_name(out.stem + ".part" + out.suffix)
+
+
 def fresh(out, args, hint=""):
     """ffmpeg into a new file, which then replaces `out`. ffmpeg can exit 0 having
     written nothing (a seek past the end), and an old image must never pass for one of
@@ -57,7 +65,7 @@ def fresh(out, args, hint=""):
         raise SystemExit(
             f"{out} is a symbolic link: remove it, outputs are written as files"
         )
-    part = out.with_name(out.stem + ".part" + out.suffix)
+    part = part_of(out)
     part.unlink(missing_ok=True)
     try:
         run([*args, "-update", "1", str(part)])
@@ -133,18 +141,16 @@ def encode(project, name, max_mb):
                 *a,
                 "-movflags",
                 "+faststart",
-                "-f",
-                "mp4",  # the .part name carries no extension ffmpeg can read
                 str(out),
             ]
         )
 
-    # Both videos are encoded to NAME-master.mp4.part and NAME.mp4.part, new files
+    # Both videos are encoded to NAME-master.part.mp4 and NAME.part.mp4, new files
     # beside the final names, never written in place through a hard link. They are
     # decoded and checked there, and renamed over the final names only when both pass.
     # A failed encode (a broken audio.wav, a full disk) removes the partial files and
     # leaves the previous videos as they were.
-    parts = {out: out.with_name(out.name + ".part") for out in (master, share)}
+    parts = {out: part_of(out) for out in (master, share)}
     try:
         for part in parts.values():
             part.unlink(missing_ok=True)

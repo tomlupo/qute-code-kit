@@ -43,7 +43,7 @@ MAC_CHROMES = [
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ]
 SHEET_FRACTIONS = [0.06, 0.18, 0.31, 0.44, 0.57, 0.7, 0.83, 0.96]
-# Disk budget for `frames`. Measured PNG frames run 1.3-2.3 MB at 1920x1080, about
+# Disk budget for `frames`. Measured PNG frames run 1.3-2.3 MB at 1920x1080, at most
 # 1.1 bytes a pixel, so the floor is 1.25 bytes a pixel. A sample frame often
 # compresses better than a busy one, so its size counts twice.
 BYTES_PER_PIXEL_FLOOR = 1.25
@@ -228,9 +228,14 @@ def frames_bytes(info, sample_bytes):
     return int(per_frame * info["frames"])
 
 
-def check_space(out, need):
-    """Refuse a render the filesystem under `out` cannot hold with FREE_MARGIN left."""
-    free = shutil.disk_usage(out).free
+def check_space(out, project, need):
+    """Refuse a render the filesystem under `out` cannot hold with FREE_MARGIN left.
+    It runs before the old frames are deleted, so a refused run keeps them. Their
+    bytes count as free, because the render deletes them first."""
+    old = out.is_dir()
+    free = shutil.disk_usage(out if old else project).free
+    if old:
+        free += sum(p.stat().st_size for p in out.iterdir() if p.is_file())
     if need + FREE_MARGIN > free:
         raise SystemExit(
             f"frames need about {gib(need)} plus a {gib(FREE_MARGIN)} margin, "
@@ -252,10 +257,10 @@ def cmd_frames(project, a):
         raise SystemExit(
             f"{out} is a symbolic link: frames render into the project itself"
         )
+    check_space(out, project, frames_bytes(info, sample_bytes))
     if out.exists():  # every frame from this reel.js, never a mix of two versions
         shutil.rmtree(out)
     out.mkdir()
-    check_space(out, frames_bytes(info, sample_bytes))
     port, workers = serve(project), max(1, min(a.workers, len(frames)))
     t0 = time.time()
     print(f"rendering {len(frames)} frames, {a.sub} sub-frames each, {workers} workers")
