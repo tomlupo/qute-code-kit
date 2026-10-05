@@ -12,7 +12,9 @@
         with --at, one full-size frame of it instead, to read small type 1:1
 
 Both outputs are decoded again and their frame count is compared with cues.json;
-a mismatch exits non-zero. ffmpeg is imageio-ffmpeg's own build, never one from
+a mismatch exits non-zero. Each output is encoded to NAME*.mp4.part and renamed
+over its final name only after both pass, so a failed encode keeps the previous
+videos and leaves no partial file under a final name. ffmpeg is imageio-ffmpeg's own build, never one from
 PATH: an older system ffmpeg lacks options this script uses.
 """
 
@@ -131,32 +133,49 @@ def encode(project, name, max_mb):
                 *a,
                 "-movflags",
                 "+faststart",
+                "-f",
+                "mp4",  # the .part name carries no extension ffmpeg can read
                 str(out),
             ]
         )
 
-    # new files, never written in place through a hard link to one elsewhere; only now,
-    # after the name, link and frame-count checks, so an encode refused there keeps the
-    # old videos (an input ffmpeg itself rejects, such as a broken audio.wav, does not)
-    for out in (master, share):
-        out.unlink(missing_ok=True)
-    one(master, 14, "320k")
-    for crf in CRF_LADDER:
-        if crf == 14:
-            shutil.copyfile(master, share)
-        else:
-            one(share, crf, "256k")
-        size = share.stat().st_size / 2**20
-        print(f"  crf {crf}: {size:.1f} MiB")
-        if size <= max_mb:
-            break
-    for out in (master, share):
-        n = decoded_frames(out)
-        print(
-            f"{out.name}: {out.stat().st_size / 2**20:.1f} MiB, {n} frames decoded | {probe(out)}"
-        )
-        if n != expected:
-            raise SystemExit(f"{out.name} decodes to {n} frames, expected {expected}")
+    # Both videos are encoded to NAME-master.mp4.part and NAME.mp4.part, new files
+    # beside the final names, never written in place through a hard link. They are
+    # decoded and checked there, and renamed over the final names only when both pass.
+    # A failed encode (a broken audio.wav, a full disk) removes the partial files and
+    # leaves the previous videos as they were.
+    parts = {out: out.with_name(out.name + ".part") for out in (master, share)}
+    try:
+        for part in parts.values():
+            part.unlink(missing_ok=True)
+        one(parts[master], 14, "320k")
+        for crf in CRF_LADDER:
+            if crf == 14:
+                shutil.copyfile(parts[master], parts[share])
+            else:
+                one(parts[share], crf, "256k")
+            size = parts[share].stat().st_size / 2**20
+            print(f"  crf {crf}: {size:.1f} MiB")
+            if size <= max_mb:
+                break
+        for out, part in parts.items():
+            n = decoded_frames(part)
+            print(
+                f"{out.name}: {part.stat().st_size / 2**20:.1f} MiB, {n} frames decoded | {probe(part)}"
+            )
+            if n != expected:
+                raise SystemExit(
+                    f"{out.name} decodes to {n} frames, expected {expected}: previous videos kept"
+                )
+        for out, part in parts.items():
+            os.replace(part, out)
+    except subprocess.CalledProcessError as e:
+        raise SystemExit(
+            f"ffmpeg exited {e.returncode}: no video written, previous videos kept"
+        ) from e
+    finally:
+        for part in parts.values():
+            part.unlink(missing_ok=True)
     if (
         size > max_mb
     ):  # the capped copy is the promise of this step: missing it is a failure

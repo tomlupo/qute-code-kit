@@ -15,6 +15,8 @@ PROJECT holds reel.js and fonts.css (see new_reel.py). The harness page is serve
 from this skill, so a project never carries a copy of it. Chrome comes from
 $MOTION_REEL_CHROME, a system install, or Playwright's own Chromium (installed on
 first use). Exits non-zero when the page reports an error or a frame is missing.
+`frames` renders one sample frame first and refuses, before it writes any frame,
+when the filesystem cannot hold every frame with 1 GiB to spare.
 """
 
 import argparse
@@ -41,6 +43,12 @@ MAC_CHROMES = [
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ]
 SHEET_FRACTIONS = [0.06, 0.18, 0.31, 0.44, 0.57, 0.7, 0.83, 0.96]
+# Disk budget for `frames`. Measured PNG frames run 1.3-2.3 MB at 1920x1080, about
+# 1.1 bytes a pixel, so the floor is 1.25 bytes a pixel. A sample frame often
+# compresses better than a busy one, so its size counts twice.
+BYTES_PER_PIXEL_FLOOR = 1.25
+SAMPLE_FACTOR = 2
+FREE_MARGIN = 2**30  # leave 1 GiB free after the frames are written
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -207,8 +215,37 @@ def cmd_still(project, a):
     print("wrote", path)
 
 
+def gib(n):
+    return f"{n / 2**30:.1f} GiB"
+
+
+def frames_bytes(info, sample_bytes):
+    """The bytes all frames need: the larger of the pixel floor and the sample frame
+    times SAMPLE_FACTOR, for every frame."""
+    per_frame = max(
+        BYTES_PER_PIXEL_FLOOR * info["w"] * info["h"], SAMPLE_FACTOR * sample_bytes
+    )
+    return int(per_frame * info["frames"])
+
+
+def check_space(out, need):
+    """Refuse a render the filesystem under `out` cannot hold with FREE_MARGIN left."""
+    free = shutil.disk_usage(out).free
+    if need + FREE_MARGIN > free:
+        raise SystemExit(
+            f"frames need about {gib(need)} plus a {gib(FREE_MARGIN)} margin, "
+            f"but {out} has {gib(free)} free: free space or render elsewhere"
+        )
+
+
 def cmd_frames(project, a):
-    info = with_page(project, lambda page: page.evaluate("window.INFO"))
+    def sample(page):
+        info = page.evaluate("window.INFO")
+        mid = info["frames"] // 2  # frame 0 is often black and compresses to nothing
+        data = page.evaluate("([f, s]) => renderFrame(f, s)", [mid, a.sub])
+        return info, len(png(data))
+
+    info, sample_bytes = with_page(project, sample)
     frames = list(range(info["frames"]))
     out = project / "frames"
     if out.is_symlink():
@@ -218,6 +255,7 @@ def cmd_frames(project, a):
     if out.exists():  # every frame from this reel.js, never a mix of two versions
         shutil.rmtree(out)
     out.mkdir()
+    check_space(out, frames_bytes(info, sample_bytes))
     port, workers = serve(project), max(1, min(a.workers, len(frames)))
     t0 = time.time()
     print(f"rendering {len(frames)} frames, {a.sub} sub-frames each, {workers} workers")

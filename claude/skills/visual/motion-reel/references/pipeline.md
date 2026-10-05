@@ -64,14 +64,20 @@ renders. Delete `frames/` after encoding when space is tight.
   alone sample eight frames a scene, and an error between two samples passes them.
 - `render.py` exits non-zero on any page error or console error (a missing
   `fonts.css` is a 404, not a warning) and on any missing frame.
+- `render.py frames` renders one sample frame, then refuses before it writes any frame
+  when the filesystem cannot hold every frame (the larger of 1.25 bytes a pixel and
+  twice the sample) with 1 GiB to spare; the message names the size it needs.
+- `encode.py` writes each video to `NAME-master.mp4.part` and `NAME.mp4.part`, and
+  renames both over the final names only after ffmpeg exits 0 and the frame counts
+  pass; a failed encode removes the partial files and keeps the previous videos.
 - `encode.py` decodes both outputs and compares their frame counts with `cues.json`,
   and fails when even the last CRF cannot bring the share copy under `--max-mb`.
 - `synth.py` exits non-zero when a registered silence window is louder than −100 dB.
 - No script writes through a symbolic link or out of the project. A generated file is
-  written beside its destination and renamed over it (`scripts/project_files.py`); the
-  videos are removed and written anew, and the frames go into a `frames/` made fresh for
-  the run. A destination that is a link is refused, and so is an output directory
-  outside the project unless it is named with `review --out`. `synth.py` loads
+  written beside its destination and renamed over it (`scripts/project_files.py`), the
+  videos included, and the frames go into a `frames/` made fresh for the run. A
+  destination that is a link is refused, and so is an output directory outside the
+  project unless it is named with `review --out`. `synth.py` loads
   `score.py` without writing its bytecode.
 
 ## Encoding
