@@ -9,6 +9,5 @@ holds no second copy:
 - `claude/root-files/AGENTS.md`, `templates/*` → `library/templates/`
 
 A repo that stamped a kit skill (`source_repo: qute-code-kit`) re-stamps it against `library/` in qute-plugins.
-The plugins (qute-basic, qute-factory, qute-research) were never here. `docs/` (playbooks, prompts, cheatsheets,
-resources), `CONTEXT.md`, `conductor.yml` and the history stay as they were, only to be read; the kit's earlier
-retirements (`INVENTORY.md`, in git history) are listed there.
+The plugins (qute-basic, qute-factory, qute-research) were never here. `docs/` (playbooks, prompts, cheatsheets, resources), `CONTEXT.md`, `conductor.yml`, `CHANGELOG.md`
+and the history stay as they were, to be read only. The old `INVENTORY.md` is in git history.
